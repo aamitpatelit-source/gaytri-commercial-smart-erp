@@ -47,6 +47,10 @@ app.use('/api/v1/employees', employeeRoutes);
 app.use('/api/v1/attendance', attendanceRoutes);
 
 app.get('/api/v1/debug-db', async (req, res) => {
+  const dbHost = process.env.DB_HOST || 'not-set';
+  const dbPort = process.env.DB_PORT || 'not-set';
+  const hasDatabaseUrl = !!process.env.DATABASE_URL;
+
   try {
     const tables = await query(`
       SELECT table_name 
@@ -76,9 +80,9 @@ app.get('/api/v1/debug-db', async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      dbHost: process.env.DB_HOST || 'not-set',
-      dbPort: process.env.DB_PORT || 'not-set',
-      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      dbHost,
+      dbPort,
+      hasDatabaseUrl,
       tables: tables.rows.map((r: any) => r.table_name),
       employeesColumns: employeesCols.rows,
       employeesTestError,
@@ -87,6 +91,9 @@ app.get('/api/v1/debug-db', async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({
       success: false,
+      dbHost,
+      dbPort,
+      hasDatabaseUrl,
       error: err.message
     });
   }
