@@ -76,6 +76,9 @@ app.get('/api/v1/debug-db', async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      dbHost: process.env.DB_HOST || 'not-set',
+      dbPort: process.env.DB_PORT || 'not-set',
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
       tables: tables.rows.map((r: any) => r.table_name),
       employeesColumns: employeesCols.rows,
       employeesTestError,
