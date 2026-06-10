@@ -16,7 +16,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _idController = TextEditingController();
   final _passwordController = TextEditingController();
-  String _selectedRole = 'ADMIN';
   bool _isLoading = false;
   String? _errorMessage;
   final _storage = const FlutterSecureStorage();

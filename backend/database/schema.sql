@@ -18,12 +18,18 @@ CREATE TABLE IF NOT EXISTS employees (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     employee_id VARCHAR(50) UNIQUE NOT NULL, -- GC-XXXX
     full_name VARCHAR(150) NOT NULL,
-    department VARCHAR(100) NOT NULL,
-    shift VARCHAR(50) NOT NULL, -- Morning, Night
+    department VARCHAR(100) DEFAULT 'Production',
+    shift VARCHAR(50) DEFAULT 'Morning Shift',
     mobile VARCHAR(20),
+    joining_date DATE DEFAULT CURRENT_DATE,
+    salary_type VARCHAR(50) DEFAULT 'MONTHLY',
+    role VARCHAR(50) DEFAULT 'EMPLOYEE',
+    password_hash VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
     face_embedding REAL[] CHECK (array_ndims(face_embedding) = 1 AND (array_length(face_embedding, 1) = 128 OR array_length(face_embedding, 1) IS NULL)),
     profile_photo_url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Attendance Records Table

@@ -12,6 +12,7 @@ const db_1 = require("./config/db");
 const auth_1 = __importDefault(require("./routes/auth"));
 const employees_1 = __importDefault(require("./routes/employees"));
 const attendance_1 = __importDefault(require("./routes/attendance"));
+const errorHandler_1 = require("./middleware/errorHandler");
 dotenv_1.default.config();
 // Ensure JWT_SECRET fallback exists to prevent boot crashes
 const JWT_SECRET = process.env.JWT_SECRET || 'gaytri_face_attendance_mvp_secret_key';
@@ -27,7 +28,9 @@ app.use((0, cors_1.default)({
         // Allow non-browser requests (e.g. mobile app, curl)
         if (!origin)
             return callback(null, true);
-        if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        // Support Flutter Web local runs on dynamic ports
+        const isLocalhost = origin.startsWith('http://localhost:') || origin === 'http://localhost';
+        if (isLocalhost || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
             callback(null, true);
         }
         else {
@@ -41,6 +44,60 @@ app.use(express_1.default.json());
 app.use('/api/v1/auth', auth_1.default);
 app.use('/api/v1/employees', employees_1.default);
 app.use('/api/v1/attendance', attendance_1.default);
+app.get('/api/v1/debug-db', async (req, res) => {
+    const dbHost = process.env.DB_HOST || 'not-set';
+    const dbPort = process.env.DB_PORT || 'not-set';
+    const hasDatabaseUrl = !!process.env.DATABASE_URL;
+    const rawUrl = process.env.DATABASE_URL || '';
+    const maskedUrl = rawUrl.replace(/:([^@]+)@/, ':****@');
+    try {
+        const tables = await (0, db_1.query)(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema='public'
+    `);
+        const employeesCols = await (0, db_1.query)(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name='employees'
+    `);
+        let employeesTestError = null;
+        try {
+            await (0, db_1.query)('SELECT * FROM employees LIMIT 1');
+        }
+        catch (err) {
+            employeesTestError = err.message;
+        }
+        let attendanceTestError = null;
+        try {
+            await (0, db_1.query)('SELECT * FROM attendance_records LIMIT 1');
+        }
+        catch (err) {
+            attendanceTestError = err.message;
+        }
+        return res.status(200).json({
+            success: true,
+            dbHost,
+            dbPort,
+            hasDatabaseUrl,
+            maskedDatabaseUrl: maskedUrl,
+            tables: tables.rows.map((r) => r.table_name),
+            employeesColumns: employeesCols.rows,
+            employeesTestError,
+            attendanceTestError
+        });
+    }
+    catch (err) {
+        return res.status(500).json({
+            success: false,
+            dbHost,
+            dbPort,
+            hasDatabaseUrl,
+            maskedDatabaseUrl: maskedUrl,
+            error: err.message
+        });
+    }
+});
 app.get('/', (req, res) => {
     res.status(200).json({
         success: true,
@@ -48,6 +105,8 @@ app.get('/', (req, res) => {
         timestamp: new Date().toISOString(),
     });
 });
+// Apply centralized error handling middleware
+app.use(errorHandler_1.errorHandler);
 // Bootstrap Database Schema and seed mock employees for testing convenience
 const bootstrapDatabase = async () => {
     try {
@@ -66,6 +125,12 @@ const bootstrapDatabase = async () => {
         await (0, db_1.query)(`
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS department VARCHAR(100) DEFAULT 'Production';
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift VARCHAR(50) DEFAULT 'Morning Shift';
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE DEFAULT CURRENT_DATE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_type VARCHAR(50) DEFAULT 'MONTHLY';
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'EMPLOYEE';
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
     `);
         console.log('Legacy table columns verified/migrated.');
         // Verify if employees exist

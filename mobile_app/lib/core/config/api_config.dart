@@ -1,3 +1,3 @@
 class ApiConfig {
-  static const String baseUrl = 'https://gaytri-attendance-api.onrender.com/api/v1';
+  static const String baseUrl = 'https://gaytri-commercial-smart-erp.onrender.com/api/v1';
 }

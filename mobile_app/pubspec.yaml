@@ -15,6 +15,7 @@ dependencies:
   # Local database & Secure storage
   sqflite: ^2.3.2
   path_provider: ^2.1.2
+  path: ^1.9.0
   flutter_secure_storage: ^9.0.0
   
   # Camera & AI face detection dependencies
