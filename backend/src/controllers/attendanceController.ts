@@ -78,6 +78,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
     }
 
     if (!bestMatch || highestScore < MATCH_THRESHOLD) {
+      console.warn(`[Attendance Gateway] Face verification failed: Match confidence ${highestScore.toFixed(3)} is below threshold ${MATCH_THRESHOLD} for current scan.`);
       return res.status(401).json({
         success: false,
         message: 'Face match failed. Employee not recognized.',
@@ -97,6 +98,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
     );
 
     if (duplicateCheck.rows.length > 0) {
+      console.warn(`[Attendance Gateway] Blocked duplicate check-in: ${employee.full_name} (${employee.employee_id}) already logged for date ${today}.`);
       return res.status(400).json({
         success: false,
         message: `${employee.full_name} has already logged attendance today.`,
@@ -119,6 +121,8 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
       [employee.id, today, timeString, gps_lat, gps_lng, device_id || null, status]
     );
 
+    console.log(`[Attendance Gateway] Success: ${employee.full_name} (${employee.employee_id}) checked in. Confidence: ${highestScore.toFixed(3)}, Status: ${status}, GPS: [${gps_lat}, ${gps_lng}]`);
+
     return res.status(200).json({
       success: true,
       message: `${employee.full_name} verified successfully. Status: ${status}`,
@@ -129,7 +133,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
       },
     });
   } catch (error) {
-    console.error('Attendance match error:', error);
+    console.error('[Attendance Gateway Error] Verification failed:', error);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
@@ -177,6 +181,8 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       [today]
     );
 
+    console.log(`[Console Sync] Successfully aggregated dashboard statistics for date: ${today}`);
+
     return res.status(200).json({
       success: true,
       stats: {
@@ -188,7 +194,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       feed: feedRes.rows,
     });
   } catch (error) {
-    console.error('Dashboard stats error:', error);
+    console.error('[Console Sync Error] Dashboard stats aggregation failed:', error);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
@@ -204,12 +210,14 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
        ORDER BY a.date DESC, a.check_in_time DESC`
     );
 
+    console.log(`[Console Sync] Fetched attendance logs history. Total records: ${result.rows.length}`);
+
     return res.status(200).json({
       success: true,
       logs: result.rows,
     });
   } catch (error) {
-    console.error('Fetch history error:', error);
+    console.error('[Console Sync Error] Fetch history failed:', error);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };

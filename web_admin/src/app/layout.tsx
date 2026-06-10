@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
@@ -15,6 +15,7 @@ import {
   LogOut, 
   Layers 
 } from 'lucide-react';
+import { API_URL } from '../config';
 import './globals.css';
 
 export default function RootLayout({
@@ -24,6 +25,49 @@ export default function RootLayout({
 }) {
   const pathname = usePathname();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [userName, setUserName] = useState('Gaytri Admin');
+  const [userInitial, setUserInitial] = useState('G');
+  const [recentScans, setRecentScans] = useState<any[]>([]);
+
+  useEffect(() => {
+    // 1. Dynamic User Profile Loading
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        if (user.full_name) {
+          setUserName(user.full_name);
+          setUserInitial(user.full_name.charAt(0).toUpperCase());
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // 2. Dynamic Notifications Polling
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetch(`${API_URL}/attendance/dashboard`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setRecentScans(data.feed || []);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch notifications:', e);
+      }
+    };
+
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Skip layout on login screen
   const isLoginPage = pathname === '/login';
@@ -90,14 +134,14 @@ export default function RootLayout({
           <div className="p-4 border-t border-slate-800 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-bold text-cyan-400">
-                A
+                {userInitial}
               </div>
               <div>
-                <p className="text-xs font-bold text-slate-200">Amit Patel</p>
+                <p className="text-xs font-bold text-slate-200">{userName}</p>
                 <p className="text-[10px] text-cyan-400 font-medium tracking-wide uppercase">Admin Profile</p>
               </div>
             </div>
-            <Link href="/login" className="p-2 rounded-lg text-slate-400 hover:bg-rose-950/20 hover:text-rose-400 transition-colors">
+            <Link href="/login" onClick={() => localStorage.clear()} className="p-2 rounded-lg text-slate-400 hover:bg-rose-950/20 hover:text-rose-400 transition-colors">
               <LogOut className="w-5 h-5" />
             </Link>
           </div>
@@ -128,20 +172,33 @@ export default function RootLayout({
                 </button>
 
                 {showNotifications && (
-                  <div className="absolute right-0 mt-2 w-80 glass-panel border border-slate-800 rounded-lg shadow-glass-shadow p-4 z-50">
+                  <div className="absolute right-0 mt-2 w-80 glass-panel border border-slate-800 rounded-lg shadow-glass-shadow p-4 z-50 max-h-96 overflow-y-auto">
                     <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-3">
-                      <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Recent Alerts</span>
+                      <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Recent Check-ins</span>
                       <button onClick={() => setShowNotifications(false)} className="text-[10px] text-cyan-400 hover:underline">Dismiss</button>
                     </div>
                     <div className="space-y-3">
-                      <div className="p-2 rounded bg-slate-900/40 border border-emerald-500/10 text-xs">
-                        <span className="font-bold text-emerald-400 block mb-0.5">Check-In Verify Success</span>
-                        <p className="text-slate-400">Rajesh Sharma verified successfully with 98% Face Match confidence.</p>
-                      </div>
-                      <div className="p-2 rounded bg-slate-900/40 border border-rose-500/10 text-xs">
-                        <span className="font-bold text-rose-400 block mb-0.5">Late arrival detected</span>
-                        <p className="text-slate-400">Sunil Singh checked in 22 minutes past grace limit.</p>
-                      </div>
+                      {recentScans.length === 0 ? (
+                        <p className="text-slate-400 text-xs text-center py-4 font-semibold">No recent activity today.</p>
+                      ) : (
+                        recentScans.slice(0, 5).map((scan, idx) => (
+                          <div key={idx} className={`p-2.5 rounded bg-slate-900/40 border text-[11px] ${
+                            scan.status === 'PRESENT'
+                              ? 'border-emerald-500/10'
+                              : 'border-amber-500/10'
+                          }`}>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className={`font-bold ${
+                                scan.status === 'PRESENT' ? 'text-emerald-400' : 'text-amber-450'
+                              }`}>
+                                {scan.status}
+                              </span>
+                              <span className="text-slate-500 text-[9px] font-mono">{scan.check_in_time}</span>
+                            </div>
+                            <p className="text-slate-300 font-medium">{scan.full_name} ({scan.employee_id})</p>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}

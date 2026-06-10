@@ -34,6 +34,9 @@ export default function LoginPage() {
         throw new Error('Access denied. Administrator privileges required.');
       }
 
+      // Clear any potential stale state
+      localStorage.clear();
+
       // Store tokens and details
       localStorage.setItem('access_token', data.access_token);
       localStorage.setItem('refresh_token', data.refresh_token);

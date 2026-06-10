@@ -64,6 +64,7 @@ const verifyAndRecordAttendance = async (req, res) => {
             }
         }
         if (!bestMatch || highestScore < MATCH_THRESHOLD) {
+            console.warn(`[Attendance Gateway] Face verification failed: Match confidence ${highestScore.toFixed(3)} is below threshold ${MATCH_THRESHOLD} for current scan.`);
             return res.status(401).json({
                 success: false,
                 message: 'Face match failed. Employee not recognized.',
@@ -77,6 +78,7 @@ const verifyAndRecordAttendance = async (req, res) => {
         // Check duplicate check-in
         const duplicateCheck = await (0, db_1.query)('SELECT id FROM attendance_records WHERE employee_id = $1 AND date = $2', [employee.id, today]);
         if (duplicateCheck.rows.length > 0) {
+            console.warn(`[Attendance Gateway] Blocked duplicate check-in: ${employee.full_name} (${employee.employee_id}) already logged for date ${today}.`);
             return res.status(400).json({
                 success: false,
                 message: `${employee.full_name} has already logged attendance today.`,
@@ -92,6 +94,7 @@ const verifyAndRecordAttendance = async (req, res) => {
         }
         await (0, db_1.query)(`INSERT INTO attendance_records (employee_id, date, check_in_time, gps_lat, gps_lng, device_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`, [employee.id, today, timeString, gps_lat, gps_lng, device_id || null, status]);
+        console.log(`[Attendance Gateway] Success: ${employee.full_name} (${employee.employee_id}) checked in. Confidence: ${highestScore.toFixed(3)}, Status: ${status}, GPS: [${gps_lat}, ${gps_lng}]`);
         return res.status(200).json({
             success: true,
             message: `${employee.full_name} verified successfully. Status: ${status}`,
@@ -103,7 +106,7 @@ const verifyAndRecordAttendance = async (req, res) => {
         });
     }
     catch (error) {
-        console.error('Attendance match error:', error);
+        console.error('[Attendance Gateway Error] Verification failed:', error);
         return res.status(500).json({ success: false, message: 'Internal server error.' });
     }
 };
@@ -140,6 +143,7 @@ const getDashboardStats = async (req, res) => {
        WHERE a.date = $1
        ORDER BY a.created_at DESC
        LIMIT 10`, [today]);
+        console.log(`[Console Sync] Successfully aggregated dashboard statistics for date: ${today}`);
         return res.status(200).json({
             success: true,
             stats: {
@@ -152,7 +156,7 @@ const getDashboardStats = async (req, res) => {
         });
     }
     catch (error) {
-        console.error('Dashboard stats error:', error);
+        console.error('[Console Sync Error] Dashboard stats aggregation failed:', error);
         return res.status(500).json({ success: false, message: 'Internal server error.' });
     }
 };
@@ -165,13 +169,14 @@ const getAttendanceHistory = async (req, res) => {
        FROM attendance_records a
        JOIN employees e ON a.employee_id = e.id
        ORDER BY a.date DESC, a.check_in_time DESC`);
+        console.log(`[Console Sync] Fetched attendance logs history. Total records: ${result.rows.length}`);
         return res.status(200).json({
             success: true,
             logs: result.rows,
         });
     }
     catch (error) {
-        console.error('Fetch history error:', error);
+        console.error('[Console Sync Error] Fetch history failed:', error);
         return res.status(500).json({ success: false, message: 'Internal server error.' });
     }
 };

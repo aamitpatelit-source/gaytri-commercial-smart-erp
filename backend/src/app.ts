@@ -88,19 +88,7 @@ const bootstrapDatabase = async () => {
     `);
     console.log('Legacy table columns verified/migrated.');
 
-    // Verify if employees exist
-    const empCheck = await query('SELECT COUNT(*) FROM employees');
-    if (parseInt(empCheck.rows[0].count) === 0) {
-      // Seed default employees (note: face_embedding is empty initially, can be registered from web)
-      await query(`
-        INSERT INTO employees (employee_id, full_name, department, shift, mobile) VALUES 
-        ('GC-001', 'Amit Patel', 'Production', 'Morning Shift', '+919876543210'),
-        ('GC-002', 'Rajesh Sharma', 'Logistics', 'Morning Shift', '+919876543211'),
-        ('GC-003', 'Sunil Singh', 'Production', 'Night Shift', '+919876543212'),
-        ('GC-004', 'Priya Verma', 'Quality Control', 'Morning Shift', '+919876543213')
-      `);
-      console.log('Seeded default employees for testing (GC-001, GC-002, GC-003, GC-004).');
-    }
+    console.log('Database tables, columns and legacy schema verified.');
   } catch (error) {
     console.error('Database bootstrap failed:', error);
   }

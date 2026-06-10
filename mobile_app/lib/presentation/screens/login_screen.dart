@@ -67,6 +67,9 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('Role access restricted. This app requires ADMIN authorization.');
       }
 
+      // Clear any potential stale state
+      await _storage.deleteAll();
+
       // Store Auth Tokens in Secure Storage
       await _storage.write(key: 'access_token', value: data['access_token']);
       await _storage.write(key: 'refresh_token', value: data['refresh_token']);

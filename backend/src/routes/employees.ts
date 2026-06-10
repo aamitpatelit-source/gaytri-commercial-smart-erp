@@ -16,6 +16,7 @@ router.use(authenticateToken as any);
 
 router.get('/', requireRole(['ADMIN']) as any, asyncHandler(getEmployees));
 router.post('/', requireRole(['ADMIN']) as any, asyncHandler(createEmployee));
+router.post('/register-face', requireRole(['ADMIN']) as any, asyncHandler(registerFace));
 router.put('/:id', requireRole(['ADMIN']) as any, asyncHandler(updateEmployee));
 router.delete('/:id', requireRole(['ADMIN']) as any, asyncHandler(deleteEmployee));
 router.post('/:id/register-face', requireRole(['ADMIN']) as any, asyncHandler(registerFace));
