@@ -47,62 +47,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/employees', employeeRoutes);
 app.use('/api/v1/attendance', attendanceRoutes);
 
-app.get('/api/v1/debug-db', async (req, res) => {
-  const dbHost = process.env.DB_HOST || 'not-set';
-  const dbPort = process.env.DB_PORT || 'not-set';
-  const hasDatabaseUrl = !!process.env.DATABASE_URL;
-  const rawUrl = process.env.DATABASE_URL || '';
-  const maskedUrl = rawUrl.replace(/:([^@]+)@/, ':****@');
 
-  try {
-    const tables = await query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema='public'
-    `);
-    
-    const employeesCols = await query(`
-      SELECT column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_name='employees'
-    `);
-
-    let employeesTestError = null;
-    try {
-      await query('SELECT * FROM employees LIMIT 1');
-    } catch (err: any) {
-      employeesTestError = err.message;
-    }
-
-    let attendanceTestError = null;
-    try {
-      await query('SELECT * FROM attendance_records LIMIT 1');
-    } catch (err: any) {
-      attendanceTestError = err.message;
-    }
-
-    return res.status(200).json({
-      success: true,
-      dbHost,
-      dbPort,
-      hasDatabaseUrl,
-      maskedDatabaseUrl: maskedUrl,
-      tables: tables.rows.map((r: any) => r.table_name),
-      employeesColumns: employeesCols.rows,
-      employeesTestError,
-      attendanceTestError
-    });
-  } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      dbHost,
-      dbPort,
-      hasDatabaseUrl,
-      maskedDatabaseUrl: maskedUrl,
-      error: err.message
-    });
-  }
-});
 
 app.get('/', (req, res) => {
   res.status(200).json({
