@@ -26,7 +26,11 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser requests (e.g. mobile app, curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+    
+    // Support Flutter Web local runs on dynamic ports
+    const isLocalhost = origin.startsWith('http://localhost:') || origin === 'http://localhost';
+    
+    if (isLocalhost || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
       callback(null, true);
     } else {
       callback(new Error('Blocked by CORS origin security policy.'));
@@ -41,6 +45,49 @@ app.use(express.json());
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/employees', employeeRoutes);
 app.use('/api/v1/attendance', attendanceRoutes);
+
+app.get('/api/v1/debug-db', async (req, res) => {
+  try {
+    const tables = await query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema='public'
+    `);
+    
+    const employeesCols = await query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name='employees'
+    `);
+
+    let employeesTestError = null;
+    try {
+      await query('SELECT * FROM employees LIMIT 1');
+    } catch (err: any) {
+      employeesTestError = err.message;
+    }
+
+    let attendanceTestError = null;
+    try {
+      await query('SELECT * FROM attendance_records LIMIT 1');
+    } catch (err: any) {
+      attendanceTestError = err.message;
+    }
+
+    return res.status(200).json({
+      success: true,
+      tables: tables.rows.map((r: any) => r.table_name),
+      employeesColumns: employeesCols.rows,
+      employeesTestError,
+      attendanceTestError
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 
 app.get('/', (req, res) => {
   res.status(200).json({
