@@ -12,7 +12,7 @@ function getConnectionString() {
     if (!url)
         return undefined;
     // Self-healing: rewrite direct Supabase IPv6 URL to IPv4 connection pooler URL
-    const regex = /^(postgres|postgresql):\/\/postgres:([^@]+)@db\.([a-z0-9]+)\.supabase\.co:5432\/([a-zA-Z0-9_\-]+)/i;
+    const regex = /^(postgres|postgresql):\/\/postgres:(.+)@db\.([a-z0-9]+)\.supabase\.co:5432\/([a-zA-Z0-9_\-]+)/i;
     const match = url.match(regex);
     if (match) {
         const protocol = match[1];
