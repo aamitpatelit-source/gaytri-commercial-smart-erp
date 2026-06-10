@@ -1,0 +1,39 @@
+name: gaytri_commercial_smart_erp
+description: Gaytri Commercial AI Face Recognition Attendance & ERP App.
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State management & DI
+  provider: ^6.1.2
+  
+  # Local database & Secure storage
+  sqflite: ^2.3.2
+  path_provider: ^2.1.2
+  flutter_secure_storage: ^9.0.0
+  
+  # Camera & AI face detection dependencies
+  camera: ^0.10.5+9
+  google_mlkit_face_detection: ^0.13.0
+  # Note: tflite_flutter requires local compiling, we list it for production imports
+  # tflite_flutter: ^0.10.0
+  
+  # Network & Utilities
+  http: ^1.2.1
+  intl: ^0.19.0
+  uuid: ^4.3.3
+  crypto: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+

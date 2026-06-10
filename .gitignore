@@ -1,0 +1,29 @@
+# Node
+node_modules/
+npm-debug.log
+
+# Next.js
+.next/
+out/
+
+# Flutter
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android
+android/.gradle/
+android/app/build/
+
+# iOS
+ios/Pods/
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
+
+# APK
+*.apk

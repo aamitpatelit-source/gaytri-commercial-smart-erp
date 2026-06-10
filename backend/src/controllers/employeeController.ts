@@ -1,0 +1,171 @@
+import { Request, Response } from 'express';
+import { query } from '../config/db';
+import bcrypt from 'bcryptjs';
+
+// Get all employees (for directory view)
+export const getEmployees = async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT id, employee_id, full_name, department, shift, mobile, profile_photo_url,
+              face_embedding,
+              face_embedding IS NOT NULL as has_face_data
+       FROM employees
+       ORDER BY employee_id ASC`
+    );
+
+    return res.status(200).json({
+      success: true,
+      employees: result.rows,
+    });
+  } catch (error) {
+    console.error('Get employees error:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Create a new employee
+export const createEmployee = async (req: Request, res: Response) => {
+  const {
+    employee_id,
+    full_name,
+    department,
+    shift,
+    mobile,
+    profile_photo_url,
+  } = req.body;
+
+  if (!employee_id || !full_name || !department || !shift || !mobile) {
+    return res.status(400).json({ success: false, message: 'Missing required information' });
+  }
+
+  try {
+    // Check duplicate
+    const duplicateCheck = await query('SELECT id FROM employees WHERE employee_id = $1', [employee_id]);
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'Employee ID already exists' });
+    }
+
+    const joiningDate = req.body.joining_date ? new Date(req.body.joining_date) : new Date();
+    const salary_type = (req.body.salary_type || 'MONTHLY').toUpperCase();
+    const role = req.body.role || 'EMPLOYEE';
+    const passwordHash = bcrypt.hashSync(req.body.password || '123456', 10);
+    const is_active = req.body.is_active !== undefined ? req.body.is_active : true;
+
+    const result = await query(
+      `INSERT INTO employees (
+        employee_id, full_name, department, shift, mobile, profile_photo_url,
+        joining_date, salary_type, role, password_hash, is_active, created_at, updated_at
+      )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING id, employee_id, full_name`,
+      [
+        employee_id,
+        full_name,
+        department,
+        shift,
+        mobile,
+        profile_photo_url || null,
+        joiningDate,
+        salary_type,
+        role,
+        passwordHash,
+        is_active,
+        new Date(),
+        new Date()
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Employee created successfully',
+      employee: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Create employee error:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Update employee
+export const updateEmployee = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { full_name, department, shift, mobile, profile_photo_url } = req.body;
+
+  if (!full_name || !department || !shift || !mobile) {
+    return res.status(400).json({ success: false, message: 'Missing required information' });
+  }
+
+  try {
+    const empCheck = await query('SELECT id FROM employees WHERE id = $1', [id]);
+    if (empCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+
+    await query(
+      `UPDATE employees SET
+        full_name = $1, department = $2, shift = $3, mobile = $4, profile_photo_url = $5, updated_at = $6
+       WHERE id = $7`,
+      [full_name, department, shift, mobile, profile_photo_url || null, new Date(), id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Employee updated successfully',
+    });
+  } catch (error) {
+    console.error('Update employee error:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Register face embeddings
+export const registerFace = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { face_embedding, profile_photo_url } = req.body;
+
+  if (!face_embedding || !Array.isArray(face_embedding) || face_embedding.length !== 128) {
+    return res.status(400).json({ success: false, message: 'A 128-dimensional face embedding array is required.' });
+  }
+
+  try {
+    const empCheck = await query('SELECT id FROM employees WHERE id = $1', [id]);
+    if (empCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+
+    await query(
+      `UPDATE employees 
+       SET face_embedding = $1, profile_photo_url = $2, updated_at = $3
+       WHERE id = $4`,
+      [face_embedding, profile_photo_url || null, new Date(), id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Face signature enrolled successfully.',
+    });
+  } catch (error) {
+    console.error('Register face error:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Delete employee
+export const deleteEmployee = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const result = await query('DELETE FROM employees WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Employee deleted successfully',
+    });
+  } catch (error) {
+    console.error('Delete employee error:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
