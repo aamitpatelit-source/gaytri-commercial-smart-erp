@@ -7,6 +7,7 @@ import { checkDbConnection, query } from './config/db';
 import authRoutes from './routes/auth';
 import employeeRoutes from './routes/employees';
 import attendanceRoutes from './routes/attendance';
+import { errorHandler } from './middleware/errorHandler';
 
 dotenv.config();
 
@@ -50,6 +51,8 @@ app.get('/api/v1/debug-db', async (req, res) => {
   const dbHost = process.env.DB_HOST || 'not-set';
   const dbPort = process.env.DB_PORT || 'not-set';
   const hasDatabaseUrl = !!process.env.DATABASE_URL;
+  const rawUrl = process.env.DATABASE_URL || '';
+  const maskedUrl = rawUrl.replace(/:([^@]+)@/, ':****@');
 
   try {
     const tables = await query(`
@@ -83,6 +86,7 @@ app.get('/api/v1/debug-db', async (req, res) => {
       dbHost,
       dbPort,
       hasDatabaseUrl,
+      maskedDatabaseUrl: maskedUrl,
       tables: tables.rows.map((r: any) => r.table_name),
       employeesColumns: employeesCols.rows,
       employeesTestError,
@@ -94,6 +98,7 @@ app.get('/api/v1/debug-db', async (req, res) => {
       dbHost,
       dbPort,
       hasDatabaseUrl,
+      maskedDatabaseUrl: maskedUrl,
       error: err.message
     });
   }
@@ -106,6 +111,9 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// Apply centralized error handling middleware
+app.use(errorHandler as any);
 
 // Bootstrap Database Schema and seed mock employees for testing convenience
 const bootstrapDatabase = async () => {
@@ -126,6 +134,12 @@ const bootstrapDatabase = async () => {
     await query(`
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS department VARCHAR(100) DEFAULT 'Production';
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift VARCHAR(50) DEFAULT 'Morning Shift';
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE DEFAULT CURRENT_DATE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_type VARCHAR(50) DEFAULT 'MONTHLY';
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'EMPLOYEE';
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
     `);
     console.log('Legacy table columns verified/migrated.');
 
