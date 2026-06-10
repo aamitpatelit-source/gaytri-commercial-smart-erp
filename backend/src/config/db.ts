@@ -3,11 +3,29 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const isProduction = process.env.NODE_ENV === 'production' || (process.env.DB_HOST && process.env.DB_HOST !== 'localhost') || !!process.env.DATABASE_URL;
+function getConnectionString(): string | undefined {
+  const url = process.env.DATABASE_URL;
+  if (!url) return undefined;
 
-const pool = process.env.DATABASE_URL
+  // Self-healing: rewrite direct Supabase IPv6 URL to IPv4 connection pooler URL
+  const regex = /^(postgres|postgresql):\/\/postgres:([^@]+)@db\.([a-z0-9]+)\.supabase\.co:5432\/([a-zA-Z0-9_\-]+)/i;
+  const match = url.match(regex);
+  if (match) {
+    const protocol = match[1];
+    const password = match[2];
+    const projectId = match[3];
+    const dbName = match[4];
+    return `${protocol}://postgres.${projectId}:${password}@aws-0-ap-south-1.pooler.supabase.com:6543/${dbName}`;
+  }
+  return url;
+}
+
+const isProduction = process.env.NODE_ENV === 'production' || (process.env.DB_HOST && process.env.DB_HOST !== 'localhost') || !!process.env.DATABASE_URL;
+const connectionString = getConnectionString();
+
+const pool = connectionString
   ? new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString,
       ssl: isProduction ? { rejectUnauthorized: false } : false
     })
   : new Pool({
