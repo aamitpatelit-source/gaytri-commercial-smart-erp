@@ -15,9 +15,116 @@ import {
   CheckCircle,
   RefreshCw,
   Video,
-  ShieldCheck
+  ShieldCheck,
+  Upload
 } from 'lucide-react';
 import { API_URL } from '../../config';
+
+const validateAndCompressImage = (
+  fileOrDataUrl: File | string,
+  maxWidth = 800,
+  quality = 0.85
+): Promise<{ success: boolean; dataUrl?: string; error?: string }> => {
+  return new Promise((resolve) => {
+    const processImgSrc = (src: string) => {
+      const img = new Image();
+      img.src = src;
+      img.onerror = () => resolve({ success: false, error: 'Failed to load image for validation.' });
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return resolve({ success: false, error: 'Could not create canvas context.' });
+        }
+        
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const pixels = imgData.data;
+        
+        let brightnessSum = 0;
+        for (let i = 0; i < pixels.length; i += 4) {
+          const r = pixels[i];
+          const g = pixels[i+1];
+          const b = pixels[i+2];
+          brightnessSum += 0.299 * r + 0.587 * g + 0.114 * b;
+        }
+        const avgBrightness = brightnessSum / (pixels.length / 4);
+        
+        if (avgBrightness < 45) {
+          return resolve({ success: false, error: 'Image is too dark. Please use better lighting.' });
+        }
+        if (avgBrightness > 240) {
+          return resolve({ success: false, error: 'Image is overexposed. Please adjust lighting.' });
+        }
+        
+        let contrastDiffSum = 0;
+        let samples = 0;
+        const startX = Math.floor(width * 0.25);
+        const startY = Math.floor(height * 0.25);
+        const endX = Math.floor(width * 0.75);
+        const endY = Math.floor(height * 0.75);
+        const step = Math.max(1, Math.floor((endX - startX) / 15));
+        
+        for (let y = startY; y < endY; y += step) {
+          for (let x = startX; x < endX; x += step) {
+            const idx = (y * width + x) * 4;
+            const val = pixels[idx];
+            const rightVal = pixels[idx + step * 4];
+            const downVal = pixels[idx + step * width * 4];
+            if (rightVal !== undefined) {
+              contrastDiffSum += Math.abs(val - rightVal);
+              samples++;
+            }
+            if (downVal !== undefined) {
+              contrastDiffSum += Math.abs(val - downVal);
+              samples++;
+            }
+          }
+        }
+        const avgContrastDiff = contrastDiffSum / samples;
+        if (avgContrastDiff < 2.5) {
+          return resolve({ success: false, error: 'Image is too blurry or lacks contrast. Please use a clear front-facing camera.' });
+        }
+        
+        try {
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve({ success: true, dataUrl: compressedDataUrl });
+        } catch (e) {
+          resolve({ success: false, error: 'Image conversion failed.' });
+        }
+      };
+    };
+
+    if (typeof fileOrDataUrl === 'string') {
+      processImgSrc(fileOrDataUrl);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result && typeof e.target.result === 'string') {
+          processImgSrc(e.target.result);
+        } else {
+          resolve({ success: false, error: 'Failed to read image file.' });
+        }
+      };
+      reader.onerror = () => resolve({ success: false, error: 'Failed to read image file.' });
+      reader.readAsDataURL(fileOrDataUrl);
+    }
+  });
+};
+
 
 interface Employee {
   id: string;
@@ -332,31 +439,47 @@ export default function EmployeesPage() {
     setIsCapturing(true);
     setRegError('');
 
-    // Trigger visual camera flash
-    setFlashActive(true);
-    setTimeout(() => setFlashActive(false), 150);
+    let finalPhotoUrl = capturedPhotoUrl;
 
-    // Capture Base64 snapshot from webcam
-    if (videoElementRef.current && canvasRef.current) {
-      const video = videoElementRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth || 400;
-      canvas.height = video.videoHeight || 300;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg');
-        setCapturedPhotoUrl(dataUrl);
+    if (!finalPhotoUrl) {
+      setFlashActive(true);
+      setTimeout(() => setFlashActive(false), 150);
+
+      if (videoElementRef.current && canvasRef.current) {
+        const video = videoElementRef.current;
+        const canvas = canvasRef.current;
+        canvas.width = video.videoWidth || 400;
+        canvas.height = video.videoHeight || 300;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          const dataUrl = canvas.toDataURL('image/jpeg');
+          
+          const validateResult = await validateAndCompressImage(dataUrl);
+          if (!validateResult.success) {
+            playBeepNode('failure');
+            setRegError(validateResult.error || 'Quality validation failed.');
+            setIsCapturing(false);
+            return;
+          }
+          finalPhotoUrl = validateResult.dataUrl!;
+          setCapturedPhotoUrl(finalPhotoUrl);
+        }
       }
+    }
+
+    if (!finalPhotoUrl) {
+      setRegError('Please capture or upload a photo first.');
+      setIsCapturing(false);
+      return;
     }
 
     try {
       const token = localStorage.getItem('access_token');
       
-      // Simulate face scanner processing delay
       await new Promise(r => setTimeout(r, 1500));
 
       const faceEmbedding = generateMockFaceEmbedding(faceRegEmp.employee_id);
@@ -369,7 +492,7 @@ export default function EmployeesPage() {
         },
         body: JSON.stringify({
           face_embedding: faceEmbedding,
-          profile_photo_url: capturedPhotoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120'
+          profile_photo_url: finalPhotoUrl
         })
       });
 
@@ -395,6 +518,32 @@ export default function EmployeesPage() {
     } finally {
       setIsCapturing(false);
     }
+  };
+
+  const handleImageFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    
+    if (file.size > 5 * 1024 * 1024) {
+      playBeepNode('failure');
+      setRegError('File size exceeds 5MB limit.');
+      return;
+    }
+    
+    setIsCapturing(true);
+    setRegError('');
+    
+    const result = await validateAndCompressImage(file);
+    if (!result.success) {
+      playBeepNode('failure');
+      setRegError(result.error || 'Quality validation failed.');
+      setIsCapturing(false);
+      return;
+    }
+    
+    setCapturedPhotoUrl(result.dataUrl!);
+    setIsCapturing(false);
   };
 
   const openEditModal = (emp: Employee) => {
@@ -963,6 +1112,23 @@ export default function EmployeesPage() {
                 )}
               </div>
 
+              {/* File Upload Selector */}
+              {!captureSuccess && !isCapturing && (
+                <div className="mt-3 flex flex-col items-center justify-center border border-dashed border-slate-800 hover:border-cyan-500/40 rounded-xl p-3 bg-slate-950/40 transition-all max-w-[300px] mx-auto w-full">
+                  <label className="text-xs font-bold text-slate-300 cursor-pointer flex items-center space-x-1.5 hover:text-cyan-400">
+                    <Upload className="w-4 h-4 text-cyan-400" />
+                    <span>Upload Profile Image File</span>
+                    <input 
+                      type="file" 
+                      accept="image/png, image/jpeg, image/jpg" 
+                      className="hidden" 
+                      onChange={handleImageFileUpload}
+                    />
+                  </label>
+                  <span className="text-[9px] text-slate-400 mt-1 font-semibold uppercase tracking-wider">Supports JPEG, PNG (Max 5MB)</span>
+                </div>
+              )}
+
               {/* Instructional Guidelines / Errors panel */}
               {regError ? (
                 <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/35 text-rose-300 text-xs space-y-2 animate-fade-in shadow-[0_0_15px_rgba(244,63,94,0.05)]">
@@ -998,7 +1164,7 @@ export default function EmployeesPage() {
                 </button>
                 <button
                   onClick={captureAndRegisterFace}
-                  disabled={!cameraStream || isCapturing || isCameraInitializing || captureSuccess}
+                  disabled={(!cameraStream && !capturedPhotoUrl) || isCapturing || isCameraInitializing || captureSuccess}
                   type="button"
                   className="flex-[2] py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold text-xs transition-all shadow-neon-glow hover:shadow-[0_0_20px_rgba(6,182,212,0.2)] flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >

@@ -1,6 +1,63 @@
 import { Request, Response } from 'express';
 import { query } from '../config/db';
 
+const sanitizeAndValidateBase64Image = (base64Str: string | null | undefined): string | null => {
+  if (!base64Str || typeof base64Str !== 'string') return null;
+  
+  const trimmed = base64Str.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed; // Allow external placeholder URLs
+  }
+  
+  // Strip spaces, newlines, tabs
+  let cleaned = trimmed.replace(/\s/g, '');
+  
+  let mimeType = 'image/jpeg';
+  let base64Data = cleaned;
+  
+  // Match data URI prefix if present
+  const dataUriMatch = cleaned.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/);
+  if (dataUriMatch) {
+    mimeType = dataUriMatch[1];
+    base64Data = dataUriMatch[2];
+  }
+  
+  // Validate standard base64 characters
+  const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
+  if (!base64Regex.test(base64Data)) {
+    throw new Error('Invalid Base64 encoding for profile photo.');
+  }
+
+  // Try to decode to check if it's a valid Base64 string
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(base64Data, 'base64');
+  } catch (err) {
+    throw new Error('Invalid Base64 encoding for profile photo.');
+  }
+  
+  if (buffer.length === 0) {
+    throw new Error('Profile photo binary is empty.');
+  }
+  
+  // Enforce size limits (max 5MB)
+  if (buffer.length > 5 * 1024 * 1024) {
+    throw new Error('Profile photo exceeds the 5MB size limit.');
+  }
+  
+  // Validate magic numbers to ensure it is a valid JPEG or PNG file
+  const isJpeg = buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.length > 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  
+  if (!isJpeg && !isPng) {
+    throw new Error('Unsupported profile photo format. Only JPEG and PNG formats are accepted.');
+  }
+  
+  const finalMimeType = isJpeg ? 'image/jpeg' : 'image/png';
+  return `data:${finalMimeType};base64,${base64Data}`;
+};
+
+
 // Get all employees (for directory view)
 export const getEmployees = async (req: Request, res: Response) => {
   try {
@@ -52,6 +109,13 @@ export const createEmployee = async (req: Request, res: Response) => {
     const role = 'EMPLOYEE';
     const is_active = req.body.is_active !== undefined ? req.body.is_active : true;
 
+    let sanitizedPhotoUrl: string | null = null;
+    try {
+      sanitizedPhotoUrl = sanitizeAndValidateBase64Image(profile_photo_url);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+
     const result = await query(
       `INSERT INTO employees (
         employee_id, full_name, department, shift, mobile, profile_photo_url,
@@ -65,7 +129,7 @@ export const createEmployee = async (req: Request, res: Response) => {
         department,
         shift,
         mobile,
-        profile_photo_url || null,
+        sanitizedPhotoUrl,
         joiningDate,
         salary_type,
         role,
@@ -105,12 +169,19 @@ export const updateEmployee = async (req: Request, res: Response) => {
 
     const activeStatus = is_active !== false;
 
+    let sanitizedPhotoUrl: string | null = null;
+    try {
+      sanitizedPhotoUrl = sanitizeAndValidateBase64Image(profile_photo_url);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+
     await query(
       `UPDATE employees SET
         full_name = $1, department = $2, shift = $3, mobile = $4, profile_photo_url = $5,
         is_active = $6, updated_at = $7
        WHERE id = $8`,
-      [full_name, department, shift, mobile, profile_photo_url || null, activeStatus, new Date(), id]
+      [full_name, department, shift, mobile, sanitizedPhotoUrl, activeStatus, new Date(), id]
     );
 
     console.log(`[Employee Info] Updated employee profile: ${id} (${full_name}). Active: ${activeStatus}`);
@@ -151,11 +222,18 @@ export const registerFace = async (req: Request, res: Response) => {
 
     const employee = empCheck.rows[0];
 
+    let sanitizedPhotoUrl: string | null = null;
+    try {
+      sanitizedPhotoUrl = sanitizeAndValidateBase64Image(profile_photo_url);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+
     await query(
       `UPDATE employees 
        SET face_embedding = $1, profile_photo_url = $2, updated_at = $3
        WHERE id = $4`,
-      [face_embedding, profile_photo_url || null, new Date(), employee.id]
+      [face_embedding, sanitizedPhotoUrl, new Date(), employee.id]
     );
 
     console.log(`[Biometric Sync] Successfully enrolled face signature for: ${employee.full_name} (${employee.employee_id})`);
