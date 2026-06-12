@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/theme/app_theme.dart';
 import 'login_screen.dart';
+import 'manager_dashboard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -27,12 +30,36 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // Route to Login Screen after 2.5 seconds
-    Future.delayed(const Duration(milliseconds: 2500), () {
+    // Check for saved session and auto-route
+    Future.delayed(const Duration(milliseconds: 2000), () async {
+      const storage = FlutterSecureStorage();
+      final token = await storage.read(key: 'access_token');
+      final userStr = await storage.read(key: 'user');
+      
+      Widget nextScreen = const LoginScreen();
+      
+      if (token != null || userStr != null) {
+        bool isValidManager = false;
+        if (token != null && userStr != null) {
+          try {
+            final user = jsonDecode(userStr);
+            if (user['role'] == 'MANAGER') {
+              isValidManager = true;
+              nextScreen = const ManagerDashboard();
+            }
+          } catch (_) {}
+        }
+        
+        if (!isValidManager) {
+          await storage.deleteAll();
+          nextScreen = const LoginScreen();
+        }
+      }
+      
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
+            pageBuilder: (context, animation, secondaryAnimation) => nextScreen,
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
               return FadeTransition(opacity: animation, child: child);
             },

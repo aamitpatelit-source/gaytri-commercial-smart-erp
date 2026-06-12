@@ -13,6 +13,19 @@ CREATE TABLE IF NOT EXISTS managers (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Admins Table
+CREATE TABLE IF NOT EXISTS admins (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(150) NOT NULL,
+    role VARCHAR(50) DEFAULT 'ADMIN',
+    is_active BOOLEAN DEFAULT TRUE,
+    must_change_password BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Employees Table
 CREATE TABLE IF NOT EXISTS employees (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -42,6 +55,9 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     gps_lng DOUBLE PRECISION,
     device_id VARCHAR(150),
     status VARCHAR(20) CHECK (status IN ('PRESENT', 'LATE', 'ABSENT')) NOT NULL,
+    check_out TIMESTAMP,
+    checkout_type TEXT,
+    working_hours TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(employee_id, date)
 );
@@ -50,3 +66,15 @@ CREATE TABLE IF NOT EXISTS attendance_records (
 CREATE INDEX IF NOT EXISTS idx_employees_emp_id ON employees(employee_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_records_date ON attendance_records(date);
 CREATE INDEX IF NOT EXISTS idx_attendance_records_emp_date ON attendance_records(employee_id, date);
+
+-- Attendance Settings Table
+CREATE TABLE IF NOT EXISTS attendance_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    shift_name VARCHAR(100) DEFAULT 'Morning Shift',
+    checkin_start TIME DEFAULT '09:00:00',
+    late_after TIME DEFAULT '09:15:00',
+    checkout_time TIME DEFAULT '17:00:00',
+    grace_minutes INTEGER DEFAULT 15,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

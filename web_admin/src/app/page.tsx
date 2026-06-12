@@ -24,6 +24,9 @@ interface Stats {
 
 interface ScanLog {
   check_in_time: string;
+  check_out: string | null;
+  checkout_type: string | null;
+  working_hours: string | null;
   status: string;
   full_name: string;
   employee_id: string;
@@ -36,6 +39,31 @@ export default function DashboardPage() {
   const [logs, setLogs] = useState<ScanLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const formatTo12Hour = (timeStr: string) => {
+    if (!timeStr) return '';
+    try {
+      if (timeStr.includes('T') || timeStr.includes('-')) {
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      const parts = timeStr.split(':');
+      if (parts.length < 2) return timeStr;
+      let hours = parseInt(parts[0]);
+      const minutes = parts[1];
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const strHour = hours < 10 ? '0' + hours : hours;
+      return `${strHour}:${minutes} ${ampm}`;
+    } catch (e) {
+      return timeStr;
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -225,7 +253,9 @@ export default function DashboardPage() {
                   <tr className="border-b border-slate-800 text-slate-350 text-[10px] font-extrabold uppercase tracking-wider">
                     <th className="pb-3 pt-2">Employee</th>
                     <th className="pb-3 pt-2">Department</th>
-                    <th className="pb-3 pt-2">Timestamp</th>
+                    <th className="pb-3 pt-2">Check-In</th>
+                    <th className="pb-3 pt-2">Check-Out</th>
+                    <th className="pb-3 pt-2">Hours</th>
                     <th className="pb-3 pt-2">Status</th>
                   </tr>
                 </thead>
@@ -242,7 +272,15 @@ export default function DashboardPage() {
                         </div>
                       </td>
                       <td className="py-3.5 font-semibold text-slate-300">{log.department}</td>
-                      <td className="py-3.5 font-mono text-slate-350">{log.check_in_time}</td>
+                      <td className="py-3.5 font-mono text-slate-350">{formatTo12Hour(log.check_in_time)}</td>
+                      <td className="py-3.5 font-mono text-slate-350">
+                        {log.check_out ? (
+                          <span className="font-bold text-cyan-400">{formatTo12Hour(log.check_out)}</span>
+                        ) : (
+                          <span className="text-slate-500 font-medium italic">Active</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 font-mono text-slate-350">{log.working_hours || '-'}</td>
                       <td className="py-3.5">
                         <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                           log.status === 'PRESENT'

@@ -1,73 +1,148 @@
 import 'dart:math';
-import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import '../../data/models/employee_model.dart';
 
 class FaceRecognitionService {
   late FaceDetector _faceDetector;
-  bool _isModelLoaded = false;
 
   FaceRecognitionService() {
-    // 1. Initialize ML Kit Face Detector with high accuracy & landmark/classification models enabled
     final options = FaceDetectorOptions(
       performanceMode: FaceDetectorMode.accurate,
       enableLandmarks: true,
-      enableClassification: true, // For eye blinking & smiling liveness checks
+      enableClassification: true,
       enableTracking: true,
     );
     _faceDetector = FaceDetector(options: options);
   }
 
-  // Initializing TensorFlow Lite Interpreter
-  Future<void> initializeInterpreter() async {
-    try {
-      // In production, load the assets file:
-      // final interpreterOptions = InterpreterOptions()..useNnApiForAndroid = true;
-      // _interpreter = await Interpreter.fromAsset('models/mobilefacenet.tflite', options: interpreterOptions);
-      _isModelLoaded = true;
-      print("TensorFlow Lite model initialized successfully.");
-    } catch (e) {
-      print("Failed to load TensorFlow Lite model: $e");
-    }
+  Future<List<Face>> detectFaces(InputImage inputImage) async {
+    return await _faceDetector.processImage(inputImage);
   }
 
-  // Core Liveness Verification: Checks blink or smile to verify user is real
-  // Returns true if the detected landmarks correspond to a physical response
-  bool verifyLiveness(Face face, {double blinkThreshold = 0.15, double smileThreshold = 0.75}) {
-    if (face.leftEyeOpenProbability == null || face.rightEyeOpenProbability == null) {
-      return false; // Landmarks missing
+  /// Extracts a scale, rotation, and translation-invariant 128-dimensional biometric embedding.
+  List<double> getLandmarkEmbedding(Face face) {
+    final leftEye = face.landmarks[FaceLandmarkType.leftEye]?.position;
+    final rightEye = face.landmarks[FaceLandmarkType.rightEye]?.position;
+    final noseBase = face.landmarks[FaceLandmarkType.noseBase]?.position;
+    final leftMouth = face.landmarks[FaceLandmarkType.leftMouth]?.position;
+    final rightMouth = face.landmarks[FaceLandmarkType.rightMouth]?.position;
+    final bottomMouth = face.landmarks[FaceLandmarkType.bottomMouth]?.position;
+    final leftCheek = face.landmarks[FaceLandmarkType.leftCheek]?.position;
+    final rightCheek = face.landmarks[FaceLandmarkType.rightCheek]?.position;
+
+    // Core landmarks required for the spatial normalization coordinate frame
+    if (leftEye == null || rightEye == null || noseBase == null) {
+      return List<double>.filled(128, 0.0);
     }
 
-    // 1. Eye Blink Detection: Probability drops below threshold
-    final isBlinking = face.leftEyeOpenProbability! < blinkThreshold && 
-                       face.rightEyeOpenProbability! < blinkThreshold;
+    // 1. Compute stable center origin (midpoint of the eyes)
+    final double originX = (leftEye.x + rightEye.x) / 2.0;
+    final double originY = (leftEye.y + rightEye.y) / 2.0;
 
-    // 2. Smile Detection
-    final isSmiling = face.smilingProbability != null && 
-                      face.smilingProbability! > smileThreshold;
+    // 2. Compute eye distance as scale factor
+    final double dx = (rightEye.x - leftEye.x).toDouble();
+    final double dy = (rightEye.y - leftEye.y).toDouble();
+    final double eyeDist = sqrt(dx * dx + dy * dy);
+    if (eyeDist == 0) return List<double>.filled(128, 0.0);
 
-    // 3. 3D Head Movement Detection: Euler Angles check
-    final isHeadMoved = (face.headEulerAngleY != null && face.headEulerAngleY!.abs() > 12) ||
-                        (face.headEulerAngleX != null && face.headEulerAngleX!.abs() > 10);
+    // 3. Compute rotation angle (yaw/roll tilt) of the eyes
+    final double angle = atan2(dy, dx);
+    final double cosA = cos(angle);
+    final double sinA = sin(angle);
 
-    return isBlinking || isSmiling || isHeadMoved;
-  }
-
-  // Generate 128-dimensional embedding vector from camera crop
-  // Resizes input block to 112x112, normalizes pixel streams, and executes interpreter
-  Future<List<double>> extractEmbedding(CameraImage cameraImage, Face face) async {
-    if (!_isModelLoaded) {
-      await initializeInterpreter();
+    // Helper to translate, rotate (align horizontally), and scale coordinate points
+    List<double> normalizePoint(Point<int>? p) {
+      if (p == null) return [0.0, 0.0];
+      // Translate relative to eye midpoint
+      final double tx = p.x - originX;
+      final double ty = p.y - originY;
+      // Rotate by -angle to align the eye line horizontally
+      final double rx = tx * cosA + ty * sinA;
+      final double ry = -tx * sinA + ty * cosA;
+      // Scale by eye distance
+      return [rx / eyeDist, ry / eyeDist];
     }
 
-    // Mock representation of the 128-dimensional output vector.
-    // In production, crop cameraImage using face.boundingBox, convert color space from YUV420 to RGB,
-    // resize to 112x112, convert to Float32List, and run _interpreter.run(input, output).
-    final random = Random();
-    return List<double>.generate(128, (index) => random.nextDouble() * 2.0 - 1.0);
+    final List<double> features = [];
+
+    // Add normalized 2D coordinates for all 8 key features
+    features.addAll(normalizePoint(leftEye));
+    features.addAll(normalizePoint(rightEye));
+    features.addAll(normalizePoint(noseBase));
+    features.addAll(normalizePoint(leftMouth));
+    features.addAll(normalizePoint(rightMouth));
+    features.addAll(normalizePoint(bottomMouth));
+    features.addAll(normalizePoint(leftCheek));
+    features.addAll(normalizePoint(rightCheek));
+
+    // Helper to compute Euclidean distance between two points
+    double getDist(Point<int>? p1, Point<int>? p2) {
+      if (p1 == null || p2 == null) return 0.0;
+      final double idx = (p2.x - p1.x).toDouble();
+      final double idy = (p2.y - p1.y).toDouble();
+      return sqrt(idx * idx + idy * idy);
+    }
+
+    // Add 8 absolute face landmark distance ratios (highly rotation, translation, and scale invariant)
+    // Ratio 1: Nose to mouth center / Eye distance
+    final mouthCenterX = leftMouth != null && rightMouth != null ? (leftMouth.x + rightMouth.x) ~/ 2 : originX.toInt();
+    final mouthCenterY = leftMouth != null && rightMouth != null ? (leftMouth.y + rightMouth.y) ~/ 2 : originY.toInt();
+    final mouthCenter = Point<int>(mouthCenterX, mouthCenterY);
+    features.add(getDist(noseBase, mouthCenter) / eyeDist);
+
+    // Ratio 2: Mouth width / Eye distance
+    features.add(getDist(leftMouth, rightMouth) / eyeDist);
+
+    // Ratio 3: Cheek width / Eye distance
+    features.add(getDist(leftCheek, rightCheek) / eyeDist);
+
+    // Ratio 4: Nose base to bottom mouth lip / Eye distance
+    features.add(getDist(noseBase, bottomMouth) / eyeDist);
+
+    // Ratio 5: Left eye to left cheek / Eye distance
+    features.add(getDist(leftEye, leftCheek) / eyeDist);
+
+    // Ratio 6: Right eye to right cheek / Eye distance
+    features.add(getDist(rightEye, rightCheek) / eyeDist);
+
+    // Ratio 7: Left eye to nose base / Eye distance
+    features.add(getDist(leftEye, noseBase) / eyeDist);
+
+    // Ratio 8: Right eye to nose base / Eye distance
+    features.add(getDist(rightEye, noseBase) / eyeDist);
+
+    // Expand coordinate and ratio descriptor (24 values) into a high-dimensional vector
+    // using sinusoidal positional encoding (multi-frequency basis functions)
+    final List<double> embedding = [];
+    for (int i = 0; i < features.length; i++) {
+      final val = features[i];
+      embedding.add(val);
+      for (int freq = 1; freq <= 2; freq++) {
+        embedding.add(sin(val * freq * pi));
+        embedding.add(cos(val * freq * pi));
+      }
+    }
+
+    // Pad embedding deterministically to exactly 128 elements
+    while (embedding.length < 128) {
+      embedding.add(embedding[embedding.length - 24] * 0.5);
+    }
+
+    // Normalize final embedding vector to unit L2 length (Cosine Similarity = Dot Product)
+    double sumSq = 0.0;
+    for (final val in embedding) {
+      sumSq += val * val;
+    }
+    final norm = sqrt(sumSq);
+    if (norm > 0) {
+      for (int i = 0; i < embedding.length; i++) {
+        embedding[i] = embedding[i] / norm;
+      }
+    }
+
+    return embedding;
   }
 
-  // Calculate Cosine Similarity: A.B / (||A|| * ||B||)
+  /// Calculates cosine similarity between two 128-dimensional unit vectors.
   double calculateCosineSimilarity(List<double> vectorA, List<double> vectorB) {
     if (vectorA.length != 128 || vectorB.length != 128) return 0.0;
 
@@ -85,36 +160,6 @@ class FaceRecognitionService {
     return dotProduct / (sqrt(normA) * sqrt(normB));
   }
 
-  // Match Face Embedding against a list of employees registered in the database
-  EmployeeModel? matchFaceToEmployee(List<double> currentEmbedding, List<EmployeeModel> employees, {double matchThreshold = 0.82}) {
-    EmployeeModel? matchedEmployee;
-    double highestScore = 0.0;
-
-    for (var employee in employees) {
-      if (employee.faceEmbedding == null) continue;
-      
-      final score = calculateCosineSimilarity(currentEmbedding, employee.faceEmbedding!);
-      if (score > highestScore) {
-        highestScore = score;
-        matchedEmployee = employee;
-      }
-    }
-
-    if (highestScore >= matchThreshold) {
-      print("Face match found: ${matchedEmployee?.fullName} with score: $highestScore");
-      return matchedEmployee;
-    }
-
-    print("No matching face. Highest score: $highestScore");
-    return null;
-  }
-
-  // Process camera frame using ML Kit face detector
-  Future<List<Face>> detectFaces(InputImage inputImage) async {
-    return await _faceDetector.processImage(inputImage);
-  }
-
-  // Close resources
   void dispose() {
     _faceDetector.close();
   }

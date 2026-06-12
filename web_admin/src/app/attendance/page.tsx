@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Calendar, 
-  MapPin, 
   RefreshCw, 
   CheckCircle, 
   XCircle, 
@@ -16,6 +15,9 @@ import { API_URL } from '../../config';
 interface AttendanceLog {
   date: string;
   check_in_time: string;
+  check_out: string | null;
+  checkout_type: string | null;
+  working_hours: string | null;
   status: string;
   gps_lat: number | null;
   gps_lng: number | null;
@@ -32,6 +34,53 @@ export default function AttendanceLogsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<'ALL' | 'PRESENT' | 'LATE' | 'ABSENT'>('ALL');
   const [error, setError] = useState('');
+
+  const formatDate = (dateStr: string, checkInTimeStr?: string) => {
+    const sourceStr = checkInTimeStr || dateStr;
+    if (!sourceStr) return '';
+    try {
+      const date = new Date(sourceStr);
+      const options: Intl.DateTimeFormatOptions = {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'Asia/Kolkata'
+      };
+      const formatter = new Intl.DateTimeFormat('en-US', options);
+      const parts = formatter.formatToParts(date);
+      const day = parts.find(p => p.type === 'day')?.value || '';
+      const month = parts.find(p => p.type === 'month')?.value || '';
+      const year = parts.find(p => p.type === 'year')?.value || '';
+      return `${day} ${month} ${year}`;
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const formatTo12Hour = (timeStr: string) => {
+    if (!timeStr) return '';
+    try {
+      if (timeStr.includes('T') || timeStr.includes('-')) {
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      const parts = timeStr.split(':');
+      if (parts.length < 2) return timeStr;
+      let hours = parseInt(parts[0]);
+      const minutes = parts[1];
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const strHour = hours < 10 ? '0' + hours : hours;
+      return `${strHour}:${minutes} ${ampm}`;
+    } catch (e) {
+      return timeStr;
+    }
+  };
 
   const fetchLogs = async () => {
     try {
@@ -144,46 +193,41 @@ export default function AttendanceLogsPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                  <th className="pb-3 pt-4 pl-6">Date</th>
-                  <th className="pb-3 pt-4">Employee</th>
-                  <th className="pb-3 pt-4">Department / Shift</th>
-                  <th className="pb-3 pt-4">Check-In Time</th>
-                  <th className="pb-3 pt-4">Device ID</th>
-                  <th className="pb-3 pt-4">GPS Verification</th>
-                  <th className="pb-3 pt-4 pr-6 text-center">Status</th>
+                  <th className="pb-3 pt-4 pl-6 w-[26%]">Employee</th>
+                  <th className="pb-3 pt-4 w-[20%]">Department / Shift</th>
+                  <th className="pb-3 pt-4 w-[14%]">Check-In</th>
+                  <th className="pb-3 pt-4 w-[14%]">Check-Out</th>
+                  <th className="pb-3 pt-4 w-[14%]">Hours</th>
+                  <th className="pb-3 pt-4 pr-6 text-center w-[12%]">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850/50 text-xs text-slate-350">
                 {filteredLogs.map((log, idx) => (
                   <tr key={idx} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
-                    <td className="py-4 pl-6 font-mono text-slate-300 font-semibold">
-                      {new Date(log.date).toISOString().split('T')[0]}
-                    </td>
-                    <td className="py-4">
-                      <p className="font-bold text-white text-sm">{log.full_name}</p>
-                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">{log.employee_id}</p>
+                    <td className="py-4 pl-6">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-cyan-400">
+                          {log.full_name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-bold text-white text-sm">{log.full_name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">{log.employee_id}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="py-4">
                       <p className="font-semibold text-slate-200">{log.department}</p>
                       <p className="text-[10px] text-slate-400 mt-0.5">{log.shift}</p>
                     </td>
-                    <td className="py-4 font-mono text-slate-200 font-bold">{log.check_in_time}</td>
-                    <td className="py-4 font-mono text-slate-300">{log.device_id || 'Unknown'}</td>
-                    <td className="py-4 text-slate-300">
-                      {log.gps_lat && log.gps_lng ? (
-                        <a 
-                          href={`https://www.google.com/maps?q=${log.gps_lat},${log.gps_lng}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center space-x-1 hover:text-cyan-400 transition-colors cursor-pointer"
-                        >
-                          <MapPin className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400" />
-                          <span className="font-mono text-xs">{log.gps_lat.toFixed(4)}, {log.gps_lng.toFixed(4)}</span>
-                        </a>
+                    <td className="py-4 font-mono text-slate-100 font-bold">{formatTo12Hour(log.check_in_time)}</td>
+                    <td className="py-4 font-mono text-slate-100">
+                      {log.check_out ? (
+                        <span className="font-bold text-cyan-400">{formatTo12Hour(log.check_out)}</span>
                       ) : (
-                        <span className="text-slate-500">None</span>
+                        <span className="text-amber-500 font-semibold italic bg-amber-950/20 border border-amber-500/10 px-2 py-0.5 rounded text-[10px]">On Duty</span>
                       )}
                     </td>
+                    <td className="py-4 font-mono text-cyan-400 font-bold">{log.working_hours || '-'}</td>
                     <td className="py-4 pr-6 text-center">
                       <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                         log.status === 'PRESENT'

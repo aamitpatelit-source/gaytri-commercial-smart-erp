@@ -1,31 +1,31 @@
 import { Request, Response } from 'express';
 import { query } from '../config/db';
-import bcrypt from 'bcryptjs';
 
 // Get all employees (for directory view)
 export const getEmployees = async (req: Request, res: Response) => {
   try {
     const result = await query(
       `SELECT id, employee_id, full_name, department, shift, mobile, profile_photo_url,
+              is_active,
               face_embedding,
               face_embedding IS NOT NULL as has_face_data
        FROM employees
        ORDER BY employee_id ASC`
     );
 
-    console.log(`[Roster Info] Fetched ${result.rows.length} employees from database.`);
+    console.log(`[Employee Info] Fetched ${result.rows.length} employees from database.`);
 
     return res.status(200).json({
       success: true,
       employees: result.rows,
     });
   } catch (error) {
-    console.error('[Roster Error] Get employees failed:', error);
+    console.error('[Employee Error] Get employees failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
   }
 };
 
-// Create a new employee
+// Create a new employee (No passwords/logins)
 export const createEmployee = async (req: Request, res: Response) => {
   const {
     employee_id,
@@ -49,17 +49,16 @@ export const createEmployee = async (req: Request, res: Response) => {
 
     const joiningDate = req.body.joining_date ? new Date(req.body.joining_date) : new Date();
     const salary_type = (req.body.salary_type || 'MONTHLY').toUpperCase();
-    const role = req.body.role || 'EMPLOYEE';
-    const passwordHash = bcrypt.hashSync(req.body.password || '123456', 10);
+    const role = 'EMPLOYEE';
     const is_active = req.body.is_active !== undefined ? req.body.is_active : true;
 
     const result = await query(
       `INSERT INTO employees (
         employee_id, full_name, department, shift, mobile, profile_photo_url,
-        joining_date, salary_type, role, password_hash, is_active, created_at, updated_at
+        joining_date, salary_type, role, password_hash, is_active, require_password_change, created_at, updated_at
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-       RETURNING id, employee_id, full_name`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, FALSE, $11, $12)
+       RETURNING id, employee_id, full_name, is_active`,
       [
         employee_id,
         full_name,
@@ -70,14 +69,13 @@ export const createEmployee = async (req: Request, res: Response) => {
         joiningDate,
         salary_type,
         role,
-        passwordHash,
         is_active,
         new Date(),
         new Date()
       ]
     );
 
-    console.log(`[Roster Info] Created new employee profile: ${employee_id} (${full_name}) - UUID: ${result.rows[0].id}`);
+    console.log(`[Employee Info] Created new employee profile: ${employee_id} (${full_name}) - UUID: ${result.rows[0].id}`);
 
     return res.status(201).json({
       success: true,
@@ -85,15 +83,15 @@ export const createEmployee = async (req: Request, res: Response) => {
       employee: result.rows[0],
     });
   } catch (error) {
-    console.error('[Roster Error] Create employee failed:', error);
+    console.error('[Employee Error] Create employee failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
   }
 };
 
-// Update employee
+// Update employee (No password parameters)
 export const updateEmployee = async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { full_name, department, shift, mobile, profile_photo_url } = req.body;
+  const { full_name, department, shift, mobile, profile_photo_url, is_active } = req.body;
 
   if (!full_name || !department || !shift || !mobile) {
     return res.status(400).json({ success: false, message: 'Missing required information' });
@@ -105,21 +103,24 @@ export const updateEmployee = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
 
+    const activeStatus = is_active !== false;
+
     await query(
       `UPDATE employees SET
-        full_name = $1, department = $2, shift = $3, mobile = $4, profile_photo_url = $5, updated_at = $6
-       WHERE id = $7`,
-      [full_name, department, shift, mobile, profile_photo_url || null, new Date(), id]
+        full_name = $1, department = $2, shift = $3, mobile = $4, profile_photo_url = $5,
+        is_active = $6, updated_at = $7
+       WHERE id = $8`,
+      [full_name, department, shift, mobile, profile_photo_url || null, activeStatus, new Date(), id]
     );
 
-    console.log(`[Roster Info] Updated employee profile: ${id} (${full_name})`);
+    console.log(`[Employee Info] Updated employee profile: ${id} (${full_name}). Active: ${activeStatus}`);
 
     return res.status(200).json({
       success: true,
       message: 'Employee updated successfully',
     });
   } catch (error) {
-    console.error('[Roster Error] Update employee failed:', error);
+    console.error('[Employee Error] Update employee failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
   }
 };
@@ -185,14 +186,14 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     }
 
     const employee = result.rows[0];
-    console.log(`[Roster Info] Deleted employee profile: ${employee.full_name} (${employee.employee_id}) - UUID: ${employee.id}`);
+    console.log(`[Employee Info] Deleted employee profile: ${employee.full_name} (${employee.employee_id}) - UUID: ${employee.id}`);
 
     return res.status(200).json({
       success: true,
       message: 'Employee deleted successfully',
     });
   } catch (error) {
-    console.error('[Roster Error] Delete employee failed:', error);
+    console.error('[Employee Error] Delete employee failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
   }
 };

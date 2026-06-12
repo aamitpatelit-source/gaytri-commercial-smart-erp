@@ -68,6 +68,14 @@ const initPool = async () => {
       ssl: isProduction ? { rejectUnauthorized: false } : false
     });
   }
+
+  // Graceful DB reconnection and error handling on pool
+  actualPool.on('error', (err: any) => {
+    console.error('[Database Pool Error] Unexpected error on idle client:', err.message);
+    // Self-healing: clear the pool instance so the next query recreates a fresh pool
+    actualPool = null;
+  });
+
   return actualPool;
 };
 
@@ -115,6 +123,11 @@ const poolProxy = new Proxy({} as Pool, {
           ssl: isProduction ? { rejectUnauthorized: false } : false
         });
       }
+
+      actualPool.on('error', (err: any) => {
+        console.error('[Database Pool Proxy Error] Unexpected error on idle client:', err.message);
+        actualPool = null;
+      });
     }
     return Reflect.get(actualPool, prop, receiver);
   }

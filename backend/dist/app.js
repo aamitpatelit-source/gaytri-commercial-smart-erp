@@ -13,6 +13,7 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const employees_1 = __importDefault(require("./routes/employees"));
 const attendance_1 = __importDefault(require("./routes/attendance"));
 const errorHandler_1 = require("./middleware/errorHandler");
+const attendanceController_1 = require("./controllers/attendanceController");
 dotenv_1.default.config();
 // Ensure JWT_SECRET fallback exists to prevent boot crashes
 const JWT_SECRET = process.env.JWT_SECRET || 'gaytri_face_attendance_mvp_secret_key';
@@ -75,10 +76,95 @@ const bootstrapDatabase = async () => {
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_type VARCHAR(50) DEFAULT 'MONTHLY';
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'EMPLOYEE';
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+      ALTER TABLE employees ALTER COLUMN password_hash DROP NOT NULL;
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN DEFAULT FALSE;
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
     `);
         console.log('Legacy table columns verified/migrated.');
+        // Ensure admins table exists
+        await (0, db_1.query)(`
+      CREATE TABLE IF NOT EXISTS admins (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        full_name VARCHAR(150) NOT NULL,
+        role VARCHAR(50) DEFAULT 'ADMIN',
+        is_active BOOLEAN DEFAULT TRUE,
+        must_change_password BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+        console.log('Admins table verified/created.');
+        // Auto-migration: check if managers table exists and has records
+        const managersTableCheck = await (0, db_1.query)(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'managers'
+      );
+    `);
+        try {
+            if (managersTableCheck.rows[0].exists) {
+                const managersCount = await (0, db_1.query)('SELECT COUNT(*) FROM managers');
+                if (parseInt(managersCount.rows[0].count) > 0) {
+                    await (0, db_1.query)(`
+            INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
+            SELECT id, email, password_hash, full_name, 'ADMIN', TRUE, TRUE, created_at, created_at
+            FROM managers
+            ON CONFLICT (email) DO NOTHING
+          `);
+                    console.log('Migrated legacy managers to admins table.');
+                }
+            }
+        }
+        catch (migErr) {
+            console.warn('[Auto-Migration Alert] Failed to migrate managers to admins (likely due to duplicate primary keys):', migErr.message);
+        }
+        // Seed default administrator if empty
+        const superAdminCheck = await (0, db_1.query)("SELECT id FROM admins WHERE email = 'admin@gaytri.com' LIMIT 1");
+        if (superAdminCheck.rows.length > 0) {
+            console.log('Default super admin already exists.');
+        }
+        else {
+            const bcrypt = require('bcryptjs');
+            const { v4: uuidv4 } = require('uuid');
+            const adminPasswordHash = bcrypt.hashSync('123456', 10);
+            await (0, db_1.query)(`
+        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
+        VALUES ($1, 'admin@gaytri.com', $2, 'Gaytri Admin', 'SUPER_ADMIN', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [uuidv4(), adminPasswordHash]);
+            console.log('Default super admin seeded successfully.');
+        }
+        // Migration for hybrid attendance checkout columns
+        await (0, db_1.query)(`
+      ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS check_out TIMESTAMP;
+      ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS checkout_type TEXT;
+      ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS working_hours TEXT;
+    `);
+        console.log('Attendance records columns check_out, checkout_type, working_hours verified/migrated.');
+        // Ensure settings table exists and is seeded
+        await (0, db_1.query)(`
+      CREATE TABLE IF NOT EXISTS attendance_settings (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        shift_name VARCHAR(100) DEFAULT 'Morning Shift',
+        checkin_start TIME DEFAULT '09:00:00',
+        late_after TIME DEFAULT '09:15:00',
+        checkout_time TIME DEFAULT '17:00:00',
+        grace_minutes INTEGER DEFAULT 15,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+        const settingsCheck = await (0, db_1.query)('SELECT COUNT(*) FROM attendance_settings');
+        if (parseInt(settingsCheck.rows[0].count) === 0) {
+            await (0, db_1.query)(`
+        INSERT INTO attendance_settings (shift_name, checkin_start, late_after, checkout_time, grace_minutes)
+        VALUES ('Morning Shift', '09:00:00', '09:15:00', '17:00:00', 15)
+      `);
+            console.log('Seeded default attendance settings successfully.');
+        }
         console.log('Database tables, columns and legacy schema verified.');
     }
     catch (error) {
@@ -89,6 +175,9 @@ const startServer = async () => {
     const isConnected = await (0, db_1.checkDbConnection)();
     if (isConnected) {
         await bootstrapDatabase();
+        // Run startup self-healing and start daily 5:00 PM auto-checkout
+        (0, attendanceController_1.runStartupSelfHealing)().catch(err => console.error('Startup self-healing failed:', err));
+        (0, attendanceController_1.startAutoCheckoutScheduler)();
     }
     else {
         console.warn('Could not run database bootstrap, database not connected.');

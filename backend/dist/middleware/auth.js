@@ -8,7 +8,7 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const JWT_SECRET = process.env.JWT_SECRET || 'gaytri_commercial_smart_erp_jwt_secret_2026';
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) {
@@ -16,6 +16,22 @@ const authenticateToken = (req, res, next) => {
     }
     try {
         const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        // Direct active status check for employees
+        if (decoded.role === 'EMPLOYEE') {
+            const { query } = require('../config/db');
+            const statusRes = await query('SELECT is_active FROM employees WHERE id = $1', [decoded.id]);
+            if (statusRes.rows.length === 0 || !statusRes.rows[0].is_active) {
+                return res.status(403).json({ success: false, message: 'Access denied. Account has been deactivated.' });
+            }
+        }
+        // Direct active status check for admins/managers
+        if (decoded.role === 'ADMIN' || decoded.role === 'SUPER_ADMIN' || decoded.role === 'MANAGER' || decoded.role === 'HR_MANAGER') {
+            const { query } = require('../config/db');
+            const statusRes = await query('SELECT is_active FROM admins WHERE id = $1', [decoded.id]);
+            if (statusRes.rows.length === 0 || !statusRes.rows[0].is_active) {
+                return res.status(403).json({ success: false, message: 'Access denied. Administrator account has been deactivated.' });
+            }
+        }
         req.user = decoded;
         next();
     }

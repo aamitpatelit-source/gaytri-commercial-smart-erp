@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Layers, ShieldCheck, KeyRound, ArrowRight } from 'lucide-react';
+import { Layers, ShieldCheck, KeyRound, ArrowRight, X } from 'lucide-react';
 import { API_URL } from '../../config';
 
 export default function LoginPage() {
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showForgotModal, setShowForgotModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,10 +19,10 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const res = await fetch(`${API_URL}/auth/login`, {
+      const res = await fetch(`${API_URL}/auth/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: employeeId, password }),
+        body: JSON.stringify({ email: employeeId, password }),
       });
 
       const data = await res.json();
@@ -30,7 +31,8 @@ export default function LoginPage() {
         throw new Error(data.message || 'Authentication failed.');
       }
 
-      if (data.user.role !== 'ADMIN') {
+      // Restrict web panel to SUPER_ADMIN and ADMIN roles
+      if (data.user.role !== 'SUPER_ADMIN' && data.user.role !== 'ADMIN') {
         throw new Error('Access denied. Administrator privileges required.');
       }
 
@@ -67,7 +69,7 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <div className="mb-6 p-3 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-400 text-xs text-center font-semibold whitespace-pre-line">
+          <div className="mb-6 p-3 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-450 text-xs text-center font-semibold whitespace-pre-line animate-pulse">
             {error}
           </div>
         )}
@@ -75,14 +77,14 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Employee ID Field */}
           <div>
-            <label className="text-xs text-slate-200 font-bold uppercase tracking-wider block mb-2">Employee Email / ID</label>
+            <label className="text-xs text-slate-200 font-bold uppercase tracking-wider block mb-2">Admin Email</label>
             <div className="relative">
               <ShieldCheck className="absolute left-3 top-3 w-5 h-5 text-slate-350" />
               <input
-                type="text"
+                type="email"
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value)}
-                placeholder="admin@gaytri.com"
+                placeholder="email@example.com"
                 className="w-full pl-10 pr-4 py-2.5 glass-input text-white text-sm"
                 required
               />
@@ -95,14 +97,14 @@ export default function LoginPage() {
               <label className="text-xs text-slate-200 font-bold uppercase tracking-wider block">Password</label>
               <button 
                 type="button" 
-                onClick={() => alert('Please contact the system administrator to reset your password.')}
+                onClick={() => setShowForgotModal(true)}
                 className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold hover:underline bg-transparent border-0 cursor-pointer"
               >
                 Forgot Password?
               </button>
             </div>
             <div className="relative">
-              <KeyRound className="absolute left-3 top-3 w-5 h-5 text-slate-350" />
+              <KeyRound className="absolute left-3 top-3 w-5 h-5 text-slate-355" />
               <input
                 type="password"
                 value={password}
@@ -119,27 +121,51 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold flex items-center justify-center space-x-2 transition-all duration-300 shadow-neon-glow disabled:opacity-50 mt-6 text-sm"
           >
-            <span>{loading ? 'Authenticating...' : 'Sign In to Portal'}</span>
+            <span>{loading ? 'Authenticating...' : 'Admin Sign In'}</span>
             <ArrowRight className="w-5 h-5" />
           </button>
         </form>
 
-        {/* First Time Setup Help Box */}
-        <div className="mt-6 p-4 rounded-lg bg-cyan-950/20 border border-cyan-500/20 text-slate-300 text-xs">
-          <span className="font-bold text-cyan-400 block mb-1">First Time Setup?</span>
-          <p className="leading-relaxed">
-            Use the default administrator credentials:<br />
-            Email: <code className="text-white font-mono bg-slate-900/60 px-1 rounded">admin@gaytri.com</code><br />
-            Password: <code className="text-white font-mono bg-slate-900/60 px-1 rounded">123456</code>
-          </p>
-        </div>
-
         <div className="mt-8 border-t border-slate-800/80 pt-4 text-center">
           <p className="text-xs text-slate-400 font-medium">
-            Gaytri Commercial Smart ERP • Secure Authorization System v3.0
+            Gaytri Commercial Smart ERP • Secure Authorization System v4.0
           </p>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="w-full max-w-sm glass-panel rounded-2xl border border-slate-800 shadow-glass-shadow p-6 relative">
+            <button 
+              onClick={() => setShowForgotModal(false)}
+              className="absolute right-4 top-4 p-1.5 rounded bg-slate-900 border border-slate-750 text-slate-450 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            
+            <div className="text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400 shadow-neon-glow">
+                <KeyRound className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white">Reset Account Password</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                For security compliance, password recovery must be initiated by a **Super Administrator** via the Manager Management panel.
+              </p>
+              <div className="pt-3 text-left bg-slate-950/60 p-3 rounded-lg border border-slate-800 text-[10px] text-slate-450 leading-normal">
+                <span className="font-semibold text-slate-200 block mb-0.5">Need assistance?</span>
+                Contact your system supervisor or the primary Super Admin to reset your administrator credentials.
+              </div>
+              <button
+                onClick={() => setShowForgotModal(false)}
+                className="w-full py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-bold text-xs transition-all shadow-neon-glow"
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

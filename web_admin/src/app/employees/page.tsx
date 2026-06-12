@@ -28,6 +28,7 @@ interface Employee {
   mobile: string;
   face_embedding?: number[] | null;
   has_face_data: boolean;
+  is_active: boolean;
 }
 
 export default function EmployeesPage() {
@@ -43,6 +44,7 @@ export default function EmployeesPage() {
   // Add/Edit Modals states
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [onboardedCredentials, setOnboardedCredentials] = useState<{ employee_id: string; full_name: string } | null>(null);
 
   // Form inputs state
   const [empForm, setEmpForm] = useState({
@@ -50,7 +52,8 @@ export default function EmployeesPage() {
     full_name: '',
     department: 'Production',
     shift: 'Morning Shift',
-    mobile: ''
+    mobile: '',
+    is_active: true,
   });
 
   // Face Registration camera modal states
@@ -63,8 +66,36 @@ export default function EmployeesPage() {
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
   const [flashActive, setFlashActive] = useState(false);
   const [regError, setRegError] = useState('');
+  const [deletingEmp, setDeletingEmp] = useState<{ id: string; name: string } | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const playBeepNode = (type: 'success' | 'failure') => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      if (type === 'success') {
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.stop(ctx.currentTime + 0.18);
+      } else {
+        osc.frequency.setValueAtTime(220, ctx.currentTime);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.stop(ctx.currentTime + 0.35);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const videoRef = useCallback((node: HTMLVideoElement | null) => {
     videoElementRef.current = node;
@@ -101,7 +132,7 @@ export default function EmployeesPage() {
       if (data.success) {
         setEmployees(data.employees || []);
       } else {
-        setError(data.message || 'Failed to retrieve roster directory.');
+        setError(data.message || 'Failed to retrieve employee directory.');
       }
     } catch (err: any) {
       setError('Could not establish database connection.');
@@ -131,20 +162,26 @@ export default function EmployeesPage() {
           full_name: empForm.full_name,
           department: empForm.department,
           shift: empForm.shift,
-          mobile: empForm.mobile
+          mobile: empForm.mobile,
+          is_active: empForm.is_active,
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        showToastMsg('success', 'Employee created successfully');
+        setOnboardedCredentials({
+          employee_id: data.employee.employee_id,
+          full_name: data.employee.full_name,
+        });
+        showToastMsg('success', 'Employee onboarded successfully');
         setShowAddModal(false);
         setEmpForm({
           employee_id: '',
           full_name: '',
           department: 'Production',
           shift: 'Morning Shift',
-          mobile: ''
+          mobile: '',
+          is_active: true,
         });
         fetchEmployees();
       } else {
@@ -177,7 +214,8 @@ export default function EmployeesPage() {
           full_name: empForm.full_name,
           department: empForm.department,
           shift: empForm.shift,
-          mobile: empForm.mobile
+          mobile: empForm.mobile,
+          is_active: empForm.is_active,
         })
       });
 
@@ -200,8 +238,9 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleDeleteEmployee = async (id: string) => {
-    if (!confirm('Are you sure you want to remove this employee profile from database?')) return;
+  const handleDeleteEmployee = async () => {
+    if (!deletingEmp) return;
+    const { id } = deletingEmp;
     setActionLoading(true);
     try {
       const token = localStorage.getItem('access_token');
@@ -213,6 +252,7 @@ export default function EmployeesPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         showToastMsg('success', 'Employee deleted successfully');
+        setDeletingEmp(null);
         fetchEmployees();
       } else {
         let errorMsg = data.message || 'Failed to remove employee.';
@@ -336,6 +376,7 @@ export default function EmployeesPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setCaptureSuccess(true);
+        playBeepNode('success');
         
         // Wait 2 seconds for visual thumbnail feedback
         await new Promise(r => setTimeout(r, 2000));
@@ -348,6 +389,7 @@ export default function EmployeesPage() {
       }
     } catch (err: any) {
       console.error(err);
+      playBeepNode('failure');
       setRegError('Face not detected clearly. Please improve lighting and move closer to the camera.');
       showToastMsg('error', 'Face not detected clearly. Please improve lighting and move closer to the camera.');
     } finally {
@@ -362,7 +404,8 @@ export default function EmployeesPage() {
       full_name: emp.full_name,
       department: emp.department,
       shift: emp.shift,
-      mobile: emp.mobile
+      mobile: emp.mobile,
+      is_active: emp.is_active !== false,
     });
   };
 
@@ -374,7 +417,8 @@ export default function EmployeesPage() {
   });
 
   return (
-    <div className="space-y-8 animate-fade-in text-slate-100 relative">
+    <div className="space-y-8 text-slate-100 relative">
+      <div className="space-y-8 animate-fade-in">
       
       {/* Toast Alert Header Bar */}
       {toast && (
@@ -425,7 +469,8 @@ export default function EmployeesPage() {
                 full_name: '',
                 department: 'Production',
                 shift: 'Morning Shift',
-                mobile: ''
+                mobile: '',
+                is_active: true,
               });
               setShowAddModal(true);
             }}
@@ -443,7 +488,7 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* Main Roster grid list */}
+      {/* Main Employee Directory list */}
       <div className="glass-panel rounded-xl border border-slate-700 overflow-hidden shadow-lg">
         <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
           <span className="text-xs font-extrabold text-slate-200 uppercase tracking-wider">
@@ -465,13 +510,13 @@ export default function EmployeesPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                  <th className="pb-3 pt-4 pl-6">Employee ID</th>
-                  <th className="pb-3 pt-4">Name</th>
-                  <th className="pb-3 pt-4">Department</th>
-                  <th className="pb-3 pt-4">Assigned Shift</th>
-                  <th className="pb-3 pt-4">Mobile</th>
-                  <th className="pb-3 pt-4">Status & Face ID</th>
-                  <th className="pb-3 pt-4 pr-6 text-center">Actions</th>
+                  <th className="pb-3 pt-4 pl-6 w-[12%]">Employee ID</th>
+                  <th className="pb-3 pt-4 w-[20%]">Name</th>
+                  <th className="pb-3 pt-4 w-[14%]">Department</th>
+                  <th className="pb-3 pt-4 w-[14%]">Assigned Shift</th>
+                  <th className="pb-3 pt-4 w-[14%]">Mobile</th>
+                  <th className="pb-3 pt-4 w-[14%]">Status & Face ID</th>
+                  <th className="pb-3 pt-4 pr-6 text-center w-[12%]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850/50 text-xs text-slate-300">
@@ -484,9 +529,15 @@ export default function EmployeesPage() {
                     <td className="py-4 font-mono text-slate-200">{emp.mobile}</td>
                     <td className="py-4">
                       <div className="flex flex-col space-y-1">
-                        <span className="w-fit px-2 py-0.5 rounded text-[9px] font-bold bg-cyan-950/30 text-cyan-400 border border-cyan-500/10">
-                          ACTIVE
-                        </span>
+                        {emp.is_active !== false ? (
+                          <span className="w-fit px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-950/35 text-emerald-450 border border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.1)]">
+                            ACTIVE
+                          </span>
+                        ) : (
+                          <span className="w-fit px-2 py-0.5 rounded text-[9px] font-bold bg-rose-950/30 text-rose-400 border border-rose-500/20">
+                            SUSPENDED
+                          </span>
+                        )}
                         {emp.has_face_data ? (
                           <span className="w-fit inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-950/30 text-emerald-400 border border-emerald-500/20 neon-glow-emerald">
                             <Smile className="w-3 h-3 text-emerald-400" />
@@ -517,7 +568,7 @@ export default function EmployeesPage() {
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDeleteEmployee(emp.id)}
+                          onClick={() => setDeletingEmp({ id: emp.id, name: emp.full_name })}
                           className="p-1.5 rounded bg-slate-900 border border-slate-750 hover:bg-rose-950/20 hover:text-rose-450 text-slate-400 transition-colors"
                           title="Delete Profile"
                         >
@@ -531,6 +582,7 @@ export default function EmployeesPage() {
             </table>
           )}
         </div>
+      </div>
       </div>
 
       {/* Onboard Employee Modal */}
@@ -618,7 +670,7 @@ export default function EmployeesPage() {
                 disabled={actionLoading}
                 className="w-full py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold text-xs transition-all duration-300 shadow-neon-glow flex items-center justify-center space-x-1.5 mt-6 disabled:opacity-50"
               >
-                {actionLoading ? 'Creating...' : 'Register Employee Profile'}
+                {actionLoading ? 'Creating...' : 'Onboard Employee'}
               </button>
             </form>
           </div>
@@ -701,12 +753,24 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Account Status</label>
+                <select
+                  value={empForm.is_active ? "true" : "false"}
+                  onChange={(e) => setEmpForm({...empForm, is_active: e.target.value === "true"})}
+                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-550 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
+                >
+                  <option value="true">Active</option>
+                  <option value="false">Suspended</option>
+                </select>
+              </div>
+
               <button
                 type="submit"
                 disabled={actionLoading}
                 className="w-full py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold text-xs transition-all duration-300 shadow-neon-glow flex items-center justify-center space-x-1.5 mt-6 disabled:opacity-50"
               >
-                {actionLoading ? 'Saving...' : 'Update Roster Profile'}
+                {actionLoading ? 'Saving...' : 'Update Employee Profile'}
               </button>
             </form>
           </div>
@@ -715,12 +779,20 @@ export default function EmployeesPage() {
 
       {/* Webcam Face Registration Modal */}
       {faceRegEmp && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+        <div 
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex z-50 animate-fade-in"
+          style={{
+            marginTop: '40px',
+            paddingTop: '24px',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
           {/* Custom Scanner Animations */}
           <style dangerouslySetInnerHTML={{__html: `
             @keyframes scan {
-              0%, 100% { transform: translateY(-90px); opacity: 0.3; }
-              50% { transform: translateY(90px); opacity: 1; }
+              0%, 100% { transform: translateY(-70px); opacity: 0.3; }
+              50% { transform: translateY(70px); opacity: 1; }
             }
             .animate-scanner-scan {
               animation: scan 3.5s infinite ease-in-out;
@@ -742,42 +814,42 @@ export default function EmployeesPage() {
             }
           `}} />
 
-          <div className="w-full max-w-lg glass-panel rounded-2xl border border-slate-800 shadow-[0_0_60px_rgba(0,0,0,0.65)] p-6 relative">
-            {/* Close Button */}
-            <button 
-              onClick={closeFaceRegistration}
-              className="absolute right-4 top-4 p-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="w-full max-w-md glass-panel rounded-2xl border border-slate-800 shadow-[0_0_50px_rgba(0,0,0,0.6)] p-5 relative">
+              {/* Close Button */}
+              <button 
+                onClick={closeFaceRegistration}
+                className="absolute right-4 top-4 p-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-            {/* Modal Header */}
-            <div className="flex items-center space-x-3 border-b border-slate-800/80 pb-4 mb-5">
-              <div className="p-2.5 bg-cyan-950/30 border border-cyan-500/30 rounded-lg text-cyan-400">
-                <Camera className="w-5 h-5 animate-pulse" />
+              {/* Modal Header */}
+              <div className="flex items-center space-x-3 border-b border-slate-800/80 pb-4 mb-5">
+                <div className="p-2.5 bg-cyan-950/30 border border-cyan-500/30 rounded-lg text-cyan-400">
+                  <Camera className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-white">Face Biometric Scanner</h3>
+                  <p className="text-xs text-slate-350 mt-0.5 font-bold uppercase tracking-wider">
+                    Registering: <span className="text-cyan-400 font-mono">{faceRegEmp.full_name} ({faceRegEmp.employee_id})</span>
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-extrabold text-base text-white">Face Biometric Scanner</h3>
-                <p className="text-xs text-slate-350 mt-0.5 font-bold uppercase tracking-wider">
-                  Registering: <span className="text-cyan-400 font-mono">{faceRegEmp.full_name} ({faceRegEmp.employee_id})</span>
-                </p>
-              </div>
-            </div>
 
-            <div className="space-y-5">
-              {/* Hidden Canvas for Capturing Snapshots */}
-              <canvas ref={canvasRef} className="hidden" />
+              <div className="space-y-5">
+                {/* Hidden Canvas for Capturing Snapshots */}
+                <canvas ref={canvasRef} className="hidden" />
 
-              {/* Camera Frame Preview Container */}
-              <div className={`bg-slate-950 border rounded-2xl overflow-hidden relative aspect-[4/3] flex items-center justify-center transition-all duration-300 ${
-                captureSuccess 
-                  ? 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.25)]'
-                  : regError
-                    ? 'border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.15)]'
-                    : cameraStream 
-                      ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)]'
-                      : 'border-slate-800'
-              }`}>
+                {/* Camera Frame Preview Container */}
+                <div className={`bg-slate-950 border rounded-2xl overflow-hidden relative w-full aspect-square max-w-[300px] mx-auto flex items-center justify-center transition-all duration-300 ${
+                  captureSuccess 
+                    ? 'border-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.25)]'
+                    : regError
+                      ? 'border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.15)]'
+                      : cameraStream 
+                        ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)]'
+                        : 'border-slate-800'
+                }`}>
                 {/* 1. Loading/Initializing State */}
                 {isCameraInitializing && (
                   <div className="text-center space-y-3 z-10">
@@ -815,7 +887,8 @@ export default function EmployeesPage() {
                     autoPlay 
                     playsInline 
                     muted
-                    className="w-full h-full object-cover scale-x-[-1]" // mirror preview
+                    className="w-full h-full object-cover object-center scale-x-[-1]" // mirror preview
+                    style={{ objectFit: 'cover', objectPosition: 'center' }}
                   />
                 )}
 
@@ -839,17 +912,17 @@ export default function EmployeesPage() {
 
                 {/* 6. Face Scan Target Guide Overlay */}
                 {cameraStream && !isCapturing && !captureSuccess && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center translate-y-4 pointer-events-none z-10">
                     {/* Scanner Outer Ring with Spinning Effect */}
-                    <div className="w-56 h-56 rounded-full border border-dashed border-cyan-400/25 animate-spin-slow" />
+                    <div className="w-48 h-48 rounded-full border border-dashed border-cyan-400/25 animate-spin-slow" />
                     
                     {/* Glowing Target Circle */}
-                    <div className="absolute w-48 h-48 rounded-full border-2 border-cyan-400/60 shadow-[0_0_20px_rgba(0,229,255,0.2)] flex items-center justify-center">
+                    <div className="absolute w-40 h-40 rounded-full border-2 border-cyan-400/60 shadow-[0_0_20px_rgba(0,229,255,0.2)] flex items-center justify-center">
                       <div className="absolute inset-2 rounded-full border border-cyan-500/15" />
                     </div>
 
                     {/* Scanning pulse bar */}
-                    <div className="absolute w-48 h-[2px] bg-cyan-400/80 shadow-[0_0_12px_rgba(0,229,255,0.9)] animate-scanner-scan" />
+                    <div className="absolute w-40 h-[2px] bg-cyan-400/80 shadow-[0_0_12px_rgba(0,229,255,0.9)] animate-scanner-scan" />
 
                     {/* Instruction Tag */}
                     <span className="absolute bottom-6 text-[9px] font-extrabold text-cyan-400 tracking-widest uppercase bg-slate-950/90 border border-cyan-500/20 px-3 py-1 rounded-full shadow-[0_0_12px_rgba(0,229,255,0.1)]">
@@ -943,6 +1016,69 @@ export default function EmployeesPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingEmp && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="w-full max-w-sm glass-panel rounded-2xl border border-slate-800 shadow-[0_0_50px_rgba(0,0,0,0.6)] p-6 relative text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-950/30 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto mb-4">
+              <AlertTriangle className="w-6 h-6 text-rose-500 animate-pulse" />
+            </div>
+            <h3 className="font-extrabold text-base text-white mb-2">Delete Employee Profile</h3>
+            <p className="text-xs text-slate-355 leading-relaxed mb-6">
+              Are you sure you want to permanently remove <span className="text-white font-bold">{deletingEmp.name}</span> from the employee directory? This action cannot be undone.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setDeletingEmp(null)}
+                className="flex-1 py-2.5 rounded-lg bg-slate-900 border border-slate-750 text-slate-350 hover:text-white hover:bg-slate-850 text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteEmployee}
+                disabled={actionLoading}
+                className="flex-1 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+              >
+                {actionLoading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarded Confirmation Modal */}
+      {onboardedCredentials && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="w-full max-w-sm glass-panel rounded-2xl border border-emerald-500/30 shadow-[0_0_50px_rgba(16,185,129,0.15)] p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto mb-4">
+              <CheckCircle className="w-6 h-6 text-emerald-400" />
+            </div>
+            <h3 className="font-extrabold text-base text-white mb-1">Employee Profile Created!</h3>
+            <p className="text-xs text-slate-350 mb-6">
+              Employee profile has been successfully created. You can now register their face biometric scan.
+            </p>
+
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 text-left font-mono space-y-2 mb-6 text-xs select-all">
+              <div>
+                <span className="text-slate-400 block text-[10px] font-sans font-bold uppercase tracking-wider">Employee ID:</span>
+                <span className="text-cyan-400 font-bold">{onboardedCredentials.employee_id}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] font-sans font-bold uppercase tracking-wider">Full Name:</span>
+                <span className="text-white font-bold">{onboardedCredentials.full_name}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setOnboardedCredentials(null)}
+              className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition-all shadow-neon-glow flex items-center justify-center cursor-pointer"
+            >
+              Done Onboarding
+            </button>
           </div>
         </div>
       )}
