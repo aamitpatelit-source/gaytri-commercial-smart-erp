@@ -271,56 +271,10 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         throw Exception('No face profile photo registered for this employee.');
       }
 
-      Uint8List bytes;
-      if (photoUrl.startsWith('data:image')) {
-        final base64Content = photoUrl.split(',')[1];
-        bytes = base64.decode(base64Content);
-      } else {
-        try {
-          bytes = base64.decode(photoUrl);
-        } catch (_) {
-          final response = await http.get(Uri.parse(photoUrl)).timeout(const Duration(seconds: 5));
-          if (response.statusCode == 200) {
-            bytes = response.bodyBytes;
-          } else {
-            throw Exception('Failed to download profile photo.');
-          }
-        }
-      }
-
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/reg_${_selectedEmployee!.id}.jpg');
-      await tempFile.writeAsBytes(bytes);
-
-      final inputImage = InputImage.fromFilePath(tempFile.path);
-      final faces = await _faceRecognitionService.detectFaces(inputImage);
-
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-
-      if (faces.isEmpty) {
-        throw Exception('Unclear face in registered profile photo. Re-enroll in Admin portal.');
-      }
-
-      final face = faces.first;
-      if (face.landmarks[FaceLandmarkType.leftEye] == null ||
-          face.landmarks[FaceLandmarkType.rightEye] == null ||
-          face.landmarks[FaceLandmarkType.noseBase] == null) {
-        throw Exception('Key facial features not visible in registered photo.');
-      }
-
-      final embedding = _faceRecognitionService.getLandmarkEmbedding(face);
-      bool isZero = true;
-      for (final val in embedding) {
-        if (val != 0.0) {
-          isZero = false;
-          break;
-        }
-      }
-      if (isZero) {
-        throw Exception('Biometric feature extraction failed on registered photo.');
-      }
+      final embedding = await _faceRecognitionService.extractEmbeddingFromProfilePhoto(
+        photoUrl,
+        _selectedEmployee!.id,
+      );
 
       if (_registeredFaceEmbedding != null) return;
       setState(() {
@@ -330,12 +284,187 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       });
     } catch (e) {
       if (_registeredFaceEmbedding != null) return;
+      
+      final errorMsg = e.toString().replaceAll('Exception:', '').trim();
       setState(() {
-        _templateError = e.toString().replaceAll('Exception:', '').trim();
+        _templateError = errorMsg;
         _loadingTemplate = false;
         _scanningStatus = 'Template extraction failed.';
       });
+
     }
+  }
+
+  void _showQualityDiagnosticModal(String errorDetail) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: AppTheme.cardBg,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.errorRed.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.portrait_rounded,
+                        color: AppTheme.errorRed,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Text(
+                        'Employee Photo Verification Failed',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'The registered employee image could not be processed for biometric matching. Please upload a clear front-facing image in the admin portal.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.mutedText,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withOpacity(0.04)),
+                  ),
+                  child: Text(
+                    'Diagnostic Reason:\n$errorDetail',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      color: AppTheme.errorRed.withOpacity(0.95),
+                      fontWeight: FontWeight.w600,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _showHelpInfo();
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.white12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Open Help',
+                          style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _extractRegisteredTemplate();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.neonCyan,
+                          foregroundColor: AppTheme.darkBg,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Retry',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: const Text(
+                      'Continue Anyway',
+                      style: TextStyle(fontSize: 12, color: AppTheme.mutedText, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showHelpInfo() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.cardBg,
+        title: const Text('Image Upload Guidelines', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('To ensure reliable face recognition:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            SizedBox(height: 8),
+            Text('• Face must be centered and fully visible', style: TextStyle(color: AppTheme.mutedText, fontSize: 12)),
+            Text('• Eyes must be open and looking at camera', style: TextStyle(color: AppTheme.mutedText, fontSize: 12)),
+            Text('• Avoid caps, masks, shadows or sunglasses', style: TextStyle(color: AppTheme.mutedText, fontSize: 12)),
+            Text('• Image must be bright and sharp (no blur)', style: TextStyle(color: AppTheme.mutedText, fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close', style: TextStyle(color: AppTheme.neonCyan)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _startHeartbeatChecker() {
@@ -1795,7 +1924,67 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
             ),
           ),
           const SizedBox(height: 10),
-          if (!_isScanning)
+          if (!_isScanning) ...[
+            GestureDetector(
+              onTap: _templateError == null
+                  ? null
+                  : () => _showQualityDiagnosticModal(_templateError!),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: _loadingTemplate
+                      ? Colors.white.withOpacity(0.04)
+                      : _templateError != null
+                          ? AppTheme.errorRed.withOpacity(0.08)
+                          : AppTheme.successGreen.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _loadingTemplate
+                        ? Colors.white10
+                        : _templateError != null
+                            ? AppTheme.errorRed.withOpacity(0.2)
+                            : AppTheme.successGreen.withOpacity(0.2),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    Icon(
+                      _loadingTemplate
+                          ? Icons.sync_rounded
+                          : _templateError != null
+                              ? Icons.error_outline_rounded
+                              : Icons.check_circle_outline_rounded,
+                      size: 14,
+                      color: _loadingTemplate
+                          ? AppTheme.mutedText
+                          : _templateError != null
+                              ? AppTheme.errorRed
+                              : AppTheme.successGreen,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _loadingTemplate
+                          ? 'VALIDATING BIOMETRIC PROFILE...'
+                          : _templateError != null
+                              ? 'EMPLOYEE PROFILE IMAGE INVALID (TAP TO DIAGNOSE)'
+                              : 'EMPLOYEE BIOMETRIC PROFILE READY',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: _loadingTemplate
+                            ? AppTheme.mutedText
+                            : _templateError != null
+                                ? AppTheme.errorRed
+                                : AppTheme.successGreen,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             SizedBox(
               width: double.infinity,
               height: 40,
@@ -1845,8 +2034,8 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                   ),
                 ),
               ),
-            )
-          else
+            ),
+          ] else
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4.0),
               child: Row(
