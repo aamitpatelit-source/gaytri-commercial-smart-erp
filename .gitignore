@@ -26,4 +26,6 @@ ios/Pods/
 .DS_Store
 
 # APK
-*.apk
+*.apk.env
+.env.local
+*.log
