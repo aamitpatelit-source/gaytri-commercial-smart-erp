@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS employees (
     password_hash VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     face_embedding REAL[] CHECK (array_ndims(face_embedding) = 1 AND (array_length(face_embedding, 1) = 128 OR array_length(face_embedding, 1) IS NULL)),
+    biometric_embedding TEXT,
+    biometric_enrolled BOOLEAN DEFAULT FALSE,
+    biometric_enrolled_at TIMESTAMP WITH TIME ZONE,
     profile_photo_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -78,3 +81,44 @@ CREATE TABLE IF NOT EXISTS attendance_settings (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Biometric Audit Logs Table
+CREATE TABLE IF NOT EXISTS biometric_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    similarity_score REAL,
+    result VARCHAR(20) CHECK (result IN ('SUCCESS', 'FAILED')),
+    device_id VARCHAR(150),
+    ip_address VARCHAR(50),
+    liveness_status JSONB,
+    failure_reason TEXT,
+    nonce VARCHAR(100) UNIQUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Biometric History Table (Archived Embeddings)
+CREATE TABLE IF NOT EXISTS biometric_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+    biometric_embedding TEXT,
+    archived_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Re-Enrollment Requests Table
+CREATE TABLE IF NOT EXISTS re_enrollment_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+    requested_by UUID REFERENCES admins(id) ON DELETE SET NULL,
+    new_embedding TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    admin_notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance & integrity lookup
+CREATE INDEX IF NOT EXISTS idx_biometric_audit_logs_nonce ON biometric_audit_logs(nonce);
+CREATE INDEX IF NOT EXISTS idx_biometric_audit_logs_emp ON biometric_audit_logs(employee_id);
+CREATE INDEX IF NOT EXISTS idx_re_enrollment_requests_emp ON re_enrollment_requests(employee_id);
+

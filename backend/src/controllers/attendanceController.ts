@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { query } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
+import { decryptBiometric } from './employeeController';
+import { BiometricService } from '../services/biometricService';
 
 const FACTORY_LAT = 23.0225;
 const FACTORY_LNG = 72.5714;
@@ -65,8 +67,39 @@ export const calculateWorkingHours = (checkInStr: string, checkOutStr: string): 
   }
 };
 
+const writeAuditLog = async (
+  employeeUuid: string | null,
+  similarityScore: number | null,
+  result: 'SUCCESS' | 'FAILED',
+  deviceId: string | null,
+  ipAddress: string | null,
+  livenessStatus: any,
+  failureReason: string | null,
+  nonce: string | null
+) => {
+  try {
+    await query(
+      `INSERT INTO biometric_audit_logs (employee_id, similarity_score, result, device_id, ip_address, liveness_status, failure_reason, nonce)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        employeeUuid,
+        similarityScore,
+        result,
+        deviceId,
+        ipAddress,
+        livenessStatus ? JSON.stringify(livenessStatus) : null,
+        failureReason,
+        nonce
+      ]
+    );
+  } catch (err) {
+    console.error('[Audit Log Error] Failed to write biometric audit log:', err);
+  }
+};
+
 export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response) => {
-  const { employee_id, face_embedding, gps_lat, gps_lng, device_id } = req.body;
+  const { employee_id, face_embedding, gps_lat, gps_lng, device_id, nonce, timestamp, liveness_metadata } = req.body;
+  const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || null;
 
   // 0. Enforce strict identity matching for employees
   if (req.user && req.user.role === 'EMPLOYEE') {
@@ -79,17 +112,103 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
     }
   }
 
+  // Find employee first to associate with audit logs if possible
+  let employee: any = null;
+  let employeeUuid: string | null = null;
+  if (employee_id) {
+    try {
+      const candidates = await BiometricService.getMatchingCandidates(employee_id);
+      if (candidates && candidates.length > 0) {
+        employee = candidates[0];
+        employeeUuid = employee.id;
+      }
+    } catch (err) {
+      console.error('[Biometric Verification] Error fetching candidate:', err);
+    }
+  }
+
+  // 1. Replay Prevention: Check nonce and timestamp
+  if (!nonce) {
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_NONCE', null);
+    return res.status(400).json({ success: false, error_code: 'REPLAY_ATTEMPT_DETECTED', message: 'Request nonce is required.' });
+  }
+
+  if (!timestamp) {
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_TIMESTAMP', nonce);
+    return res.status(400).json({ success: false, error_code: 'REPLAY_ATTEMPT_DETECTED', message: 'Request timestamp is required.' });
+  }
+
+  const clientTime = Number(timestamp);
+  if (isNaN(clientTime) || Math.abs(Date.now() - clientTime) > 10000) { // 10 seconds boundary
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'TIMESTAMP_OUT_OF_BOUNDS', nonce);
+    return res.status(400).json({
+      success: false,
+      error_code: 'REPLAY_ATTEMPT_DETECTED',
+      message: 'Request timestamp is invalid or expired.'
+    });
+  }
+
+  try {
+    const nonceCheck = await query('SELECT id FROM biometric_audit_logs WHERE nonce = $1 LIMIT 1', [nonce]);
+    if (nonceCheck.rows.length > 0) {
+      await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'DUPLICATE_NONCE', nonce);
+      return res.status(400).json({
+        success: false,
+        error_code: 'REPLAY_ATTEMPT_DETECTED',
+        message: 'Duplicate request detected (replay prevention).'
+      });
+    }
+  } catch (err) {
+    console.error('[Biometric Verification] Nonce check error:', err);
+  }
+
+  // 2. Liveness Validation Check
+  if (!liveness_metadata || liveness_metadata.success !== true) {
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'LIVENESS_CHECK_FAILED', nonce);
+    return res.status(400).json({
+      success: false,
+      error_code: 'LIVENESS_CHECK_FAILED',
+      message: '❌ Liveness validation check failed. Please look at the camera and perform the prompt.'
+    });
+  }
+
+  // 3. Rate Limiting Check
+  try {
+    const rateLimitRes = await query(
+      `SELECT COUNT(*) FROM biometric_audit_logs 
+       WHERE (employee_id = $1 OR device_id = $2) 
+         AND result = 'FAILED' 
+         AND timestamp >= NOW() - INTERVAL '1 minute'`,
+      [employeeUuid, device_id || null]
+    );
+    const failedAttempts = parseInt(rateLimitRes.rows[0].count);
+    if (failedAttempts >= 5) {
+      await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'RATE_LIMIT_EXCEEDED', nonce);
+      return res.status(429).json({
+        success: false,
+        error_code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many failed attempts. Please wait 1 minute before trying again.'
+      });
+    }
+  } catch (err) {
+    console.error('[Biometric Verification] Rate limit check error:', err);
+  }
+
+  // 4. Face embedding validation
   if (!face_embedding || !Array.isArray(face_embedding) || face_embedding.length !== 128) {
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'INVALID_EMBEDDING', nonce);
     return res.status(400).json({ success: false, message: 'Invalid or missing face embedding vector.' });
   }
 
-  // 1. Geofence Check
+  // 5. Geofence Check
   if (gps_lat === undefined || gps_lng === undefined) {
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_GPS', nonce);
     return res.status(400).json({ success: false, message: 'GPS coordinates are required.' });
   }
 
   const distance = calculateDistance(gps_lat, gps_lng, FACTORY_LAT, FACTORY_LNG);
   if (distance > GEOFENCE_RADIUS_METERS) {
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'GEOFENCE_VIOLATION', nonce);
     return res.status(403).json({
       success: false,
       message: `Geofence block: You are ${distance.toFixed(0)} meters from the factory. Allowed range is 150m.`,
@@ -97,48 +216,87 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
   }
 
   try {
-    let employee: any = null;
     let similarity = 0.0;
-    const MATCH_THRESHOLD = 0.92;
+    const MATCH_THRESHOLD = Number(process.env.BIOMETRIC_MATCH_THRESHOLD) || 0.82;
+    const REJECT_THRESHOLD = Number(process.env.BIOMETRIC_REJECT_THRESHOLD) || 0.70;
 
     if (employee_id) {
-      // 1:1 strict biometric verification matching
-      const result = await query(
-        'SELECT id, employee_id, full_name, face_embedding FROM employees WHERE (id::text = $1 OR employee_id = $1) AND face_embedding IS NOT NULL',
-        [employee_id]
-      );
-      if (result.rows.length === 0) {
+      if (!employee) {
+        await writeAuditLog(null, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'EMPLOYEE_NOT_FOUND', nonce);
         return res.status(404).json({
           success: false,
           message: '❌ Employee records not found or face profile not enrolled.',
         });
       }
-      employee = result.rows[0];
-      similarity = calculateSimilarity(face_embedding, employee.face_embedding);
+
+      let storedEmbedding: number[] | null = null;
+      if (employee.biometric_enrolled && employee.biometric_embedding) {
+        try {
+          const decrypted = decryptBiometric(employee.biometric_embedding);
+          storedEmbedding = JSON.parse(decrypted);
+        } catch (err) {
+          console.error('[Biometric Verification] Failed to decrypt/parse biometric_embedding:', err);
+        }
+      }
+      if (!storedEmbedding) {
+        storedEmbedding = employee.face_embedding;
+      }
+      if (!storedEmbedding || storedEmbedding.length !== 128) {
+        await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'INVALID_STORED_EMBEDDING', nonce);
+        return res.status(400).json({ success: false, message: 'Invalid stored face profile embedding.' });
+      }
+      similarity = BiometricService.calculateSimilarity(face_embedding, storedEmbedding);
     } else {
       // 1:N fallback matching if employee_id not provided
-      const result = await query(
-        'SELECT id, employee_id, full_name, face_embedding FROM employees WHERE face_embedding IS NOT NULL'
-      );
+      const candidates = await BiometricService.getMatchingCandidates();
       let bestMatch: any = null;
       let highestScore = 0.0;
-      for (const emp of result.rows) {
-        const score = calculateSimilarity(face_embedding, emp.face_embedding);
-        if (score > highestScore) {
-          highestScore = score;
-          bestMatch = emp;
+      for (const emp of candidates) {
+        let storedEmbedding: number[] | null = null;
+        if (emp.biometric_enrolled && emp.biometric_embedding) {
+          try {
+            const decrypted = decryptBiometric(emp.biometric_embedding);
+            storedEmbedding = JSON.parse(decrypted);
+          } catch (err) {
+            // ignore
+          }
+        }
+        if (!storedEmbedding) {
+          storedEmbedding = emp.face_embedding;
+        }
+        if (storedEmbedding && storedEmbedding.length === 128) {
+          const score = BiometricService.calculateSimilarity(face_embedding, storedEmbedding);
+          if (score > highestScore) {
+            highestScore = score;
+            bestMatch = emp;
+          }
         }
       }
       employee = bestMatch;
+      employeeUuid = employee ? employee.id : null;
       similarity = highestScore;
     }
 
-    if (!employee || similarity < MATCH_THRESHOLD) {
-      console.warn(`[Attendance Gateway] Face verification failed: Match confidence ${(similarity * 100).toFixed(1)}% is below threshold ${(MATCH_THRESHOLD * 100).toFixed(1)}%`);
+    // Check reject threshold
+    if (!employee || similarity < REJECT_THRESHOLD) {
+      console.warn(`[Attendance Gateway] Face verification failed: Match confidence ${(similarity * 100).toFixed(1)}% is below reject threshold ${(REJECT_THRESHOLD * 100).toFixed(1)}%`);
+      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'BIOMETRIC_VERIFICATION_FAILED', nonce);
       return res.status(401).json({
         success: false,
-        error_code: 'FACE_MISMATCH',
+        error_code: 'BIOMETRIC_VERIFICATION_FAILED',
         message: '❌ Face does not match employee records.\nPlease try again with the correct person.',
+        confidence: Math.round(similarity * 100),
+      });
+    }
+
+    // Check match threshold (retry state)
+    if (similarity < MATCH_THRESHOLD) {
+      console.warn(`[Attendance Gateway] Face verification warning: Match confidence ${(similarity * 100).toFixed(1)}% is below match threshold ${(MATCH_THRESHOLD * 100).toFixed(1)}%`);
+      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'BIOMETRIC_RETRY_REQUIRED', nonce);
+      return res.status(400).json({
+        success: false,
+        error_code: 'BIOMETRIC_RETRY_REQUIRED',
+        message: '❌ Face match confidence is low. Please adjust lighting and retry.',
         confidence: Math.round(similarity * 100),
       });
     }
@@ -146,6 +304,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
     // Biometric replay / exact match protection (indicator of spoofing/replay)
     if (similarity > 0.999) {
       console.warn(`[Security Alert] Biometric replay detected for employee: ${employee.full_name} (${employee.employee_id}). Similarity: ${similarity}`);
+      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'SPOOF_ATTEMPT_DETECTED', nonce);
       return res.status(400).json({
         success: false,
         error_code: 'SPOOF_ATTEMPT_DETECTED',
@@ -182,6 +341,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
       if (prevCheckout) {
         // Attendance already completed today.
         console.warn(`[Attendance Gateway] Blocked checkout scan: ${employee.full_name} (${employee.employee_id}) already completed shift for date ${today}.`);
+        await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'ATTENDANCE_COMPLETED', nonce);
         return res.status(409).json({
           success: false,
           error_code: "ATTENDANCE_COMPLETED",
@@ -206,6 +366,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
 
       if (diffSeconds < 300) {
         console.warn(`[Attendance Gateway] Blocked checkout scan: ${employee.full_name} (${employee.employee_id}) scanned again within 5 minutes (diff: ${diffSeconds}s).`);
+        await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'DUPLICATE_SCAN', nonce);
         return res.status(429).json({
           success: false,
           error_code: 'DUPLICATE_SCAN',
@@ -223,6 +384,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
       );
 
       console.log(`[Attendance Gateway] Success: ${employee.full_name} (${employee.employee_id}) early checkout recorded. Working hours: ${workingHours}`);
+      await writeAuditLog(employeeUuid, similarity, 'SUCCESS', device_id || null, ipAddress, liveness_metadata, null, nonce);
 
       return res.status(200).json({
         success: true,
@@ -272,6 +434,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
     );
 
     console.log(`[Attendance Gateway] Success: ${employee.full_name} (${employee.employee_id}) checked in. Confidence: ${(similarity * 100).toFixed(1)}%, Status: ${status}, GPS: [${gps_lat}, ${gps_lng}]`);
+    await writeAuditLog(employeeUuid, similarity, 'SUCCESS', device_id || null, ipAddress, liveness_metadata, null, nonce);
 
     return res.status(200).json({
       success: true,
@@ -284,6 +447,7 @@ export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response)
     });
   } catch (error) {
     console.error('[Attendance Gateway Error] Verification failed:', error);
+    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'INTERNAL_SERVER_ERROR', nonce);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };

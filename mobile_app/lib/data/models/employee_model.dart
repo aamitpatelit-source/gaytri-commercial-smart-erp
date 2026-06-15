@@ -5,7 +5,8 @@ class EmployeeModel {
   final String department;
   final String shift;
   final String mobile;
-  final List<double>? faceEmbedding;
+  final List<double>? biometricEmbedding;
+  final bool biometricEnrolled;
   final String? profilePhotoUrl;
 
   EmployeeModel({
@@ -15,11 +16,19 @@ class EmployeeModel {
     required this.department,
     required this.shift,
     required this.mobile,
-    this.faceEmbedding,
+    this.biometricEmbedding,
+    required this.biometricEnrolled,
     this.profilePhotoUrl,
   });
 
   factory EmployeeModel.fromJson(Map<String, dynamic> json) {
+    final hasBiometricEmbedding = json['biometric_embedding'] != null;
+    final List<dynamic>? embeddingList = hasBiometricEmbedding 
+        ? json['biometric_embedding'] as List<dynamic>?
+        : json['face_embedding'] as List<dynamic>?;
+        
+    final enrolled = json['biometric_enrolled'] as bool? ?? (embeddingList != null && embeddingList.isNotEmpty);
+
     return EmployeeModel(
       id: json['id'] as String,
       employeeId: json['employee_id'] as String,
@@ -27,8 +36,9 @@ class EmployeeModel {
       department: json['department'] as String? ?? 'Production',
       shift: json['shift'] as String? ?? 'Morning Shift',
       mobile: json['mobile'] as String? ?? '',
-      faceEmbedding: json['face_embedding'] != null
-          ? List<double>.from((json['face_embedding'] as List).map((x) => double.parse(x.toString())))
+      biometricEnrolled: enrolled,
+      biometricEmbedding: embeddingList != null
+          ? List<double>.from(embeddingList.map((x) => double.parse(x.toString())))
           : null,
       profilePhotoUrl: json['profile_photo_url'] as String?,
     );
@@ -42,7 +52,9 @@ class EmployeeModel {
       'department': department,
       'shift': shift,
       'mobile': mobile,
-      'face_embedding': faceEmbedding,
+      'biometric_enrolled': biometricEnrolled,
+      'biometric_embedding': biometricEmbedding,
+      'face_embedding': biometricEmbedding,
       'profile_photo_url': profilePhotoUrl,
     };
   }

@@ -17,6 +17,7 @@ import '../../data/models/employee_model.dart';
 import '../../core/services/face_recognition_service.dart';
 import '../../core/utils/audio_helper.dart';
 import 'login_screen.dart';
+import 'biometric_enrollment_screen.dart';
 
 enum VerificationStep {
   liveCamera,
@@ -81,6 +82,30 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   bool _livenessVerified = false;
   int _consecutiveStableFrames = 0;
   final List<List<double>> _stableEmbeddings = [];
+
+  // Active Liveness Challenge tracking variables
+  String _activeChallenge = 'blinkTwice';
+  bool _challengeSuccess = false;
+  int _blinkCount = 0;
+  bool _eyesClosed = false;
+  double? _initialPitch;
+
+  String get _challengeGuidancePrompt {
+    switch (_activeChallenge) {
+      case 'blinkTwice':
+        return 'Look straight and blink twice';
+      case 'turnLeft':
+        return 'Turn your head to the left';
+      case 'turnRight':
+        return 'Turn your head to the right';
+      case 'smile':
+        return 'Please smile at the camera';
+      case 'nod':
+        return 'Nod your head up and down';
+      default:
+        return 'Blink and turn your head';
+    }
+  }
 
   // Camera fields
   CameraController? _cameraController;
@@ -228,19 +253,22 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       if (data['success'] == true) {
         final List list = data['employees'] ?? [];
         final parsed = list.map((json) => EmployeeModel.fromJson(json)).toList();
-        final enrolled = parsed.where((emp) => emp.faceEmbedding != null && emp.faceEmbedding!.isNotEmpty).toList();
+        final enrolled = parsed.where((emp) => emp.biometricEnrolled).toList();
 
         if (mounted) {
           setState(() {
             _registeredEmployees = enrolled;
             if (enrolled.isNotEmpty) {
               _selectedEmployee = enrolled.first;
+              _registeredFaceEmbedding = _selectedEmployee!.biometricEmbedding;
+              _scanningStatus = 'Face template ready. Align face to scan.';
+            } else {
+              _selectedEmployee = null;
+              _registeredFaceEmbedding = null;
+              _scanningStatus = 'Select an employee to start';
             }
             _loadingEmployees = false;
           });
-          if (enrolled.isNotEmpty && _isRealDetection) {
-            _extractRegisteredTemplate();
-          }
         }
       } else {
         throw Exception(data['message'] ?? 'Failed to load employees.');
@@ -256,43 +284,13 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   }
 
   Future<void> _extractRegisteredTemplate() async {
-    if (_selectedEmployee == null || !_isRealDetection) return;
-
+    if (_selectedEmployee == null) return;
     setState(() {
-      _loadingTemplate = true;
+      _registeredFaceEmbedding = _selectedEmployee!.biometricEmbedding;
+      _loadingTemplate = false;
       _templateError = null;
-      _registeredFaceEmbedding = null;
-      _scanningStatus = 'Loading face template...';
+      _scanningStatus = 'Face template ready. Align face to scan.';
     });
-
-    try {
-      final photoUrl = _selectedEmployee!.profilePhotoUrl;
-      if (photoUrl == null || photoUrl.isEmpty) {
-        throw Exception('No face profile photo registered for this employee.');
-      }
-
-      final embedding = await _faceRecognitionService.extractEmbeddingFromProfilePhoto(
-        photoUrl,
-        _selectedEmployee!.id,
-      );
-
-      if (_registeredFaceEmbedding != null) return;
-      setState(() {
-        _registeredFaceEmbedding = embedding;
-        _loadingTemplate = false;
-        _scanningStatus = 'Face template ready. Align face to scan.';
-      });
-    } catch (e) {
-      if (_registeredFaceEmbedding != null) return;
-      
-      final errorMsg = e.toString().replaceAll('Exception:', '').trim();
-      setState(() {
-        _templateError = errorMsg;
-        _loadingTemplate = false;
-        _scanningStatus = 'Template extraction failed.';
-      });
-
-    }
   }
 
   void _showQualityDiagnosticModal(String errorDetail) {
@@ -673,6 +671,14 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       _rightEyeClosedDetected = false;
       _isProcessingFrame = false;
       _consecutiveStableFrames = 0;
+
+      // Select random challenge and reset challenge states
+      final challenges = ['blinkTwice', 'turnLeft', 'turnRight', 'smile', 'nod'];
+      _activeChallenge = challenges[Random().nextInt(challenges.length)];
+      _challengeSuccess = false;
+      _blinkCount = 0;
+      _eyesClosed = false;
+      _initialPitch = null;
     });
 
     if (kIsWeb || _cameraController == null) {
@@ -764,56 +770,41 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   void _updateLivenessData(Face face) {
     final leftOpen = face.leftEyeOpenProbability ?? 1.0;
     final rightOpen = face.rightEyeOpenProbability ?? 1.0;
-    
-    if (leftOpen < 0.25 || rightOpen < 0.25) {
-      _leftEyeClosedDetected = true;
-      _rightEyeClosedDetected = true;
-    }
-    if ((_leftEyeClosedDetected || _rightEyeClosedDetected) && (leftOpen > 0.70 || rightOpen > 0.70)) {
-      _blinkDetected = true;
-    }
-
     final yaw = face.headEulerAngleY ?? 0.0;
     final pitch = face.headEulerAngleX ?? 0.0;
-    
-    _yawHistory.add(yaw);
-    _pitchHistory.add(pitch);
-    
-    if (_yawHistory.length > 15) _yawHistory.removeAt(0);
-    if (_pitchHistory.length > 15) _pitchHistory.removeAt(0);
-    
-    if (_yawHistory.length >= 5) {
-      final double maxYaw = _yawHistory.reduce(max);
-      final double minYaw = _yawHistory.reduce(min);
-      final double maxPitch = _pitchHistory.reduce(max);
-      final double minPitch = _pitchHistory.reduce(min);
-      
-      final double yawDiff = (maxYaw - minYaw).abs();
-      final double pitchDiff = (maxPitch - minPitch).abs();
-      
-      if (yawDiff > 0.3 || pitchDiff > 0.3) {
-        _motionDetected = true;
-      }
-    }
+    final smileProb = face.smilingProbability ?? 0.0;
 
-    final nosePos = face.landmarks[FaceLandmarkType.noseBase]?.position;
-    if (nosePos != null) {
-      _noseHistory.add(nosePos);
-      if (_noseHistory.length > 15) _noseHistory.removeAt(0);
-      if (_noseHistory.length >= 5) {
-        double maxNoseDist = 0.0;
-        for (int i = 0; i < _noseHistory.length; i++) {
-          for (int j = i + 1; j < _noseHistory.length; j++) {
-            final double dx = (_noseHistory[i].x - _noseHistory[j].x).toDouble();
-            final double dy = (_noseHistory[i].y - _noseHistory[j].y).toDouble();
-            final double dist = sqrt(dx * dx + dy * dy);
-            if (dist > maxNoseDist) {
-              maxNoseDist = dist;
-            }
-          }
-        }
-        if (maxNoseDist > 0.5) {
-          _motionDetected = true;
+    if (_activeChallenge == 'blinkTwice') {
+      if (leftOpen < 0.25 && rightOpen < 0.25) {
+        _eyesClosed = true;
+      }
+      if (_eyesClosed && leftOpen > 0.70 && rightOpen > 0.70) {
+        _blinkCount++;
+        _eyesClosed = false;
+        debugPrint('[Liveness] Blink count: $_blinkCount');
+      }
+      if (_blinkCount >= 2) {
+        _challengeSuccess = true;
+      }
+    } else if (_activeChallenge == 'turnLeft') {
+      if (yaw > 15.0) {
+        _challengeSuccess = true;
+      }
+    } else if (_activeChallenge == 'turnRight') {
+      if (yaw < -15.0) {
+        _challengeSuccess = true;
+      }
+    } else if (_activeChallenge == 'smile') {
+      if (smileProb > 0.75) {
+        _challengeSuccess = true;
+      }
+    } else if (_activeChallenge == 'nod') {
+      if (_initialPitch == null) {
+        _initialPitch = pitch;
+      } else {
+        final pitchDiff = (pitch - _initialPitch!).abs();
+        if (pitchDiff > 10.0) {
+          _challengeSuccess = true;
         }
       }
     }
@@ -869,15 +860,17 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     final yaw = face.headEulerAngleY ?? 0;
     final pitch = face.headEulerAngleX ?? 0;
 
-    if (yaw.abs() > 10.0 || pitch.abs() > 10.0) {
-      _consecutiveStableFrames = 0;
-      _stableEmbeddings.clear();
-      setState(() {
-        _currentStep = VerificationStep.detectingFace;
-        _scanningStatus = 'Look straight at the camera.';
-        _verifyProgress = 0.20;
-      });
-      return;
+    if (_currentStep == VerificationStep.detectingFace || _currentStep == VerificationStep.liveCamera) {
+      if (yaw.abs() > 10.0 || pitch.abs() > 10.0) {
+        _consecutiveStableFrames = 0;
+        _stableEmbeddings.clear();
+        setState(() {
+          _currentStep = VerificationStep.detectingFace;
+          _scanningStatus = 'Look straight at the camera.';
+          _verifyProgress = 0.20;
+        });
+        return;
+      }
     }
 
     _consecutiveStableFrames++;
@@ -893,7 +886,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     if (_currentStep == VerificationStep.detectingFace || _currentStep == VerificationStep.liveCamera) {
       setState(() {
         _currentStep = VerificationStep.verifyingLiveness;
-        _scanningStatus = 'Verifying Liveness: Blink & tilt head';
+        _scanningStatus = _challengeGuidancePrompt;
         _verifyProgress = 0.40;
       });
     }
@@ -902,11 +895,11 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       _updateLivenessData(face);
 
       if (_scanStartTime != null && DateTime.now().difference(_scanStartTime!).inSeconds > 6) {
-        _abortAndResetScan('Liveness check timed out. No motion or blink detected.');
+        _abortAndResetScan('Liveness check timed out. Challenge not completed.');
         return;
       }
 
-      if (_blinkDetected && _motionDetected) {
+      if (_challengeSuccess) {
         setState(() {
           _currentStep = VerificationStep.matchingIdentity;
           _scanningStatus = 'Liveness Verified';
@@ -914,16 +907,8 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         });
       } else {
         setState(() {
-          String hint = 'Liveness: ';
-          if (!_blinkDetected && !_motionDetected) {
-            hint += 'Blink and move head slightly';
-          } else if (!_blinkDetected) {
-            hint += 'Please blink your eyes';
-          } else {
-            hint += 'Turn head slightly';
-          }
-          _scanningStatus = hint;
-          _verifyProgress = 0.40 + (_blinkDetected ? 0.10 : 0.0) + (_motionDetected ? 0.10 : 0.0);
+          _scanningStatus = _challengeGuidancePrompt;
+          _verifyProgress = 0.40;
         });
         return;
       }
@@ -1002,6 +987,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     }
   }
 
+  String _generateNonce() {
+    final random = Random.secure();
+    final values = List<int>.generate(16, (i) => random.nextInt(256));
+    return values.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
   Future<void> _submitVerificationToBackend(List<double> embedding) async {
     try {
       final token = await _storage.read(key: 'access_token');
@@ -1021,6 +1012,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
           'gps_lat': 23.0225,
           'gps_lng': 72.5714,
           'device_id': 'Factory Gate A Mobile Unit',
+          'nonce': _generateNonce(),
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'liveness_metadata': {
+            'challenge': _activeChallenge,
+            'success': _challengeSuccess,
+          },
         }),
       ).timeout(const Duration(seconds: 10));
 
@@ -1524,6 +1521,19 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
             letterSpacing: 1.0,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add_rounded, color: AppTheme.neonCyan),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const BiometricEnrollmentScreen(),
+                ),
+              ).then((_) => _fetchRegisteredEmployees());
+            },
+            tooltip: 'Enroll Biometrics',
+          ),
+        ],
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       extendBodyBehindAppBar: true,
@@ -1723,18 +1733,14 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                       if (val != null) {
                         setState(() {
                           _selectedEmployee = val;
+                          _registeredFaceEmbedding = val.biometricEmbedding;
                           _stableEmbeddings.clear();
                           _verifyProgress = 0.0;
                           _scanError = null;
                           _isSuccess = false;
                           _isDuplicate = false;
-                          _scanningStatus = _isRealDetection 
-                              ? 'Loading face template...' 
-                              : 'Face template ready. Align face to scan.';
+                          _scanningStatus = 'Face template ready. Align face to scan.';
                         });
-                        if (_isRealDetection) {
-                          _extractRegisteredTemplate();
-                        }
                       }
                     },
             ),

@@ -8,16 +8,26 @@ import 'package:http/http.dart' as http;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 class FaceRecognitionService {
-  late FaceDetector _faceDetector;
+  static final FaceRecognitionService _instance = FaceRecognitionService._internal();
+  static FaceDetector? _staticDetector;
 
-  FaceRecognitionService() {
-    final options = FaceDetectorOptions(
-      performanceMode: FaceDetectorMode.accurate,
-      enableLandmarks: true,
-      enableClassification: true,
-      enableTracking: true,
-    );
-    _faceDetector = FaceDetector(options: options);
+  factory FaceRecognitionService() {
+    return _instance;
+  }
+
+  FaceRecognitionService._internal();
+
+  FaceDetector get _faceDetector {
+    if (_staticDetector == null) {
+      final options = FaceDetectorOptions(
+        performanceMode: FaceDetectorMode.accurate,
+        enableLandmarks: true,
+        enableClassification: true,
+        enableTracking: true,
+      );
+      _staticDetector = FaceDetector(options: options);
+    }
+    return _staticDetector!;
   }
 
   Future<List<Face>> detectFaces(InputImage inputImage) async {
@@ -364,6 +374,7 @@ class FaceRecognitionService {
   }
 
   void dispose() {
-    _faceDetector.close();
+    // Keep singleton detector alive across screen transitions.
+    print('[FaceRecognitionService] dispose called (keeping static detector alive)');
   }
 }

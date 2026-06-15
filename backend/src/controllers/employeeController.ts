@@ -1,5 +1,139 @@
 import { Request, Response } from 'express';
 import { query } from '../config/db';
+import crypto from 'crypto';
+
+const ENCRYPTION_KEY = process.env.BIOMETRIC_ENCRYPTION_KEY || 'gaytri_biometric_secure_key_2026_!';
+const hashKey = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+
+export const encryptBiometric = (text: string): string => {
+  const iv = crypto.randomBytes(12); // GCM standard IV is 12 bytes
+  const cipher = crypto.createCipheriv('aes-256-gcm', hashKey, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+};
+
+export const decryptBiometric = (encryptedText: string): string => {
+  if (!encryptedText) return '';
+  const parts = encryptedText.split(':');
+
+  // GCM Decryption (3 parts: iv:authTag:ciphertext)
+  if (parts.length === 3) {
+    try {
+      const iv = Buffer.from(parts[0], 'hex');
+      const authTag = Buffer.from(parts[1], 'hex');
+      const encrypted = Buffer.from(parts[2], 'hex');
+      const decipher = crypto.createDecipheriv('aes-256-gcm', hashKey, iv);
+      decipher.setAuthTag(authTag);
+      let decrypted = decipher.update(encrypted, undefined, 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } catch (err) {
+      console.error('GCM Decryption failed, attempting CBC fallback:', err);
+    }
+  }
+
+  // Legacy CBC Decryption fallback (2 parts: iv:ciphertext)
+  if (parts.length === 2) {
+    try {
+      const iv = Buffer.from(parts[0], 'hex');
+      const encrypted = Buffer.from(parts[1], 'hex');
+      const decipher = crypto.createDecipheriv('aes-256-cbc', hashKey, iv);
+      let decrypted = decipher.update(encrypted, undefined, 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } catch (err) {
+      console.error('CBC Decryption failed, returning plaintext:', err);
+      return encryptedText;
+    }
+  }
+
+  return encryptedText; // Plaintext fallback
+};
+
+const validateBiometricEmbedding = (embedding: any): number[] => {
+  if (!embedding || !Array.isArray(embedding) || embedding.length !== 128) {
+    throw new Error('A 128-dimensional face embedding array is required.');
+  }
+
+  const numericVector: number[] = [];
+  let sumSq = 0.0;
+
+  for (let i = 0; i < 128; i++) {
+    const val = Number(embedding[i]);
+    if (isNaN(val) || !isFinite(val)) {
+      throw new Error('Embedding contains NaN or infinite values.');
+    }
+    numericVector.push(val);
+    sumSq += val * val;
+  }
+
+  const magnitude = Math.sqrt(sumSq);
+  if (Math.abs(magnitude - 1.0) > 0.05) {
+    throw new Error('Embedding vector is not L2 normalized.');
+  }
+
+  return numericVector;
+};
+
+export const enrollBiometric = async (req: Request, res: Response) => {
+  const { employee_id, embedding } = req.body;
+
+  if (!employee_id) {
+    return res.status(400).json({ success: false, message: 'Employee ID is required.' });
+  }
+
+  try {
+    const empCheck = await query(
+      'SELECT id, employee_id, full_name FROM employees WHERE id::text = $1 OR employee_id = $1',
+      [employee_id]
+    );
+
+    if (empCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+
+    const employee = empCheck.rows[0];
+
+    let numericVector: number[];
+    try {
+      numericVector = validateBiometricEmbedding(embedding);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+
+    const serialized = JSON.stringify(numericVector);
+    const encrypted = encryptBiometric(serialized);
+
+    await query(
+      `UPDATE employees 
+       SET biometric_embedding = $1, 
+           biometric_enrolled = TRUE, 
+           biometric_enrolled_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [encrypted, employee.id]
+    );
+
+    console.log(`[Biometric Sync] Successfully enrolled direct embedding for employee: ${employee.full_name} (${employee.employee_id})`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Biometric embedding enrolled successfully.',
+      employee: {
+        id: employee.id,
+        employee_id: employee.employee_id,
+        full_name: employee.full_name,
+      }
+    });
+
+  } catch (error) {
+    console.error('[Biometric Sync Error] Enroll biometric failed:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
 
 const sanitizeAndValidateBase64Image = (base64Str: string | null | undefined): string | null => {
   if (!base64Str || typeof base64Str !== 'string') return null;
@@ -65,16 +199,45 @@ export const getEmployees = async (req: Request, res: Response) => {
       `SELECT id, employee_id, full_name, department, shift, mobile, profile_photo_url,
               is_active,
               face_embedding,
-              face_embedding IS NOT NULL as has_face_data
+              biometric_embedding,
+              biometric_enrolled,
+              biometric_enrolled_at
        FROM employees
        ORDER BY employee_id ASC`
     );
 
-    console.log(`[Employee Info] Fetched ${result.rows.length} employees from database.`);
+    const mappedEmployees = result.rows.map(row => {
+      let parsedEmbedding: number[] | null = null;
+      if (row.biometric_embedding) {
+        try {
+          const parts = row.biometric_embedding.split(':');
+          const decrypted = decryptBiometric(row.biometric_embedding);
+          parsedEmbedding = JSON.parse(decrypted);
+
+          // On-the-fly migration from legacy CBC (2 parts) to AES-256-GCM
+          if (parts.length === 2 && decrypted) {
+            const reEncrypted = encryptBiometric(decrypted);
+            query('UPDATE employees SET biometric_embedding = $1 WHERE id = $2', [reEncrypted, row.id])
+              .then(() => console.log(`[Biometric Migration] Upgraded employee ${row.id} from CBC to GCM`))
+              .catch(err => console.error(`[Biometric Migration Error] Failed to upgrade employee ${row.id} to GCM:`, err));
+          }
+        } catch (err) {
+          console.error(`Failed to decrypt/parse biometric_embedding for employee ${row.id}:`, err);
+        }
+      }
+
+      const { biometric_embedding, ...rest } = row;
+      return {
+        ...rest,
+        biometric_embedding: parsedEmbedding
+      };
+    });
+
+    console.log(`[Employee Info] Fetched ${mappedEmployees.length} employees from database.`);
 
     return res.status(200).json({
       success: true,
-      employees: result.rows,
+      employees: mappedEmployees,
     });
   } catch (error) {
     console.error('[Employee Error] Get employees failed:', error);
@@ -272,6 +435,211 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Employee Error] Delete employee failed:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Request re-enrollment (Face template update request)
+export const requestReEnrollment = async (req: Request, res: Response) => {
+  const { employee_id, embedding, admin_notes } = req.body;
+
+  if (!employee_id) {
+    return res.status(400).json({ success: false, message: 'Employee ID is required.' });
+  }
+
+  try {
+    // Check if employee exists
+    const empCheck = await query(
+      'SELECT id, employee_id, full_name, biometric_enrolled_at FROM employees WHERE id::text = $1 OR employee_id = $1',
+      [employee_id]
+    );
+
+    if (empCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+
+    const employee = empCheck.rows[0];
+
+    // Check cooldown: must wait 24 hours between updates/requests
+    if (employee.biometric_enrolled_at) {
+      const msSinceEnrolled = Date.now() - new Date(employee.biometric_enrolled_at).getTime();
+      if (msSinceEnrolled < 24 * 60 * 60 * 1000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Re-enrollment cooldown active. Please wait 24 hours between enrollment updates.'
+        });
+      }
+    }
+
+    // Check if there is a pending or approved request created in the last 24 hours
+    const recentRequestCheck = await query(
+      `SELECT created_at FROM re_enrollment_requests 
+       WHERE employee_id = $1 AND status IN ('PENDING', 'APPROVED') 
+       ORDER BY created_at DESC LIMIT 1`,
+      [employee.id]
+    );
+    if (recentRequestCheck.rows.length > 0) {
+      const msSinceRequest = Date.now() - new Date(recentRequestCheck.rows[0].created_at).getTime();
+      if (msSinceRequest < 24 * 60 * 60 * 1000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Re-enrollment cooldown active. Please wait 24 hours between enrollment updates.'
+        });
+      }
+    }
+
+    let numericVector: number[];
+    try {
+      numericVector = validateBiometricEmbedding(embedding);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+
+    const serialized = JSON.stringify(numericVector);
+    const encrypted = encryptBiometric(serialized);
+
+    const result = await query(
+      `INSERT INTO re_enrollment_requests (employee_id, new_embedding, status, admin_notes)
+       VALUES ($1, $2, 'PENDING', $3)
+       RETURNING id, employee_id, status`,
+      [employee.id, encrypted, admin_notes || null]
+    );
+
+    console.log(`[Re-Enrollment] Requested re-enrollment for employee: ${employee.full_name} (${employee.employee_id})`);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Re-enrollment request created successfully.',
+      request: result.rows[0]
+    });
+  } catch (error) {
+    console.error('[Re-Enrollment Error] Request re-enrollment failed:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Approve re-enrollment request
+export const approveReEnrollment = async (req: any, res: Response) => {
+  const { id } = req.params; // request ID
+  const adminId = req.user?.id; // Authenticated admin
+
+  try {
+    const reqCheck = await query(
+      'SELECT id, employee_id, new_embedding, status FROM re_enrollment_requests WHERE id = $1',
+      [id]
+    );
+
+    if (reqCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Re-enrollment request not found.' });
+    }
+
+    const requestRow = reqCheck.rows[0];
+
+    if (requestRow.status !== 'PENDING') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot approve request with status: ${requestRow.status}`
+      });
+    }
+
+    // Get current employee embedding to archive
+    const empCheck = await query(
+      'SELECT id, biometric_embedding, biometric_enrolled FROM employees WHERE id = $1',
+      [requestRow.employee_id]
+    );
+
+    if (empCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee associated with request not found.' });
+    }
+
+    const employee = empCheck.rows[0];
+
+    // Transaction to update records
+    await query('BEGIN');
+
+    // Archive current embedding if enrolled
+    if (employee.biometric_enrolled && employee.biometric_embedding) {
+      await query(
+        'INSERT INTO biometric_history (employee_id, biometric_embedding) VALUES ($1, $2)',
+        [employee.id, employee.biometric_embedding]
+      );
+    }
+
+    // Update employee profile with new embedding
+    await query(
+      `UPDATE employees 
+       SET biometric_embedding = $1, 
+           biometric_enrolled = TRUE, 
+           biometric_enrolled_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [requestRow.new_embedding, employee.id]
+    );
+
+    // Approve the request
+    await query(
+      `UPDATE re_enrollment_requests 
+       SET status = 'APPROVED', requested_by = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [adminId || null, id]
+    );
+
+    await query('COMMIT');
+
+    console.log(`[Re-Enrollment] Approved request ${id} for employee ${employee.id}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Re-enrollment approved and face profile updated successfully.'
+    });
+
+  } catch (error) {
+    await query('ROLLBACK');
+    console.error('[Re-Enrollment Error] Approve re-enrollment failed:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Reject re-enrollment request
+export const rejectReEnrollment = async (req: any, res: Response) => {
+  const { id } = req.params;
+  const { admin_notes } = req.body;
+
+  try {
+    const reqCheck = await query(
+      'SELECT id, status FROM re_enrollment_requests WHERE id = $1',
+      [id]
+    );
+
+    if (reqCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Re-enrollment request not found.' });
+    }
+
+    const requestRow = reqCheck.rows[0];
+
+    if (requestRow.status !== 'PENDING') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot reject request with status: ${requestRow.status}`
+      });
+    }
+
+    await query(
+      `UPDATE re_enrollment_requests 
+       SET status = 'REJECTED', admin_notes = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [admin_notes || null, id]
+    );
+
+    console.log(`[Re-Enrollment] Rejected request ${id}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Re-enrollment request rejected successfully.'
+    });
+
+  } catch (error) {
+    console.error('[Re-Enrollment Error] Reject re-enrollment failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
   }
 };
