@@ -16,21 +16,27 @@ const login = async (req, res) => {
     }
     try {
         const inputEmail = employee_id.trim().toLowerCase();
+        console.log(`[Auth Login] Attempting login for: ${inputEmail}`);
         // Query ONLY the admins table, looking for MANAGER role
         const adminRes = await (0, db_1.query)(`SELECT id, email, password_hash, full_name, role, is_active, must_change_password 
        FROM admins WHERE email = $1`, [inputEmail]);
         if (adminRes.rows.length === 0) {
+            console.warn(`[Auth Login] Account not found: ${inputEmail}`);
             return res.status(401).json({ success: false, message: 'Invalid manager credentials.' });
         }
         const admin = adminRes.rows[0];
+        console.log(`[Auth Login] Account found. Role detected: ${admin.role}`);
         // Restrict mobile app access to MANAGER roles only
         if (admin.role !== 'MANAGER') {
+            console.warn(`[Auth Login] Access denied: role is ${admin.role}, expected MANAGER`);
             return res.status(403).json({ success: false, message: 'Access denied. Manager privileges required.' });
         }
         if (!admin.is_active) {
-            return res.status(403).json({ success: false, message: 'Account deactivated. Please contact support.' });
+            console.warn(`[Auth Login] Inactive state check failed: Account is deactivated for ${inputEmail}`);
+            return res.status(403).json({ success: false, message: 'Your account has been disabled.' });
         }
         const match = await bcryptjs_1.default.compare(password, admin.password_hash);
+        console.log(`[Auth Login] Password match result: ${match}`);
         if (!match) {
             return res.status(401).json({ success: false, message: 'Invalid manager credentials.' });
         }
@@ -40,6 +46,7 @@ const login = async (req, res) => {
             role: admin.role,
             must_change_password: admin.must_change_password,
         }, JWT_SECRET, { expiresIn: '30d' });
+        console.log(`[Auth Login] JWT generation success for: ${inputEmail}`);
         return res.status(200).json({
             success: true,
             message: 'Manager login successful.',

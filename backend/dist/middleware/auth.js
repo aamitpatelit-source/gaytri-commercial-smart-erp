@@ -21,7 +21,7 @@ const authenticateToken = async (req, res, next) => {
             const { query } = require('../config/db');
             const statusRes = await query('SELECT is_active FROM employees WHERE id = $1', [decoded.id]);
             if (statusRes.rows.length === 0 || !statusRes.rows[0].is_active) {
-                return res.status(403).json({ success: false, message: 'Access denied. Account has been deactivated.' });
+                return res.status(403).json({ success: false, message: 'Your account has been disabled.' });
             }
         }
         // Direct active status check for admins/managers
@@ -29,14 +29,14 @@ const authenticateToken = async (req, res, next) => {
             const { query } = require('../config/db');
             const statusRes = await query('SELECT is_active FROM admins WHERE id = $1', [decoded.id]);
             if (statusRes.rows.length === 0 || !statusRes.rows[0].is_active) {
-                return res.status(403).json({ success: false, message: 'Access denied. Administrator account has been deactivated.' });
+                return res.status(403).json({ success: false, message: 'Your account has been disabled.' });
             }
         }
         req.user = decoded;
         next();
     }
     catch (error) {
-        return res.status(403).json({ success: false, message: 'Invalid or expired token.' });
+        return res.status(401).json({ success: false, message: 'Session expired. Please login again.' });
     }
 };
 exports.authenticateToken = authenticateToken;

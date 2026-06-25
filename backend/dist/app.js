@@ -40,7 +40,8 @@ app.use((0, cors_1.default)({
     },
     credentials: true
 }));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: '10mb' }));
+app.use(express_1.default.urlencoded({ limit: '10mb', extended: true }));
 // Routes mapping
 app.use('/api/v1/auth', auth_1.default);
 app.use('/api/v1/employees', employees_1.default);
@@ -80,6 +81,9 @@ const bootstrapDatabase = async () => {
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN DEFAULT FALSE;
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS biometric_embedding TEXT;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS biometric_enrolled BOOLEAN DEFAULT FALSE;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS biometric_enrolled_at TIMESTAMP WITH TIME ZONE;
     `);
         console.log('Legacy table columns verified/migrated.');
         // Ensure admins table exists
@@ -165,6 +169,50 @@ const bootstrapDatabase = async () => {
       `);
             console.log('Seeded default attendance settings successfully.');
         }
+        // Ensure biometric audit logs table exists
+        await (0, db_1.query)(`
+      CREATE TABLE IF NOT EXISTS biometric_audit_logs (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        similarity_score REAL,
+        result VARCHAR(20) CHECK (result IN ('SUCCESS', 'FAILED')),
+        device_id VARCHAR(150),
+        ip_address VARCHAR(50),
+        liveness_status JSONB,
+        failure_reason TEXT,
+        nonce VARCHAR(100) UNIQUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_biometric_audit_logs_nonce ON biometric_audit_logs(nonce);
+      CREATE INDEX IF NOT EXISTS idx_biometric_audit_logs_emp ON biometric_audit_logs(employee_id);
+    `);
+        console.log('Biometric audit logs table and indexes verified.');
+        // Ensure biometric history table exists
+        await (0, db_1.query)(`
+      CREATE TABLE IF NOT EXISTS biometric_history (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+        biometric_embedding TEXT,
+        archived_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+        console.log('Biometric history table verified.');
+        // Ensure re-enrollment requests table exists
+        await (0, db_1.query)(`
+      CREATE TABLE IF NOT EXISTS re_enrollment_requests (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+        requested_by UUID REFERENCES admins(id) ON DELETE SET NULL,
+        new_embedding TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+        admin_notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_re_enrollment_requests_emp ON re_enrollment_requests(employee_id);
+    `);
+        console.log('Biometric re-enrollment requests table verified.');
         console.log('Database tables, columns and legacy schema verified.');
     }
     catch (error) {
