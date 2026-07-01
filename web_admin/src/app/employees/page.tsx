@@ -63,10 +63,10 @@ const validateAndCompressImage = (
         }
         const avgBrightness = brightnessSum / (pixels.length / 4);
         
-        if (avgBrightness < 45) {
+        if (avgBrightness < 25) {
           return resolve({ success: false, error: 'Image is too dark. Please use better lighting.' });
         }
-        if (avgBrightness > 240) {
+        if (avgBrightness > 250) {
           return resolve({ success: false, error: 'Image is overexposed. Please adjust lighting.' });
         }
         
@@ -95,7 +95,7 @@ const validateAndCompressImage = (
           }
         }
         const avgContrastDiff = contrastDiffSum / samples;
-        if (avgContrastDiff < 2.5) {
+        if (avgContrastDiff < 1.2) {
           return resolve({ success: false, error: 'Image is too blurry or lacks contrast. Please use a clear front-facing camera.' });
         }
         
@@ -491,8 +491,9 @@ export default function EmployeesPage() {
     } catch (err: any) {
       console.error(err);
       playBeepNode('failure');
-      setRegError('Face not detected clearly. Please improve lighting and move closer to the camera.');
-      showToastMsg('error', 'Face not detected clearly. Please improve lighting and move closer to the camera.');
+      const errorMessage = err?.message || 'Face photo upload failed.';
+      setRegError(errorMessage);
+      showToastMsg('error', errorMessage);
     } finally {
       setIsCapturing(false);
     }
@@ -521,6 +522,7 @@ export default function EmployeesPage() {
     }
     
     setCapturedPhotoUrl(result.dataUrl!);
+    stopCamera();
     setIsCapturing(false);
   };
 
@@ -1018,8 +1020,17 @@ export default function EmployeesPage() {
                   </div>
                 )}
 
-                {/* 4. Active Video Stream */}
-                {cameraStream && (
+                {/* 4. Uploaded Image Preview */}
+                {capturedPhotoUrl && !captureSuccess && (
+                  <img
+                    src={capturedPhotoUrl}
+                    alt="Selected face preview"
+                    className="w-full h-full object-cover object-center"
+                  />
+                )}
+
+                {/* 5. Active Video Stream */}
+                {cameraStream && !capturedPhotoUrl && (
                   <video 
                     ref={videoRef}
                     autoPlay 
@@ -1030,8 +1041,8 @@ export default function EmployeesPage() {
                   />
                 )}
 
-                {/* 5. Live Camera Status Badges Overlay */}
-                {cameraStream && !isCapturing && !captureSuccess && (
+                {/* 6. Live Camera Status Badges Overlay */}
+                {cameraStream && !capturedPhotoUrl && !isCapturing && !captureSuccess && (
                   <div className="absolute top-3 left-3 right-3 flex justify-between pointer-events-none z-10">
                     <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold bg-slate-950/90 border border-emerald-500/30 text-emerald-400">
                       <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
@@ -1048,8 +1059,8 @@ export default function EmployeesPage() {
                   </div>
                 )}
 
-                {/* 6. Face Scan Target Guide Overlay */}
-                {cameraStream && !isCapturing && !captureSuccess && (
+                {/* 7. Face Scan Target Guide Overlay */}
+                {cameraStream && !capturedPhotoUrl && !isCapturing && !captureSuccess && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center translate-y-4 pointer-events-none z-10">
                     {/* Scanner Outer Ring with Spinning Effect */}
                     <div className="w-48 h-48 rounded-full border border-dashed border-cyan-400/25 animate-spin-slow" />
@@ -1069,20 +1080,30 @@ export default function EmployeesPage() {
                   </div>
                 )}
 
-                {/* 7. Flash Overlay Animation */}
+                {/* 8. Flash Overlay Animation */}
                 {flashActive && (
                   <div className="absolute inset-0 bg-white flash-overlay z-25 pointer-events-none" />
                 )}
 
-                {/* 8. Generating Embeddings Overlay */}
-                {isCapturing && !captureSuccess && (
-                  <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center space-y-3 z-30">
-                    <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-                    <p className="text-xs text-emerald-400 font-extrabold tracking-widest uppercase">Generating facial embedding...</p>
+                {/* 9. Uploaded Preview Badge */}
+                {capturedPhotoUrl && !isCapturing && !captureSuccess && (
+                  <div className="absolute top-3 left-3 z-10">
+                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold bg-slate-950/90 border border-cyan-500/30 text-cyan-300">
+                      <Upload className="w-3.5 h-3.5 text-cyan-300" />
+                      <span>Uploaded Image Ready</span>
+                    </span>
                   </div>
                 )}
 
-                {/* 9. Success Captured State Overlay (lasts 2 seconds) */}
+                {/* 10. Generating Embeddings Overlay */}
+                {isCapturing && !captureSuccess && (
+                  <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center space-y-3 z-30">
+                    <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
+                    <p className="text-xs text-emerald-400 font-extrabold tracking-widest uppercase">Saving face photo...</p>
+                  </div>
+                )}
+
+                {/* 11. Success Captured State Overlay */}
                 {captureSuccess && (
                   <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center space-y-4 z-40 animate-fade-in">
                     {capturedPhotoUrl && (
@@ -1095,7 +1116,7 @@ export default function EmployeesPage() {
                         <CheckCircle className="w-5 h-5" />
                         <span>Face Captured Successfully</span>
                       </div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Biometric model enrolled</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Face photo saved</p>
                     </div>
                   </div>
                 )}
@@ -1115,6 +1136,19 @@ export default function EmployeesPage() {
                     />
                   </label>
                   <span className="text-[9px] text-slate-400 mt-1 font-semibold uppercase tracking-wider">Supports JPEG, PNG (Max 5MB)</span>
+                  {capturedPhotoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCapturedPhotoUrl(null);
+                        setRegError('');
+                        startCamera();
+                      }}
+                      className="mt-2 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
+                    >
+                      Retake With Camera
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1125,11 +1159,7 @@ export default function EmployeesPage() {
                     <AlertTriangle className="w-4 h-4 text-rose-450" />
                     <span className="uppercase tracking-wider">Detection Conflict</span>
                   </div>
-                  <ul className="list-disc pl-4 space-y-1 font-semibold text-rose-350">
-                    <li>Face not detected clearly</li>
-                    <li>Please improve lighting</li>
-                    <li>Move closer to camera</li>
-                  </ul>
+                  <p className="font-semibold text-rose-350 leading-relaxed">{regError}</p>
                 </div>
               ) : (
                 <div className="p-3.5 bg-slate-900/60 border border-slate-800/80 rounded-xl text-slate-350 text-xs leading-relaxed">
@@ -1160,12 +1190,12 @@ export default function EmployeesPage() {
                   {isCapturing ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
-                      <span>Generating embedding...</span>
+                      <span>Saving face photo...</span>
                     </>
                   ) : (
                     <>
                       <Smile className="w-4 h-4 text-slate-950" />
-                      <span>Enroll Face Signature</span>
+                      <span>Save Face Photo</span>
                     </>
                   )}
                 </button>

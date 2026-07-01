@@ -49,6 +49,8 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   bool _isSuccess = false;
   bool _isDuplicate = false;
   String? _scanError;
+  bool _isSyncingProfile = false;
+  String? _profileSyncError;
 
   // Liveness tracking states
   VerificationStep _currentStep = VerificationStep.liveCamera;
@@ -262,6 +264,9 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
             }
             _loadingEmployees = false;
           });
+          if (parsed.isNotEmpty) {
+            _maybeSyncBiometricFromProfilePhoto(parsed.first);
+          }
         }
       } else {
         throw Exception(data['message'] ?? 'Failed to load employees.');
@@ -281,7 +286,18 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       return 'Select an employee to start';
     }
 
+    if (_isSyncingProfile) {
+      return 'Syncing face profile from admin photo...';
+    }
+
+    if (_profileSyncError != null && employee.employeeId == _selectedEmployee?.employeeId) {
+      return 'Face photo sync failed. Tap for details.';
+    }
+
     if (!employee.biometricEnrolled) {
+      if (employee.hasFaceData && employee.profilePhotoUrl != null && employee.profilePhotoUrl!.isNotEmpty) {
+        return 'Face photo found. Syncing biometric profile required.';
+      }
       return 'No Face Registered for selected employee.';
     }
 
@@ -443,6 +459,92 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         ],
       ),
     );
+  }
+
+  Future<bool> _syncEmployeeBiometricTemplate(EmployeeModel employee) async {
+    final photoUrl = employee.profilePhotoUrl;
+    if (photoUrl == null || photoUrl.isEmpty || !employee.hasFaceData) {
+      return false;
+    }
+
+    if (_isSyncingProfile) {
+      return false;
+    }
+
+    setState(() {
+      _isSyncingProfile = true;
+      _profileSyncError = null;
+      _scanningStatus = 'Syncing face profile from admin photo...';
+    });
+
+    try {
+      final embedding = await _faceRecognitionService.extractEmbeddingFromProfilePhoto(photoUrl, employee.employeeId);
+      final token = await _storage.read(key: 'access_token');
+      if (token == null) {
+        throw Exception('Session expired. Log in again.');
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/employees/enroll-biometric'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'employee_id': employee.id,
+          'embedding': embedding,
+        }),
+      ).timeout(const Duration(seconds: 12));
+
+      if (response.statusCode != 200) {
+        final Map<String, dynamic>? body = response.body.isNotEmpty ? jsonDecode(response.body) as Map<String, dynamic> : null;
+        throw Exception(body?['message'] ?? 'Profile biometric sync failed.');
+      }
+
+      if (!mounted) {
+        return true;
+      }
+
+      final updatedEmployees = _registeredEmployees.map((item) {
+        if (item.id != employee.id) return item;
+        return item.copyWith(
+          biometricEnrolled: true,
+          biometricEmbedding: embedding,
+        );
+      }).toList();
+
+      setState(() {
+        _registeredEmployees = updatedEmployees;
+        if (_selectedEmployee?.id == employee.id) {
+          _selectedEmployee = _selectedEmployee!.copyWith(
+            biometricEnrolled: true,
+            biometricEmbedding: embedding,
+          );
+        }
+        _isSyncingProfile = false;
+        _profileSyncError = null;
+        _scanningStatus = _statusForEmployee(_selectedEmployee);
+      });
+
+      return true;
+    } catch (err) {
+      if (mounted) {
+        setState(() {
+          _isSyncingProfile = false;
+          _profileSyncError = err.toString().replaceAll('Exception:', '').trim();
+          _scanningStatus = _statusForEmployee(employee);
+        });
+      }
+      return false;
+    }
+  }
+
+  Future<void> _maybeSyncBiometricFromProfilePhoto(EmployeeModel? employee) async {
+    if (employee == null) return;
+    if (employee.biometricEnrolled) return;
+    if (!employee.hasFaceData) return;
+    if (employee.profilePhotoUrl == null || employee.profilePhotoUrl!.isEmpty) return;
+    await _syncEmployeeBiometricTemplate(employee);
   }
 
   void _startHeartbeatChecker() {
@@ -618,6 +720,22 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
 
   Future<void> _runFaceVerification() async {
     if (_selectedEmployee == null) return;
+
+    if (_isSyncingProfile) {
+      _showFailureDialog('Sync In Progress', 'Please wait while the registered face photo is converted into a biometric profile.');
+      return;
+    }
+
+    if (!_selectedEmployee!.biometricEnrolled &&
+        _selectedEmployee!.hasFaceData &&
+        _selectedEmployee!.profilePhotoUrl != null &&
+        _selectedEmployee!.profilePhotoUrl!.isNotEmpty) {
+      final synced = await _syncEmployeeBiometricTemplate(_selectedEmployee!);
+      if (!synced) {
+        _showQualityDiagnosticModal(_profileSyncError ?? 'Profile photo could not be converted into a biometric template.');
+        return;
+      }
+    }
 
     if (!_selectedEmployee!.biometricEnrolled) {
       _showFailureDialog('No Face Registered', 'No biometric embedding exists for the selected employee.');
@@ -1559,18 +1677,20 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
               onChanged: _isScanning
                   ? null
                   : (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedEmployee = val;
-                        _stableEmbeddings.clear();
-                        _verifyProgress = 0.0;
-                        _scanError = null;
-                        _isSuccess = false;
-                        _isDuplicate = false;
-                        _scanningStatus = _statusForEmployee(val);
-                      });
-                    }
-                  },
+                      if (val != null) {
+                        setState(() {
+                          _selectedEmployee = val;
+                          _stableEmbeddings.clear();
+                          _verifyProgress = 0.0;
+                          _scanError = null;
+                          _profileSyncError = null;
+                          _isSuccess = false;
+                          _isDuplicate = false;
+                          _scanningStatus = _statusForEmployee(val);
+                        });
+                        _maybeSyncBiometricFromProfilePhoto(val);
+                      }
+                    },
             ),
           ),
         ],
@@ -1760,8 +1880,13 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
           const SizedBox(height: 10),
           if (!_isScanning) ...[
             GestureDetector(
-              onTap: _selectedEmployee != null && !_selectedEmployee!.biometricEnrolled
-                  ? () => _showQualityDiagnosticModal('No biometric embedding exists in the database for ${_selectedEmployee!.employeeId}.')
+              onTap: _selectedEmployee != null && (!_selectedEmployee!.biometricEnrolled || _profileSyncError != null)
+                  ? () => _showQualityDiagnosticModal(
+                        _profileSyncError ??
+                            (_selectedEmployee!.hasFaceData
+                                ? 'A face photo exists for ${_selectedEmployee!.employeeId}, but biometric sync has not completed yet.'
+                                : 'No biometric embedding exists in the database for ${_selectedEmployee!.employeeId}.'),
+                      )
                   : null,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1769,12 +1894,20 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                 decoration: BoxDecoration(
                   color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
                       ? AppTheme.successGreen.withOpacity(0.08)
-                      : AppTheme.errorRed.withOpacity(0.08),
+                      : _isSyncingProfile
+                          ? AppTheme.neonCyan.withOpacity(0.08)
+                          : _selectedEmployee != null && _selectedEmployee!.hasFaceData
+                              ? Colors.orange.withOpacity(0.08)
+                              : AppTheme.errorRed.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
                         ? AppTheme.successGreen.withOpacity(0.2)
-                        : AppTheme.errorRed.withOpacity(0.2),
+                        : _isSyncingProfile
+                            ? AppTheme.neonCyan.withOpacity(0.2)
+                            : _selectedEmployee != null && _selectedEmployee!.hasFaceData
+                                ? Colors.orange.withOpacity(0.25)
+                                : AppTheme.errorRed.withOpacity(0.2),
                   ),
                 ),
                 child: Row(
@@ -1784,25 +1917,41 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                     Icon(
                       _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
                           ? Icons.check_circle_outline_rounded
-                          : Icons.error_outline_rounded,
+                          : _isSyncingProfile
+                              ? Icons.sync_rounded
+                              : _selectedEmployee != null && _selectedEmployee!.hasFaceData
+                                  ? Icons.cloud_sync_rounded
+                                  : Icons.error_outline_rounded,
                       size: 14,
                       color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
                           ? AppTheme.successGreen
-                          : AppTheme.errorRed,
+                          : _isSyncingProfile
+                              ? AppTheme.neonCyan
+                              : _selectedEmployee != null && _selectedEmployee!.hasFaceData
+                                  ? Colors.orange
+                                  : AppTheme.errorRed,
                     ),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
                         _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
                             ? 'EMPLOYEE BIOMETRIC PROFILE READY'
-                            : 'NO FACE REGISTERED FOR SELECTED EMPLOYEE',
+                            : _isSyncingProfile
+                                ? 'SYNCING BIOMETRIC PROFILE FROM FACE PHOTO'
+                                : _selectedEmployee != null && _selectedEmployee!.hasFaceData
+                                    ? 'FACE PHOTO FOUND. BIOMETRIC SYNC PENDING'
+                                    : 'NO FACE REGISTERED FOR SELECTED EMPLOYEE',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                           color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
                               ? AppTheme.successGreen
-                              : AppTheme.errorRed,
+                              : _isSyncingProfile
+                                  ? AppTheme.neonCyan
+                                  : _selectedEmployee != null && _selectedEmployee!.hasFaceData
+                                      ? Colors.orange
+                                      : AppTheme.errorRed,
                         ),
                       ),
                     ),
@@ -1816,12 +1965,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
               child: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: _selectedEmployee == null || !_selectedEmployee!.biometricEnrolled
+                    colors: _selectedEmployee == null || _isSyncingProfile
                         ? [Colors.grey.shade800, Colors.grey.shade900]
                         : [AppTheme.neonCyan, AppTheme.neonCyan.withOpacity(0.7)],
                   ),
                   borderRadius: BorderRadius.circular(8),
-                  boxShadow: _selectedEmployee == null || !_selectedEmployee!.biometricEnrolled
+                  boxShadow: _selectedEmployee == null || _isSyncingProfile
                       ? []
                       : [
                           BoxShadow(
@@ -1847,8 +1996,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                       Icon(Icons.face_unlock_rounded, size: 16, color: AppTheme.darkBg),
                       const SizedBox(width: 8),
                       Text(
-                        _selectedEmployee != null && !_selectedEmployee!.biometricEnrolled
-                            ? 'NO FACE REGISTERED'
+                        _isSyncingProfile
+                            ? 'SYNCING FACE PROFILE...'
+                            : _selectedEmployee != null && !_selectedEmployee!.biometricEnrolled && !_selectedEmployee!.hasFaceData
+                                ? 'NO FACE REGISTERED'
+                                : _selectedEmployee != null && !_selectedEmployee!.biometricEnrolled
+                                    ? 'SYNC FACE PROFILE'
                             : 'START GATE VERIFICATION',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,

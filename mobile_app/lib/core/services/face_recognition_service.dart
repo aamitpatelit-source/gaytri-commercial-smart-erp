@@ -1,6 +1,10 @@
 import 'dart:math';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 class FaceRecognitionService {
@@ -188,6 +192,87 @@ class FaceRecognitionService {
     }
 
     return byteData.buffer.asUint8List();
+  }
+
+  Future<List<double>> extractEmbeddingFromProfilePhoto(String photoUrlOrBase64, String employeeId) async {
+    Uint8List rawBytes;
+    try {
+      if (photoUrlOrBase64.startsWith('data:image') || photoUrlOrBase64.contains(';base64,')) {
+        var base64Content = photoUrlOrBase64;
+        if (photoUrlOrBase64.contains(',')) {
+          base64Content = photoUrlOrBase64.split(',')[1];
+        }
+        base64Content = base64Content.replaceAll(RegExp(r'\s+'), '');
+        rawBytes = base64.decode(base64Content);
+      } else if (photoUrlOrBase64.startsWith('http://') || photoUrlOrBase64.startsWith('https://')) {
+        final response = await http.get(Uri.parse(photoUrlOrBase64)).timeout(const Duration(seconds: 8));
+        if (response.statusCode != 200) {
+          throw Exception('Failed to download employee profile photo (status ${response.statusCode}).');
+        }
+        rawBytes = response.bodyBytes;
+      } else {
+        final cleaned = photoUrlOrBase64.replaceAll(RegExp(r'\s+'), '');
+        rawBytes = base64.decode(cleaned);
+      }
+    } catch (e) {
+      throw Exception('Profile photo could not be loaded.');
+    }
+
+    Future<List<double>?> runDetection(Uint8List imageBytes, String suffix) async {
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/profile_sync_${employeeId}_$suffix.png');
+      await tempFile.writeAsBytes(imageBytes);
+
+      try {
+        final inputImage = InputImage.fromFilePath(tempFile.path);
+        final faces = await _faceDetector.processImage(inputImage);
+
+        if (faces.isEmpty) {
+          return null;
+        }
+
+        if (faces.length > 1) {
+          throw Exception('Multiple faces detected in the registered photo.');
+        }
+
+        final face = faces.first;
+        final yaw = face.headEulerAngleY ?? 0.0;
+        final pitch = face.headEulerAngleX ?? 0.0;
+        final roll = face.headEulerAngleZ ?? 0.0;
+        if (yaw.abs() > 12.0 || pitch.abs() > 12.0 || roll.abs() > 12.0) {
+          throw Exception('Registered face photo must be front-facing.');
+        }
+
+        final embedding = getLandmarkEmbedding(face);
+        if (embedding.every((value) => value == 0.0)) {
+          throw Exception('Could not extract biometric features from the registered photo.');
+        }
+
+        return embedding;
+      } finally {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      }
+    }
+
+    final primaryBytes = await preprocessImage(rawBytes);
+    try {
+      final primaryEmbedding = await runDetection(primaryBytes, 'primary');
+      if (primaryEmbedding != null) {
+        return primaryEmbedding;
+      }
+    } catch (e) {
+      if (e is Exception) rethrow;
+    }
+
+    final grayscaleBytes = await preprocessImage(rawBytes, grayscale: true);
+    final fallbackEmbedding = await runDetection(grayscaleBytes, 'fallback');
+    if (fallbackEmbedding != null) {
+      return fallbackEmbedding;
+    }
+
+    throw Exception('No face detected in the registered photo.');
   }
 
   void dispose() {

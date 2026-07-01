@@ -59,4 +59,30 @@ class EmployeeModel {
       'has_face_data': hasFaceData,
     };
   }
+
+  EmployeeModel copyWith({
+    String? id,
+    String? employeeId,
+    String? fullName,
+    String? department,
+    String? shift,
+    String? mobile,
+    List<double>? biometricEmbedding,
+    bool? biometricEnrolled,
+    String? profilePhotoUrl,
+    bool? hasFaceData,
+  }) {
+    return EmployeeModel(
+      id: id ?? this.id,
+      employeeId: employeeId ?? this.employeeId,
+      fullName: fullName ?? this.fullName,
+      department: department ?? this.department,
+      shift: shift ?? this.shift,
+      mobile: mobile ?? this.mobile,
+      biometricEmbedding: biometricEmbedding ?? this.biometricEmbedding,
+      biometricEnrolled: biometricEnrolled ?? this.biometricEnrolled,
+      profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
+      hasFaceData: hasFaceData ?? this.hasFaceData,
+    );
+  }
 }
