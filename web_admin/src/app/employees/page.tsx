@@ -133,8 +133,8 @@ interface Employee {
   department: string;
   shift: string;
   mobile: string;
-  face_embedding?: number[] | null;
   has_face_data: boolean;
+  biometric_enrolled: boolean;
   is_active: boolean;
 }
 
@@ -420,20 +420,6 @@ export default function EmployeesPage() {
     setRegError('');
   };
 
-  // Generate 128-float deterministic mock embedding based on employee ID
-  const generateMockFaceEmbedding = (employeeId: string) => {
-    const embedding: number[] = [];
-    let hash = 0;
-    for (let i = 0; i < employeeId.length; i++) {
-      hash = employeeId.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    for (let i = 0; i < 128; i++) {
-      const val = Math.sin(hash + i) * 0.8;
-      embedding.push(parseFloat(val.toFixed(6)));
-    }
-    return embedding;
-  };
-
   const captureAndRegisterFace = async () => {
     if (!faceRegEmp) return;
     setIsCapturing(true);
@@ -479,10 +465,6 @@ export default function EmployeesPage() {
 
     try {
       const token = localStorage.getItem('access_token');
-      
-      await new Promise(r => setTimeout(r, 1500));
-
-      const faceEmbedding = generateMockFaceEmbedding(faceRegEmp.employee_id);
 
       const res = await fetch(`${API_URL}/employees/${faceRegEmp.id}/register-face`, {
         method: 'POST',
@@ -491,7 +473,6 @@ export default function EmployeesPage() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          face_embedding: faceEmbedding,
           profile_photo_url: finalPhotoUrl
         })
       });
@@ -500,11 +481,8 @@ export default function EmployeesPage() {
       if (res.ok && data.success) {
         setCaptureSuccess(true);
         playBeepNode('success');
-        
-        // Wait 2 seconds for visual thumbnail feedback
-        await new Promise(r => setTimeout(r, 2000));
-        
-        showToastMsg('success', `Face signature enrolled for ${faceRegEmp.full_name}.`);
+
+        showToastMsg('success', `Face photo registered for ${faceRegEmp.full_name}. Complete biometric enrollment on the scanner device.`);
         closeFaceRegistration();
         fetchEmployees();
       } else {
@@ -690,12 +668,23 @@ export default function EmployeesPage() {
                         {emp.has_face_data ? (
                           <span className="w-fit inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-950/30 text-emerald-400 border border-emerald-500/20 neon-glow-emerald">
                             <Smile className="w-3 h-3 text-emerald-400" />
-                            <span>Face Registered</span>
+                            <span>Face Photo Registered</span>
                           </span>
                         ) : (
                           <span className="w-fit inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-950/30 text-amber-400 border border-amber-500/20">
                             <Camera className="w-3 h-3 text-amber-400" />
-                            <span>Pending Face</span>
+                            <span>Pending Face Photo</span>
+                          </span>
+                        )}
+                        {emp.biometric_enrolled ? (
+                          <span className="w-fit inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-950/30 text-cyan-300 border border-cyan-500/20">
+                            <ShieldCheck className="w-3 h-3 text-cyan-300" />
+                            <span>Biometric Enrolled</span>
+                          </span>
+                        ) : (
+                          <span className="w-fit inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-900/60 text-slate-300 border border-slate-700">
+                            <Video className="w-3 h-3 text-slate-300" />
+                            <span>Biometric Pending</span>
                           </span>
                         )}
                       </div>

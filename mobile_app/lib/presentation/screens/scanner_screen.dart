@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:camera/camera.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import '../../core/config/api_config.dart';
@@ -51,11 +50,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   bool _isDuplicate = false;
   String? _scanError;
 
-  // Biometric verification states
-  List<double>? _registeredFaceEmbedding;
-  bool _loadingTemplate = false;
-  String? _templateError;
-
   // Liveness tracking states
   VerificationStep _currentStep = VerificationStep.liveCamera;
   DateTime? _lastFrameTimestamp;
@@ -74,7 +68,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   int _framesProcessedCount = 0;
   DateTime? _scanStartTime;
   Timer? _heartbeatTimer;
-  Timer? _webSimulationTimer;
 
   bool _eyesOpenDetected = false;
   bool _eyesBlinked = false;
@@ -113,8 +106,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   bool _isCameraInitialized = false;
   String? _cameraInitError;
 
-  bool get _isRealDetection => !kIsWeb;
-
   @visibleForTesting
   bool get isScanning => _isScanning;
 
@@ -125,19 +116,27 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   String get scanningStatus => _scanningStatus;
 
   @visibleForTesting
-  set registeredFaceEmbedding(List<double>? val) {
+  set selectedEmployeeForTest(EmployeeModel? val) {
     setState(() {
-      _registeredFaceEmbedding = val;
-      _templateError = null;
-      _loadingTemplate = false;
-      _scanningStatus = 'Face template ready. Align face to scan.';
+      _selectedEmployee = val;
+      _scanningStatus = _statusForEmployee(val);
     });
   }
 
   @visibleForTesting
   Future<void> submitVerificationToBackend(List<double> embedding) => _submitVerificationToBackend(embedding);
 
-  @override
+  @visibleForTesting
+  Future<void> runFaceVerificationForTest() => _runFaceVerification();
+
+  @visibleForTesting
+  void markScanningForTest() {
+    setState(() {
+      _isScanning = true;
+      _scanningStatus = 'Biometric verification active';
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -150,7 +149,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
-    _webSimulationTimer?.cancel();
     _cameraController?.dispose();
     _faceRecognitionService.dispose();
     super.dispose();
@@ -198,9 +196,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         setState(() {
           _isCameraInitialized = true;
           _scanError = null;
-          _scanningStatus = _isRealDetection 
-              ? 'Align face inside frame' 
-              : 'Face template ready. Align face to scan.';
+          _scanningStatus = _statusForEmployee(_selectedEmployee);
         });
       } else {
         throw Exception('No camera devices found.');
@@ -253,18 +249,15 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       if (data['success'] == true) {
         final List list = data['employees'] ?? [];
         final parsed = list.map((json) => EmployeeModel.fromJson(json)).toList();
-        final enrolled = parsed.where((emp) => emp.biometricEnrolled).toList();
 
         if (mounted) {
           setState(() {
-            _registeredEmployees = enrolled;
-            if (enrolled.isNotEmpty) {
-              _selectedEmployee = enrolled.first;
-              _registeredFaceEmbedding = _selectedEmployee!.biometricEmbedding;
-              _scanningStatus = 'Face template ready. Align face to scan.';
+            _registeredEmployees = parsed;
+            if (parsed.isNotEmpty) {
+              _selectedEmployee = parsed.first;
+              _scanningStatus = _statusForEmployee(_selectedEmployee);
             } else {
               _selectedEmployee = null;
-              _registeredFaceEmbedding = null;
               _scanningStatus = 'Select an employee to start';
             }
             _loadingEmployees = false;
@@ -283,14 +276,18 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     }
   }
 
-  Future<void> _extractRegisteredTemplate() async {
-    if (_selectedEmployee == null) return;
-    setState(() {
-      _registeredFaceEmbedding = _selectedEmployee!.biometricEmbedding;
-      _loadingTemplate = false;
-      _templateError = null;
-      _scanningStatus = 'Face template ready. Align face to scan.';
-    });
+  String _statusForEmployee(EmployeeModel? employee) {
+    if (employee == null) {
+      return 'Select an employee to start';
+    }
+
+    if (!employee.biometricEnrolled) {
+      return 'No Face Registered for selected employee.';
+    }
+
+    return _isCameraInitialized
+        ? 'Ready to verify selected employee.'
+        : 'Waiting for camera initialization.';
   }
 
   void _showQualityDiagnosticModal(String errorDetail) {
@@ -329,7 +326,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                     const SizedBox(width: 14),
                     const Expanded(
                       child: Text(
-                        'Employee Photo Verification Failed',
+                        'Biometric Enrollment Required',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
@@ -342,7 +339,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                 ),
                 const SizedBox(height: 18),
                 const Text(
-                  'The registered employee image could not be processed for biometric matching. Please upload a clear front-facing image in the admin portal.',
+                  'The selected employee does not have a persisted biometric embedding yet. Complete biometric enrollment before trying verification.',
                   style: TextStyle(
                     fontSize: 12,
                     color: AppTheme.mutedText,
@@ -359,7 +356,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                     border: Border.all(color: Colors.white.withOpacity(0.04)),
                   ),
                   child: Text(
-                    'Diagnostic Reason:\n$errorDetail',
+                    'Detail:\n$errorDetail',
                     style: TextStyle(
                       fontSize: 11,
                       fontFamily: 'monospace',
@@ -394,10 +391,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _extractRegisteredTemplate();
-                        },
+                        onPressed: () => Navigator.of(context).pop(),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.neonCyan,
                           foregroundColor: AppTheme.darkBg,
@@ -408,26 +402,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                           ),
                         ),
                         child: const Text(
-                          'Retry',
+                          'Close',
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    child: const Text(
-                      'Continue Anyway',
-                      style: TextStyle(fontSize: 12, color: AppTheme.mutedText, fontWeight: FontWeight.bold),
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -500,7 +480,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     final wasScanning = _isScanning;
     
     _heartbeatTimer?.cancel();
-    _webSimulationTimer?.cancel();
     
     if (!kIsWeb && _cameraController != null && _cameraController!.value.isStreamingImages) {
       try {
@@ -640,12 +619,8 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   Future<void> _runFaceVerification() async {
     if (_selectedEmployee == null) return;
 
-    if (_isRealDetection && _registeredFaceEmbedding == null) {
-      if (_templateError != null) {
-        _showFailureDialog('Biometric Template Error', _templateError!);
-      } else {
-        _showFailureDialog('Loading Template', 'Face template is still compiling. Please hold on.');
-      }
+    if (!_selectedEmployee!.biometricEnrolled) {
+      _showFailureDialog('No Face Registered', 'No biometric embedding exists for the selected employee.');
       return;
     }
 
@@ -682,62 +657,11 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     });
 
     if (kIsWeb || _cameraController == null) {
-      _startWebSimulation();
-    } else {
-      await _startLiveScannerLoop();
+      _abortAndResetScan('Live biometric verification requires the mobile scanner camera.');
+      return;
     }
-  }
 
-  void _startWebSimulation() {
-    _startHeartbeatChecker();
-    int elapsedMs = 0;
-    _webSimulationTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
-      if (!_isScanning || !mounted) {
-        timer.cancel();
-        return;
-      }
-
-      if (WidgetsBinding.instance.lifecycleState != null && 
-          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
-        timer.cancel();
-        _abortAndResetScan('App lost focus or browser tab inactive');
-        return;
-      }
-
-      _lastFrameTimestamp = DateTime.now();
-      elapsedMs += 200;
-
-      setState(() {
-        if (elapsedMs < 1000) {
-          _currentStep = VerificationStep.detectingFace;
-          _scanningStatus = 'Detecting Face';
-          _verifyProgress = 0.20;
-        } else if (elapsedMs < 2400) {
-          _currentStep = VerificationStep.verifyingLiveness;
-          if (elapsedMs < 1600) {
-            _scanningStatus = 'Verifying Liveness: Please blink';
-            _verifyProgress = 0.40;
-          } else {
-            _scanningStatus = 'Verifying Liveness: Turn head slightly';
-            _verifyProgress = 0.50;
-            _blinkDetected = true;
-          }
-        } else if (elapsedMs < 3600) {
-          _currentStep = VerificationStep.matchingIdentity;
-          _motionDetected = true;
-          _scanningStatus = 'Matching Identity...';
-          _verifyProgress = 0.70 + ((elapsedMs - 2400) ~/ 300) * 0.08;
-        } else if (elapsedMs >= 4000) {
-          timer.cancel();
-          _heartbeatTimer?.cancel();
-          _isScanning = false;
-          _verifyProgress = 1.0;
-          _currentStep = VerificationStep.recorded;
-          _scanningStatus = 'Demo Mode: Attendance recording disabled in web browsers.';
-          _showWebDemoDialog();
-        }
-      });
-    });
+    await _startLiveScannerLoop();
   }
 
   Future<void> _startLiveScannerLoop() async {
@@ -950,18 +874,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         }
       }
 
-      if (_registeredFaceEmbedding == null) {
-        _abortAndResetScan('Biometric template missing.');
-        return;
-      }
-
-      final similarity = _faceRecognitionService.calculateCosineSimilarity(
-        averagedEmbedding,
-        _registeredFaceEmbedding!,
-      );
-
-      debugPrint('[Biometric Matcher] Multi-frame averaged cosine similarity: $similarity (Threshold: 0.90)');
-
       _heartbeatTimer?.cancel();
       if (!kIsWeb && _cameraController != null && _cameraController!.value.isStreamingImages) {
         try {
@@ -974,16 +886,11 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         _verifyProgress = 1.0;
       });
 
-      const matchThreshold = 0.90;
-      if (similarity >= matchThreshold) {
-        _currentStep = VerificationStep.recorded;
-        setState(() {
-          _scanningStatus = 'Attendance Recorded';
-        });
-        await _submitVerificationToBackend(averagedEmbedding);
-      } else {
-        _abortAndResetScan('Face mismatch detected.');
-      }
+      _currentStep = VerificationStep.recorded;
+      setState(() {
+        _scanningStatus = 'Submitting live biometric verification...';
+      });
+      await _submitVerificationToBackend(averagedEmbedding);
     }
   }
 
@@ -1426,85 +1333,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     );
   }
 
-  void _showWebDemoDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-          child: Dialog(
-            backgroundColor: AppTheme.cardBg.withOpacity(0.85),
-            elevation: 8,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(
-                color: Colors.orange,
-                width: 1,
-              ),
-            ),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 320),
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.settings_suggest_rounded,
-                      color: Colors.orange,
-                      size: 36,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'DEMO MODE ACTIVE',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
-                      letterSpacing: 1.0,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Biometric gate check-in is restricted to the native Android app. The web simulation successfully completed liveness and face checks, but no database entry was created.',
-                    style: TextStyle(fontSize: 11, color: Colors.white70, height: 1.4),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 40,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: AppTheme.darkBg,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1660,13 +1488,13 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
             const Icon(Icons.no_accounts_rounded, color: Colors.amber, size: 40),
             const SizedBox(height: 16),
             const Text(
-              'No registered templates found.',
+              'No employee records found.',
               style: TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             const Text(
-              'Please enroll employee face profiles in the Web Portal first.',
+              'Add employees from the admin portal, then enroll biometrics on the scanner device.',
               style: TextStyle(fontSize: 11, color: AppTheme.mutedText),
               textAlign: TextAlign.center,
             ),
@@ -1719,10 +1547,11 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
               dropdownColor: AppTheme.cardBg,
               icon: const Icon(Icons.arrow_drop_down, color: AppTheme.neonCyan),
               items: _registeredEmployees.map((emp) {
+                final status = emp.biometricEnrolled ? 'ENROLLED' : 'NO FACE';
                 return DropdownMenuItem<EmployeeModel>(
                   value: emp,
                   child: Text(
-                    '${emp.fullName} (${emp.employeeId})',
+                    '${emp.fullName} (${emp.employeeId}) - $status',
                     style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                 );
@@ -1730,19 +1559,18 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
               onChanged: _isScanning
                   ? null
                   : (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedEmployee = val;
-                          _registeredFaceEmbedding = val.biometricEmbedding;
-                          _stableEmbeddings.clear();
-                          _verifyProgress = 0.0;
-                          _scanError = null;
-                          _isSuccess = false;
-                          _isDuplicate = false;
-                          _scanningStatus = 'Face template ready. Align face to scan.';
-                        });
-                      }
-                    },
+                    if (val != null) {
+                      setState(() {
+                        _selectedEmployee = val;
+                        _stableEmbeddings.clear();
+                        _verifyProgress = 0.0;
+                        _scanError = null;
+                        _isSuccess = false;
+                        _isDuplicate = false;
+                        _scanningStatus = _statusForEmployee(val);
+                      });
+                    }
+                  },
             ),
           ),
         ],
@@ -1932,25 +1760,21 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
           const SizedBox(height: 10),
           if (!_isScanning) ...[
             GestureDetector(
-              onTap: _templateError == null
-                  ? null
-                  : () => _showQualityDiagnosticModal(_templateError!),
+              onTap: _selectedEmployee != null && !_selectedEmployee!.biometricEnrolled
+                  ? () => _showQualityDiagnosticModal('No biometric embedding exists in the database for ${_selectedEmployee!.employeeId}.')
+                  : null,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
-                  color: _loadingTemplate
-                      ? Colors.white.withOpacity(0.04)
-                      : _templateError != null
-                          ? AppTheme.errorRed.withOpacity(0.08)
-                          : AppTheme.successGreen.withOpacity(0.08),
+                  color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
+                      ? AppTheme.successGreen.withOpacity(0.08)
+                      : AppTheme.errorRed.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: _loadingTemplate
-                        ? Colors.white10
-                        : _templateError != null
-                            ? AppTheme.errorRed.withOpacity(0.2)
-                            : AppTheme.successGreen.withOpacity(0.2),
+                    color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
+                        ? AppTheme.successGreen.withOpacity(0.2)
+                        : AppTheme.errorRed.withOpacity(0.2),
                   ),
                 ),
                 child: Row(
@@ -1958,33 +1782,28 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                   mainAxisSize: MainAxisSize.max,
                   children: [
                     Icon(
-                      _loadingTemplate
-                          ? Icons.sync_rounded
-                          : _templateError != null
-                              ? Icons.error_outline_rounded
-                              : Icons.check_circle_outline_rounded,
+                      _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.error_outline_rounded,
                       size: 14,
-                      color: _loadingTemplate
-                          ? AppTheme.mutedText
-                          : _templateError != null
-                              ? AppTheme.errorRed
-                              : AppTheme.successGreen,
+                      color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
+                          ? AppTheme.successGreen
+                          : AppTheme.errorRed,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      _loadingTemplate
-                          ? 'VALIDATING BIOMETRIC PROFILE...'
-                          : _templateError != null
-                              ? 'EMPLOYEE PROFILE IMAGE INVALID (TAP TO DIAGNOSE)'
-                              : 'EMPLOYEE BIOMETRIC PROFILE READY',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: _loadingTemplate
-                            ? AppTheme.mutedText
-                            : _templateError != null
-                                ? AppTheme.errorRed
-                                : AppTheme.successGreen,
+                    Flexible(
+                      child: Text(
+                        _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
+                            ? 'EMPLOYEE BIOMETRIC PROFILE READY'
+                            : 'NO FACE REGISTERED FOR SELECTED EMPLOYEE',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: _selectedEmployee != null && _selectedEmployee!.biometricEnrolled
+                              ? AppTheme.successGreen
+                              : AppTheme.errorRed,
+                        ),
                       ),
                     ),
                   ],
@@ -1997,12 +1816,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
               child: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: _loadingTemplate || _templateError != null
+                    colors: _selectedEmployee == null || !_selectedEmployee!.biometricEnrolled
                         ? [Colors.grey.shade800, Colors.grey.shade900]
                         : [AppTheme.neonCyan, AppTheme.neonCyan.withOpacity(0.7)],
                   ),
                   borderRadius: BorderRadius.circular(8),
-                  boxShadow: _loadingTemplate || _templateError != null
+                  boxShadow: _selectedEmployee == null || !_selectedEmployee!.biometricEnrolled
                       ? []
                       : [
                           BoxShadow(
@@ -2013,7 +1832,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                         ],
                 ),
                 child: ElevatedButton(
-                  onPressed: _loadingTemplate || _templateError != null ? null : _runFaceVerification,
+                  onPressed: _selectedEmployee == null ? null : _runFaceVerification,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     shadowColor: Colors.transparent,
@@ -2028,7 +1847,9 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                       Icon(Icons.face_unlock_rounded, size: 16, color: AppTheme.darkBg),
                       const SizedBox(width: 8),
                       Text(
-                        _loadingTemplate ? 'LOADING TEMPLATE...' : 'START GATE VERIFICATION',
+                        _selectedEmployee != null && !_selectedEmployee!.biometricEnrolled
+                            ? 'NO FACE REGISTERED'
+                            : 'START GATE VERIFICATION',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 11,

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { query } from '../config/db';
 import crypto from 'crypto';
+import { BiometricService } from '../services/biometricService';
 
 const ENCRYPTION_KEY = process.env.BIOMETRIC_ENCRYPTION_KEY || 'gaytri_biometric_secure_key_2026_!';
 const hashKey = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
@@ -52,31 +53,6 @@ export const decryptBiometric = (encryptedText: string): string => {
   return encryptedText; // Plaintext fallback
 };
 
-const validateBiometricEmbedding = (embedding: any): number[] => {
-  if (!embedding || !Array.isArray(embedding) || embedding.length !== 128) {
-    throw new Error('A 128-dimensional face embedding array is required.');
-  }
-
-  const numericVector: number[] = [];
-  let sumSq = 0.0;
-
-  for (let i = 0; i < 128; i++) {
-    const val = Number(embedding[i]);
-    if (isNaN(val) || !isFinite(val)) {
-      throw new Error('Embedding contains NaN or infinite values.');
-    }
-    numericVector.push(val);
-    sumSq += val * val;
-  }
-
-  const magnitude = Math.sqrt(sumSq);
-  if (Math.abs(magnitude - 1.0) > 0.05) {
-    throw new Error('Embedding vector is not L2 normalized.');
-  }
-
-  return numericVector;
-};
-
 export const enrollBiometric = async (req: Request, res: Response) => {
   const { employee_id, embedding } = req.body;
 
@@ -98,7 +74,7 @@ export const enrollBiometric = async (req: Request, res: Response) => {
 
     let numericVector: number[];
     try {
-      numericVector = validateBiometricEmbedding(embedding);
+      numericVector = BiometricService.normalizeEmbedding(embedding);
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
     }
@@ -111,6 +87,7 @@ export const enrollBiometric = async (req: Request, res: Response) => {
        SET biometric_embedding = $1, 
            biometric_enrolled = TRUE, 
            biometric_enrolled_at = CURRENT_TIMESTAMP,
+           face_embedding = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
       [encrypted, employee.id]
@@ -198,40 +175,19 @@ export const getEmployees = async (req: Request, res: Response) => {
     const result = await query(
       `SELECT id, employee_id, full_name, department, shift, mobile, profile_photo_url,
               is_active,
-              face_embedding,
-              biometric_embedding,
-              biometric_enrolled,
+              CASE
+                WHEN biometric_enrolled = TRUE AND biometric_embedding IS NOT NULL THEN TRUE
+                ELSE FALSE
+              END AS biometric_enrolled,
               biometric_enrolled_at
        FROM employees
        ORDER BY employee_id ASC`
     );
 
-    const mappedEmployees = result.rows.map(row => {
-      let parsedEmbedding: number[] | null = null;
-      if (row.biometric_embedding) {
-        try {
-          const parts = row.biometric_embedding.split(':');
-          const decrypted = decryptBiometric(row.biometric_embedding);
-          parsedEmbedding = JSON.parse(decrypted);
-
-          // On-the-fly migration from legacy CBC (2 parts) to AES-256-GCM
-          if (parts.length === 2 && decrypted) {
-            const reEncrypted = encryptBiometric(decrypted);
-            query('UPDATE employees SET biometric_embedding = $1 WHERE id = $2', [reEncrypted, row.id])
-              .then(() => console.log(`[Biometric Migration] Upgraded employee ${row.id} from CBC to GCM`))
-              .catch(err => console.error(`[Biometric Migration Error] Failed to upgrade employee ${row.id} to GCM:`, err));
-          }
-        } catch (err) {
-          console.error(`Failed to decrypt/parse biometric_embedding for employee ${row.id}:`, err);
-        }
-      }
-
-      const { biometric_embedding, ...rest } = row;
-      return {
-        ...rest,
-        biometric_embedding: parsedEmbedding
-      };
-    });
+    const mappedEmployees = result.rows.map((row) => ({
+      ...row,
+      has_face_data: !!row.profile_photo_url,
+    }));
 
     console.log(`[Employee Info] Fetched ${mappedEmployees.length} employees from database.`);
 
@@ -362,14 +318,10 @@ export const updateEmployee = async (req: Request, res: Response) => {
 // Register face embeddings
 export const registerFace = async (req: Request, res: Response) => {
   const employeeId = req.params.id || req.body.id || req.body.employee_id;
-  const { face_embedding, profile_photo_url } = req.body;
+  const { profile_photo_url } = req.body;
 
   if (!employeeId) {
     return res.status(400).json({ success: false, message: 'Employee ID is required.' });
-  }
-
-  if (!face_embedding || !Array.isArray(face_embedding) || face_embedding.length !== 128) {
-    return res.status(400).json({ success: false, message: 'A 128-dimensional face embedding array is required.' });
   }
 
   try {
@@ -392,18 +344,22 @@ export const registerFace = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: err.message });
     }
 
+    if (!sanitizedPhotoUrl) {
+      return res.status(400).json({ success: false, message: 'A valid face photo is required.' });
+    }
+
     await query(
       `UPDATE employees 
-       SET face_embedding = $1, profile_photo_url = $2, updated_at = $3
-       WHERE id = $4`,
-      [face_embedding, sanitizedPhotoUrl, new Date(), employee.id]
+       SET face_embedding = NULL, profile_photo_url = $1, updated_at = $2
+       WHERE id = $3`,
+      [sanitizedPhotoUrl, new Date(), employee.id]
     );
 
-    console.log(`[Biometric Sync] Successfully enrolled face signature for: ${employee.full_name} (${employee.employee_id})`);
+    console.log(`[Biometric Sync] Saved face photo for: ${employee.full_name} (${employee.employee_id})`);
 
     return res.status(200).json({
       success: true,
-      message: 'Face signature enrolled successfully.',
+      message: 'Face photo registered successfully.',
       employee: {
         id: employee.id,
         employee_id: employee.employee_id,
@@ -490,7 +446,7 @@ export const requestReEnrollment = async (req: Request, res: Response) => {
 
     let numericVector: number[];
     try {
-      numericVector = validateBiometricEmbedding(embedding);
+      numericVector = BiometricService.normalizeEmbedding(embedding);
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
     }
@@ -571,6 +527,7 @@ export const approveReEnrollment = async (req: any, res: Response) => {
        SET biometric_embedding = $1, 
            biometric_enrolled = TRUE, 
            biometric_enrolled_at = CURRENT_TIMESTAMP,
+           face_embedding = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
       [requestRow.new_embedding, employee.id]

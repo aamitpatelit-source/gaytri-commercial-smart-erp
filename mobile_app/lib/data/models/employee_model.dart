@@ -8,6 +8,7 @@ class EmployeeModel {
   final List<double>? biometricEmbedding;
   final bool biometricEnrolled;
   final String? profilePhotoUrl;
+  final bool hasFaceData;
 
   EmployeeModel({
     required this.id,
@@ -19,15 +20,12 @@ class EmployeeModel {
     this.biometricEmbedding,
     required this.biometricEnrolled,
     this.profilePhotoUrl,
+    this.hasFaceData = false,
   });
 
   factory EmployeeModel.fromJson(Map<String, dynamic> json) {
-    final hasBiometricEmbedding = json['biometric_embedding'] != null;
-    final List<dynamic>? embeddingList = hasBiometricEmbedding 
-        ? json['biometric_embedding'] as List<dynamic>?
-        : json['face_embedding'] as List<dynamic>?;
-        
-    final enrolled = json['biometric_enrolled'] as bool? ?? (embeddingList != null && embeddingList.isNotEmpty);
+    final List<dynamic>? embeddingList = json['biometric_embedding'] as List<dynamic>?;
+    final enrolled = json['biometric_enrolled'] as bool? ?? false;
 
     return EmployeeModel(
       id: json['id'] as String,
@@ -41,8 +39,11 @@ class EmployeeModel {
           ? List<double>.from(embeddingList.map((x) => double.parse(x.toString())))
           : null,
       profilePhotoUrl: json['profile_photo_url'] as String?,
+      hasFaceData: json['has_face_data'] as bool? ?? false,
     );
   }
+
+  List<double>? get faceEmbedding => biometricEmbedding;
 
   Map<String, dynamic> toJson() {
     return {
@@ -54,8 +55,8 @@ class EmployeeModel {
       'mobile': mobile,
       'biometric_enrolled': biometricEnrolled,
       'biometric_embedding': biometricEmbedding,
-      'face_embedding': biometricEmbedding,
       'profile_photo_url': profilePhotoUrl,
+      'has_face_data': hasFaceData,
     };
   }
 }

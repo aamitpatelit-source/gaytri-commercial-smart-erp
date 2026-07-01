@@ -66,3 +66,12 @@ const poolProxy = new Proxy({}, {
     }
 });
 exports.default = poolProxy;
+if (process.env.DATABASE_URL) {
+    const parsed = new URL(process.env.DATABASE_URL);
+    console.log("DB HOST:", parsed.hostname);
+    console.log("DB USER:", parsed.username);
+    actualPool = new pg_1.Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+    });
+}

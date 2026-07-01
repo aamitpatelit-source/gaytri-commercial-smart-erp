@@ -62,7 +62,7 @@ app.get('/', (req, res) => {
 // Apply centralized error handling middleware
 app.use(errorHandler as any);
 
-// Bootstrap Database Schema and seed mock employees for testing convenience
+// Bootstrap database schema and reconcile legacy biometric columns
 const bootstrapDatabase = async () => {
   try {
     console.log('Bootstrapping database schema...');
