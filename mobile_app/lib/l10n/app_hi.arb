@@ -1,0 +1,21 @@
+{
+  "appName": "गायत्री कमर्शियल वर्कफ़ोर्स",
+  "appDescription": "कार्यबल प्रबंधन और उपस्थिति प्रणाली",
+  "loginTitle": "वर्कफ़ोर्स लॉगिन",
+  "employeeId": "कर्मचारी आईडी",
+  "password": "पासवर्ड",
+  "loginButton": "साइन इन करें",
+  "forgotPassword": "पासवर्ड भूल गए?",
+  "contactAdmin": "एडमिन से संपर्क करें",
+  "employeeDashboard": "कर्मचारी डैशबोर्ड",
+  "managerDashboard": "प्रबंधक डैशबोर्ड",
+  "shiftTimings": "शिफ्ट का समय",
+  "personalLogs": "व्यक्तिगत लॉग",
+  "requestLeave": "छुट्टी का अनुरोध",
+  "profileDetails": "प्रोफ़ाइल विवरण",
+  "logout": "लॉगआउट",
+  "loading": "लोड हो रहा है...",
+  "errorConnection": "कनेक्शन स्थापित नहीं हो सका।",
+  "active": "सक्रिय",
+  "suspended": "निलंबित"
+}

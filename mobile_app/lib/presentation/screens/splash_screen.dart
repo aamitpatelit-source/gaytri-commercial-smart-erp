@@ -139,7 +139,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'SMART FACTORY ERP',
+                    'WORKFORCE SYSTEM',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -157,7 +157,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             right: 0,
             child: Center(
               child: Text(
-                'AI Face Verification Active',
+                'Secure Shift Marking',
                 style: TextStyle(
                   fontSize: 10,
                   color: Colors.white.withOpacity(0.3),

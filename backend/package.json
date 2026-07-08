@@ -1,7 +1,7 @@
 {
   "name": "gaytri-commercial-erp-backend",
   "version": "1.0.0",
-  "description": "Enterprise Backend for Gaytri Commercial Smart ERP",
+  "description": "Enterprise Backend for Gaytri Commercial Workforce",
   "main": "dist/app.js",
   "scripts": {
     "build": "tsc",
@@ -17,6 +17,7 @@
     "express": "^4.22.2",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
+    "moment-timezone": "^0.6.2",
     "pg": "^8.21.0",
     "uuid": "^9.0.1"
   },

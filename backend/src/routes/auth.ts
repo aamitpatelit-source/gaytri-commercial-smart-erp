@@ -1,5 +1,18 @@
 import { Router } from 'express';
-import { login, adminLogin, getMe, changePassword, updateProfile, getManagers, createManager, updateManager, deleteManager } from '../controllers/authController';
+import {
+  login,
+  adminLogin,
+  employeeLogin,
+  forgotPassword,
+  resetPassword,
+  getMe,
+  changePassword,
+  updateProfile,
+  getManagers,
+  createManager,
+  updateManager,
+  deleteManager,
+} from '../controllers/authController';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 
@@ -8,6 +21,9 @@ const router = Router();
 // Public login routes
 router.post('/login', asyncHandler(login));
 router.post('/admin/login', asyncHandler(adminLogin));
+router.post('/employee/login', asyncHandler(employeeLogin));
+router.post('/forgot-password', asyncHandler(forgotPassword));
+router.post('/reset-password', asyncHandler(resetPassword));
 
 // Protected status query & self password change/profile update
 router.get('/me', authenticateToken as any, asyncHandler(getMe));

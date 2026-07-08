@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteManager = exports.updateManager = exports.createManager = exports.getManagers = exports.updateProfile = exports.changePassword = exports.getMe = exports.adminLogin = exports.login = void 0;
+exports.resetPassword = exports.forgotPassword = exports.employeeLogin = exports.deleteManager = exports.updateManager = exports.createManager = exports.getManagers = exports.updateProfile = exports.changePassword = exports.getMe = exports.adminLogin = exports.login = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const db_1 = require("../config/db");
@@ -369,3 +369,132 @@ const deleteManager = async (req, res) => {
     }
 };
 exports.deleteManager = deleteManager;
+// Employee Login
+const employeeLogin = async (req, res) => {
+    const { employee_id, password } = req.body;
+    if (!employee_id || !password) {
+        return res.status(400).json({ success: false, message: 'Employee ID and password are required.' });
+    }
+    try {
+        const empId = employee_id.trim();
+        const empRes = await (0, db_1.query)(`SELECT id, employee_id, full_name, mobile, password_hash, is_active, require_password_change 
+       FROM employees WHERE employee_id = $1`, [empId]);
+        if (empRes.rows.length === 0) {
+            return res.status(401).json({ success: false, message: 'Invalid employee credentials.' });
+        }
+        const employee = empRes.rows[0];
+        if (!employee.is_active) {
+            return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
+        }
+        const match = await bcryptjs_1.default.compare(password, employee.password_hash);
+        if (!match) {
+            return res.status(401).json({ success: false, message: 'Invalid employee credentials.' });
+        }
+        const token = jsonwebtoken_1.default.sign({
+            id: employee.id,
+            employee_id: employee.employee_id,
+            role: 'EMPLOYEE',
+            require_password_change: employee.require_password_change,
+        }, JWT_SECRET, { expiresIn: '30d' });
+        return res.status(200).json({
+            success: true,
+            message: 'Employee login successful.',
+            token,
+            access_token: token,
+            user: {
+                id: employee.id,
+                employee_id: employee.employee_id,
+                full_name: employee.full_name,
+                role: 'EMPLOYEE',
+                require_password_change: employee.require_password_change,
+            },
+        });
+    }
+    catch (error) {
+        console.error('[Auth Error] Employee login failed:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+};
+exports.employeeLogin = employeeLogin;
+// Forgot Password / Request Activation Token
+const forgotPassword = async (req, res) => {
+    const { email_or_id } = req.body;
+    if (!email_or_id || email_or_id.trim() === '') {
+        return res.status(400).json({ success: false, message: 'Email or Employee ID is required.' });
+    }
+    try {
+        const input = email_or_id.trim();
+        // Check if employee
+        const empRes = await (0, db_1.query)('SELECT id, employee_id FROM employees WHERE employee_id = $1 OR mobile = $1', [input]);
+        // Check if admin/manager
+        const adminRes = await (0, db_1.query)('SELECT id, email FROM admins WHERE email = $1', [input.toLowerCase()]);
+        if (empRes.rows.length === 0 && adminRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Account not found.' });
+        }
+        const targetEmailOrId = empRes.rows.length > 0 ? empRes.rows[0].employee_id : adminRes.rows[0].email;
+        // Generate secure activation token (64 hex characters)
+        const crypto = require('crypto');
+        const rawToken = crypto.randomBytes(32).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour expiry
+        // Save hashed token at rest
+        await (0, db_1.query)(`INSERT INTO password_reset_tokens (email_or_id, token_hash, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`, [targetEmailOrId, tokenHash, expiresAt]);
+        console.log(`[Secure Auth] Generated reset/activation token for ${targetEmailOrId}: ${rawToken}`);
+        // Return the raw token in the response for direct validation in developer tools/frontend
+        return res.status(200).json({
+            success: true,
+            message: 'Activation/reset token generated successfully.',
+            token: rawToken,
+            expires_at: expiresAt.toISOString()
+        });
+    }
+    catch (error) {
+        console.error('[Auth Error] Forgot password failed:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+};
+exports.forgotPassword = forgotPassword;
+// Reset Password / Activate Account (Consumes Token)
+const resetPassword = async (req, res) => {
+    const { token, new_password } = req.body;
+    if (!token || !new_password || new_password.trim() === '') {
+        return res.status(400).json({ success: false, message: 'Token and new password are required.' });
+    }
+    try {
+        const crypto = require('crypto');
+        const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+        // Retrieve active non-expired token
+        const tokenRes = await (0, db_1.query)('SELECT id, email_or_id FROM password_reset_tokens WHERE token_hash = $1 AND expires_at > NOW()', [tokenHash]);
+        if (tokenRes.rows.length === 0) {
+            return res.status(400).json({ success: false, message: 'Invalid or expired activation/reset token.' });
+        }
+        const { email_or_id } = tokenRes.rows[0];
+        const passwordHash = await bcryptjs_1.default.hash(new_password, 10);
+        await (0, db_1.query)('BEGIN');
+        // 1. Delete token to enforce one-time-use constraint
+        await (0, db_1.query)('DELETE FROM password_reset_tokens WHERE id = $1', [tokenRes.rows[0].id]);
+        // 2. Update employee or admin password
+        const empUpdate = await (0, db_1.query)(`UPDATE employees 
+       SET password_hash = $1, require_password_change = FALSE, updated_at = NOW() 
+       WHERE employee_id = $2 RETURNING id`, [passwordHash, email_or_id]);
+        if (empUpdate.rows.length === 0) {
+            await (0, db_1.query)(`UPDATE admins 
+         SET password_hash = $1, must_change_password = FALSE, updated_at = NOW() 
+         WHERE email = $2`, [passwordHash, email_or_id.toLowerCase()]);
+        }
+        await (0, db_1.query)('COMMIT');
+        console.log(`[Secure Auth] Password successfully reset/activated for account: ${email_or_id}`);
+        return res.status(200).json({
+            success: true,
+            message: 'Password updated successfully. You can now login.'
+        });
+    }
+    catch (error) {
+        await (0, db_1.query)('ROLLBACK');
+        console.error('[Auth Error] Reset password failed:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+};
+exports.resetPassword = resetPassword;

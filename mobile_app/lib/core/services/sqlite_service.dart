@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../../data/models/employee_model.dart';
@@ -30,7 +29,6 @@ class SqliteService {
             department TEXT NOT NULL,
             shift TEXT NOT NULL,
             mobile TEXT NOT NULL,
-            face_embedding TEXT, -- JSON Array of floats
             profile_photo_url TEXT
           )
         ''');
@@ -65,9 +63,6 @@ class SqliteService {
 
     for (var emp in employees) {
       final jsonMap = emp.toJson();
-      if (emp.faceEmbedding != null) {
-        jsonMap['face_embedding'] = jsonEncode(emp.faceEmbedding);
-      }
       batch.insert('employees', jsonMap, conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
@@ -80,9 +75,6 @@ class SqliteService {
 
     return List.generate(maps.length, (i) {
       final item = Map<String, dynamic>.from(maps[i]);
-      if (item['face_embedding'] != null) {
-        item['face_embedding'] = List<double>.from(jsonDecode(item['face_embedding']));
-      }
       return EmployeeModel.fromJson(item);
     });
   }

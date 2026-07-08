@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:provider/provider.dart';
+import '../../l10n/app_localizations.dart';
+import '../../core/providers/language_provider.dart';
 import '../../core/config/api_config.dart';
 import '../../core/theme/app_theme.dart';
 import 'manager_dashboard.dart';
@@ -162,7 +165,25 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 10),
+                    // Language Switcher Row
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildLangBtn(context, 'English', 'en'),
+                          Container(
+                            width: 1,
+                            height: 12,
+                            color: Colors.white24,
+                            margin: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          _buildLangBtn(context, 'हिंदी', 'hi'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                     // Header Brand Icon & Label
                     Center(
                       child: Column(
@@ -192,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 2),
                           const Text(
-                            'GATE SCANNER CONTROLLER',
+                            'WORKFORCE SYSTEM',
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
@@ -223,18 +244,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Manager Terminal Access',
-                            style: TextStyle(
+                          Text(
+                            AppLocalizations.of(context)?.loginTitle ?? 'Manager Terminal Access',
+                            style: const TextStyle(
                               fontFamily: 'Outfit',
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'Sign in with your corporate manager profile credentials.',
-                            style: TextStyle(fontSize: 11, color: AppTheme.mutedText),
+                          Text(
+                            AppLocalizations.of(context)?.appDescription ?? 'Sign in with your corporate manager profile credentials.',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.mutedText),
                           ),
                           const SizedBox(height: 24),
 
@@ -256,13 +277,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             const SizedBox(height: 16),
                           ],
 
-                          // Inputs
                           TextField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: 'Manager Email',
-                              prefixIcon: Icon(Icons.email_outlined, color: AppTheme.mutedText, size: 20),
+                            decoration: InputDecoration(
+                              labelText: AppLocalizations.of(context)?.employeeId ?? 'Manager Email/ID',
+                              prefixIcon: const Icon(Icons.person_outline_rounded, color: AppTheme.mutedText, size: 20),
                               hintText: 'manager@gaytri.com',
                             ),
                           ),
@@ -270,9 +290,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextField(
                             controller: _passwordController,
                             obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'System Password',
-                              prefixIcon: Icon(Icons.lock_outline_rounded, color: AppTheme.mutedText, size: 20),
+                            decoration: InputDecoration(
+                              labelText: AppLocalizations.of(context)?.password ?? 'System Password',
+                              prefixIcon: const Icon(Icons.lock_outline_rounded, color: AppTheme.mutedText, size: 20),
                               hintText: '••••••••',
                             ),
                           ),
@@ -298,15 +318,15 @@ class _LoginScreenState extends State<LoginScreen> {
                                       height: 22,
                                       child: CircularProgressIndicator(color: AppTheme.darkBg, strokeWidth: 2),
                                     )
-                                  : const Row(
+                                  : Row(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
                                         Text(
-                                          'Manager Sign In',
-                                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 0.5),
+                                          AppLocalizations.of(context)?.loginButton ?? 'Manager Sign In',
+                                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 0.5),
                                         ),
-                                        SizedBox(width: 8),
-                                        Icon(Icons.arrow_forward_rounded, size: 18),
+                                        const SizedBox(width: 8),
+                                        const Icon(Icons.arrow_forward_rounded, size: 18),
                                       ],
                                     ),
                             ),
@@ -320,6 +340,23 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLangBtn(BuildContext context, String label, String code) {
+    final langProvider = Provider.of<LanguageProvider>(context);
+    final isSelected = langProvider.locale.languageCode == code;
+    return GestureDetector(
+      onTap: () => langProvider.changeLanguage(code),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: isSelected ? FontWeight.w800 : FontWeight.bold,
+          color: isSelected ? AppTheme.neonCyan : AppTheme.mutedText,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }

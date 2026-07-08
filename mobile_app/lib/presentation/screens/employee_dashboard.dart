@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 import '../../core/config/api_config.dart';
 import '../../core/theme/app_theme.dart';
 import 'login_screen.dart';
-import 'scanner_screen.dart';
 
 class EmployeeDashboard extends StatefulWidget {
   const EmployeeDashboard({super.key});
@@ -798,42 +797,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     ),
                     const SizedBox(height: 28),
 
-                    // Primary Button: Start Face Scan
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          final result = await Navigator.of(context).push(
-                            MaterialPageRoute(builder: (context) => const ScannerScreen()),
-                          );
-                          if (result == true) {
-                            _loadDashboardData();
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.neonCyan,
-                          foregroundColor: AppTheme.darkBg,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          elevation: 8,
-                          shadowColor: AppTheme.neonCyan.withValues(alpha: 0.3),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.face_unlock_rounded, size: 22),
-                            SizedBox(width: 10),
-                            Text(
-                              'Start Face Scan',
-                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 0.5),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
+
 
                     // Recent Activity Title
                     const Row(

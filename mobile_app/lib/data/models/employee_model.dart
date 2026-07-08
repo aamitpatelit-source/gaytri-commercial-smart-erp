@@ -5,10 +5,7 @@ class EmployeeModel {
   final String department;
   final String shift;
   final String mobile;
-  final List<double>? biometricEmbedding;
-  final bool biometricEnrolled;
   final String? profilePhotoUrl;
-  final bool hasFaceData;
 
   EmployeeModel({
     required this.id,
@@ -17,16 +14,10 @@ class EmployeeModel {
     required this.department,
     required this.shift,
     required this.mobile,
-    this.biometricEmbedding,
-    required this.biometricEnrolled,
     this.profilePhotoUrl,
-    this.hasFaceData = false,
   });
 
   factory EmployeeModel.fromJson(Map<String, dynamic> json) {
-    final List<dynamic>? embeddingList = json['biometric_embedding'] as List<dynamic>?;
-    final enrolled = json['biometric_enrolled'] as bool? ?? false;
-
     return EmployeeModel(
       id: json['id'] as String,
       employeeId: json['employee_id'] as String,
@@ -34,16 +25,9 @@ class EmployeeModel {
       department: json['department'] as String? ?? 'Production',
       shift: json['shift'] as String? ?? 'Morning Shift',
       mobile: json['mobile'] as String? ?? '',
-      biometricEnrolled: enrolled,
-      biometricEmbedding: embeddingList != null
-          ? List<double>.from(embeddingList.map((x) => double.parse(x.toString())))
-          : null,
       profilePhotoUrl: json['profile_photo_url'] as String?,
-      hasFaceData: json['has_face_data'] as bool? ?? false,
     );
   }
-
-  List<double>? get faceEmbedding => biometricEmbedding;
 
   Map<String, dynamic> toJson() {
     return {
@@ -53,10 +37,7 @@ class EmployeeModel {
       'department': department,
       'shift': shift,
       'mobile': mobile,
-      'biometric_enrolled': biometricEnrolled,
-      'biometric_embedding': biometricEmbedding,
       'profile_photo_url': profilePhotoUrl,
-      'has_face_data': hasFaceData,
     };
   }
 
@@ -67,10 +48,7 @@ class EmployeeModel {
     String? department,
     String? shift,
     String? mobile,
-    List<double>? biometricEmbedding,
-    bool? biometricEnrolled,
     String? profilePhotoUrl,
-    bool? hasFaceData,
   }) {
     return EmployeeModel(
       id: id ?? this.id,
@@ -79,10 +57,7 @@ class EmployeeModel {
       department: department ?? this.department,
       shift: shift ?? this.shift,
       mobile: mobile ?? this.mobile,
-      biometricEmbedding: biometricEmbedding ?? this.biometricEmbedding,
-      biometricEnrolled: biometricEnrolled ?? this.biometricEnrolled,
       profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
-      hasFaceData: hasFaceData ?? this.hasFaceData,
     );
   }
 }

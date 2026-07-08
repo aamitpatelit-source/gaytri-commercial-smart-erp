@@ -7,8 +7,9 @@ import { checkDbConnection, query } from './config/db';
 import authRoutes from './routes/auth';
 import employeeRoutes from './routes/employees';
 import attendanceRoutes from './routes/attendance';
+import companyRoutes from './routes/company';
 import { errorHandler } from './middleware/errorHandler';
-import { runStartupSelfHealing, startAutoCheckoutScheduler } from './controllers/attendanceController';
+import { startAutoLockScheduler } from './controllers/attendanceController';
 
 dotenv.config();
 
@@ -48,13 +49,14 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/employees', employeeRoutes);
 app.use('/api/v1/attendance', attendanceRoutes);
+app.use('/api/v1/company', companyRoutes);
 
 
 
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Gaytri Commercial Face Attendance MVP API is running.',
+    message: 'Gaytri Commercial Workforce API is running.',
     timestamp: new Date().toISOString(),
   });
 });
@@ -77,157 +79,208 @@ const bootstrapDatabase = async () => {
       console.warn('schema.sql file not found at:', schemaPath);
     }
 
-    // Self-healing migration for legacy tables
-    await query(`
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS department VARCHAR(100) DEFAULT 'Production';
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift VARCHAR(50) DEFAULT 'Morning Shift';
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE DEFAULT CURRENT_DATE;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS salary_type VARCHAR(50) DEFAULT 'MONTHLY';
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'EMPLOYEE';
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
-      ALTER TABLE employees ALTER COLUMN password_hash DROP NOT NULL;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN DEFAULT FALSE;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS biometric_embedding TEXT;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS biometric_enrolled BOOLEAN DEFAULT FALSE;
-      ALTER TABLE employees ADD COLUMN IF NOT EXISTS biometric_enrolled_at TIMESTAMP WITH TIME ZONE;
-    `);
-    console.log('Legacy table columns verified/migrated.');
+    const bcrypt = require('bcryptjs');
 
-    // Ensure admins table exists
-    await query(`
-      CREATE TABLE IF NOT EXISTS admins (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        email VARCHAR(100) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        full_name VARCHAR(150) NOT NULL,
-        role VARCHAR(50) DEFAULT 'ADMIN',
-        is_active BOOLEAN DEFAULT TRUE,
-        must_change_password BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    console.log('Admins table verified/created.');
-
-    // Auto-migration: check if managers table exists and has records
-    const managersTableCheck = await query(`
+    // 1. Conflict checking and duplicate resolution for legacy attendance data
+    const recordsTableCheck = await query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' 
-        AND table_name = 'managers'
+        AND table_name = 'attendance_records'
       );
     `);
-    try {
-      if (managersTableCheck.rows[0].exists) {
-        const managersCount = await query('SELECT COUNT(*) FROM managers');
-        if (parseInt(managersCount.rows[0].count) > 0) {
-          await query(`
-            INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
-            SELECT id, email, password_hash, full_name, 'ADMIN', TRUE, TRUE, created_at, created_at
-            FROM managers
-            ON CONFLICT (email) DO NOTHING
-          `);
-          console.log('Migrated legacy managers to admins table.');
+
+    if (recordsTableCheck.rows[0].exists) {
+      console.log('[Migration] Found legacy attendance_records. Checking for duplicates...');
+      
+      // Select duplicate pairs
+      const duplicateRes = await query(`
+        SELECT employee_id, date, COUNT(*) as cnt
+        FROM attendance_records
+        GROUP BY employee_id, date
+        HAVING COUNT(*) > 1
+      `);
+
+      if (duplicateRes.rows.length > 0) {
+        console.log(`[Migration] Resolving ${duplicateRes.rows.length} duplicate dates...`);
+        for (const duplicate of duplicateRes.rows) {
+          const empId = duplicate.employee_id;
+          const targetDate = duplicate.date;
+          
+          // Get all records for this employee and date ordered by check_in_time asc
+          const records = await query(`
+            SELECT id, status, check_in_time, date 
+            FROM attendance_records 
+            WHERE employee_id = $1 AND date = $2
+            ORDER BY check_in_time ASC
+          `, [empId, targetDate]);
+
+          if (records.rows.length > 1) {
+            const preserved = records.rows[0];
+            
+            // Record conflicts for the audit report
+            for (let i = 1; i < records.rows.length; i++) {
+              const discarded = records.rows[i];
+              await query(`
+                INSERT INTO attendance_migration_conflicts 
+                  (employee_id, date, record_preserved_id, record_discarded_id, preserved_status, discarded_status, preserved_time, discarded_time)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              `, [empId, targetDate, preserved.id, discarded.id, preserved.status, discarded.status, preserved.check_in_time, discarded.check_in_time]);
+
+              // Discard the late duplicate row
+              await query('DELETE FROM attendance_records WHERE id = $1', [discarded.id]);
+            }
+          }
         }
+        console.log('[Migration] Duplicates resolved successfully.');
       }
-    } catch (migErr: any) {
-      console.warn('[Auto-Migration Alert] Failed to migrate managers to admins (likely due to duplicate primary keys):', migErr.message);
+
+      // Migrate records to new attendance table
+      console.log('[Migration] Transforming legacy attendance_records...');
+      const migrateCount = await query(`
+        INSERT INTO attendance (id, employee_id, manager_id, date, time, status, remarks, created_device, source, is_locked, created_at, updated_at)
+        SELECT 
+          id, 
+          employee_id, 
+          NULL, 
+          date, 
+          check_in_time, 
+          status, 
+          'Migrated Legacy Record'::text, 
+          device_id, 
+          'BIO_FACE'::varchar,
+          TRUE,
+          created_at, 
+          created_at
+        FROM attendance_records
+        ON CONFLICT (employee_id, date) DO NOTHING
+        RETURNING id
+      `);
+      console.log(`[Migration] Migrated ${migrateCount.rows.length} records successfully.`);
+
+      // Verify row counts match
+      const legacyCount = await query('SELECT COUNT(*) FROM attendance_records');
+      const newCount = await query("SELECT COUNT(*) FROM attendance WHERE source = 'BIO_FACE'");
+      if (parseInt(legacyCount.rows[0].count) !== parseInt(newCount.rows[0].count)) {
+        throw new Error(`Migration reconciliation failed. Legacy: ${legacyCount.rows[0].count}, New: ${newCount.rows[0].count}`);
+      }
+      console.log('[Migration] Reconciliation complete.');
+
+      // Safely drop the legacy table
+      await query('DROP TABLE IF EXISTS attendance_records CASCADE');
+      console.log('[Migration] Legacy attendance_records table dropped.');
     }
 
-    // Seed default administrator if empty
+    // 2. Drop old biometric columns from employees table
+    console.log('[Migration] Checking legacy biometric columns in employees table...');
+    await query(`
+      ALTER TABLE employees DROP COLUMN IF EXISTS face_embedding CASCADE;
+      ALTER TABLE employees DROP COLUMN IF EXISTS biometric_embedding CASCADE;
+      ALTER TABLE employees DROP COLUMN IF EXISTS biometric_enrolled CASCADE;
+      ALTER TABLE employees DROP COLUMN IF EXISTS biometric_enrolled_at CASCADE;
+    `);
+    console.log('[Migration] Legacy biometric columns removed.');
+
+    // 3. Drop legacy biometric tables
+    await query(`
+      DROP TABLE IF EXISTS biometric_audit_logs CASCADE;
+      DROP TABLE IF EXISTS biometric_history CASCADE;
+      DROP TABLE IF EXISTS re_enrollment_requests CASCADE;
+      DROP TABLE IF EXISTS managers CASCADE;
+    `);
+    console.log('[Migration] Legacy biometric tables removed.');
+
+    // 4. Seed default shifts, departments & designations
+    const deptCheck = await query('SELECT COUNT(*) FROM departments');
+    if (parseInt(deptCheck.rows[0].count) === 0) {
+      await query("INSERT INTO departments (name) VALUES ('Production'), ('Administration'), ('Logistics')");
+      console.log('Seeded default departments.');
+    }
+
+    const designCheck = await query('SELECT COUNT(*) FROM designations');
+    if (parseInt(designCheck.rows[0].count) === 0) {
+      await query("INSERT INTO designations (name) VALUES ('Worker'), ('Supervisor'), ('Executive')");
+      console.log('Seeded default designations.');
+    }
+
+    const shiftCheck = await query('SELECT COUNT(*) FROM shifts');
+    if (parseInt(shiftCheck.rows[0].count) === 0) {
+      await query(`
+        INSERT INTO shifts (name, checkin_start, late_after, half_day_after, checkout_time, working_hours)
+        VALUES ('Morning Shift', '09:00:00', '09:15:00', '13:00:00', '18:00:00', 8.00)
+      `);
+      console.log('Seeded default shift: Morning Shift.');
+    }
+
+    // 5. Reconcile employee department/designation/shift foreign keys
+    const defaultShift = await query("SELECT id FROM shifts WHERE name = 'Morning Shift' LIMIT 1");
+    const defaultDept = await query("SELECT id FROM departments WHERE name = 'Production' LIMIT 1");
+    const defaultDesign = await query("SELECT id FROM designations WHERE name = 'Worker' LIMIT 1");
+
+    if (defaultShift.rows.length > 0 && defaultDept.rows.length > 0 && defaultDesign.rows.length > 0) {
+      const shiftId = defaultShift.rows[0].id;
+      const deptId = defaultDept.rows[0].id;
+      const designId = defaultDesign.rows[0].id;
+
+      await query(`
+        UPDATE employees 
+        SET shift_id = COALESCE(shift_id, $1),
+            department_id = COALESCE(department_id, $2),
+            designation_id = COALESCE(designation_id, $3)
+      `, [shiftId, deptId, designId]);
+    }
+
+    // 6. Generate secure temporary passwords for existing employees without a password
+    const uncredentialedEmployees = await query('SELECT id, employee_id FROM employees WHERE password_hash IS NULL');
+    if (uncredentialedEmployees.rows.length > 0) {
+      console.log(`[Migration] Generating secure temporary credentials for ${uncredentialedEmployees.rows.length} employees...`);
+      for (const emp of uncredentialedEmployees.rows) {
+        // Secure deterministic temporary password based on employee_id (e.g. Workforce@GC-0001)
+        const tempPassword = `Workforce@${emp.employee_id}`;
+        const tempHash = bcrypt.hashSync(tempPassword, 10);
+        await query(
+          'UPDATE employees SET password_hash = $1, require_password_change = TRUE WHERE id = $2',
+          [tempHash, emp.id]
+        );
+      }
+      console.log('[Migration] Secure activation passwords initialized.');
+    }
+
+    // 7. Seed default super admin if empty
     const superAdminCheck = await query("SELECT id FROM admins WHERE email = 'admin@gaytri.com' LIMIT 1");
     if (superAdminCheck.rows.length > 0) {
       console.log('Default super admin already exists.');
     } else {
-      const bcrypt = require('bcryptjs');
       const { v4: uuidv4 } = require('uuid');
-      const adminPasswordHash = bcrypt.hashSync('123456', 10);
+      const adminPasswordHash = bcrypt.hashSync('workforce@2026', 10);
       await query(`
-        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
-        VALUES ($1, 'admin@gaytri.com', $2, 'Gaytri Admin', 'SUPER_ADMIN', TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
+        VALUES ($1, 'admin@gaytri.com', $2, 'Workforce Admin', 'SUPER_ADMIN', TRUE, TRUE)
       `, [uuidv4(), adminPasswordHash]);
-      console.log('Default super admin seeded successfully.');
+      console.log('Default super admin seeded successfully with temporary password "workforce@2026".');
     }
 
-    // Migration for hybrid attendance checkout columns
-    await query(`
-      ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS check_out TIMESTAMP;
-      ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS checkout_type TEXT;
-      ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS working_hours TEXT;
-    `);
-    console.log('Attendance records columns check_out, checkout_type, working_hours verified/migrated.');
-
-    // Ensure settings table exists and is seeded
-    await query(`
-      CREATE TABLE IF NOT EXISTS attendance_settings (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        shift_name VARCHAR(100) DEFAULT 'Morning Shift',
-        checkin_start TIME DEFAULT '09:00:00',
-        late_after TIME DEFAULT '09:15:00',
-        checkout_time TIME DEFAULT '17:00:00',
-        grace_minutes INTEGER DEFAULT 15,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    const settingsCheck = await query('SELECT COUNT(*) FROM attendance_settings');
-    if (parseInt(settingsCheck.rows[0].count) === 0) {
+    // 8. Seed default manager account if empty
+    const managerCheck = await query("SELECT id FROM admins WHERE email = 'manager@gaytri.com' LIMIT 1");
+    if (managerCheck.rows.length === 0) {
+      const { v4: uuidv4 } = require('uuid');
+      const managerId = uuidv4();
+      const managerHash = bcrypt.hashSync('workforce@2026', 10);
       await query(`
-        INSERT INTO attendance_settings (shift_name, checkin_start, late_after, checkout_time, grace_minutes)
-        VALUES ('Morning Shift', '09:00:00', '09:15:00', '17:00:00', 15)
-      `);
-      console.log('Seeded default attendance settings successfully.');
+        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
+        VALUES ($1, 'manager@gaytri.com', $2, 'Workforce Manager', 'MANAGER', TRUE, TRUE)
+      `, [managerId, managerHash]);
+      
+      // Associate with default Production department
+      if (defaultDept.rows.length > 0) {
+        await query(`
+          INSERT INTO manager_departments (manager_id, department_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING
+        `, [managerId, defaultDept.rows[0].id]);
+      }
+      console.log('Default manager seeded successfully with temporary password "workforce@2026".');
     }
-
-    // Ensure biometric audit logs table exists
-    await query(`
-      CREATE TABLE IF NOT EXISTS biometric_audit_logs (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
-        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        similarity_score REAL,
-        result VARCHAR(20) CHECK (result IN ('SUCCESS', 'FAILED')),
-        device_id VARCHAR(150),
-        ip_address VARCHAR(50),
-        liveness_status JSONB,
-        failure_reason TEXT,
-        nonce VARCHAR(100) UNIQUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS idx_biometric_audit_logs_nonce ON biometric_audit_logs(nonce);
-      CREATE INDEX IF NOT EXISTS idx_biometric_audit_logs_emp ON biometric_audit_logs(employee_id);
-    `);
-    console.log('Biometric audit logs table and indexes verified.');
-
-    // Ensure biometric history table exists
-    await query(`
-      CREATE TABLE IF NOT EXISTS biometric_history (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
-        biometric_embedding TEXT,
-        archived_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    console.log('Biometric history table verified.');
-
-    // Ensure re-enrollment requests table exists
-    await query(`
-      CREATE TABLE IF NOT EXISTS re_enrollment_requests (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
-        requested_by UUID REFERENCES admins(id) ON DELETE SET NULL,
-        new_embedding TEXT NOT NULL,
-        status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
-        admin_notes TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS idx_re_enrollment_requests_emp ON re_enrollment_requests(employee_id);
-    `);
-    console.log('Biometric re-enrollment requests table verified.');
 
     console.log('Database tables, columns and legacy schema verified.');
   } catch (error) {
@@ -239,15 +292,14 @@ const startServer = async () => {
   const isConnected = await checkDbConnection();
   if (isConnected) {
     await bootstrapDatabase();
-    // Run startup self-healing and start daily 5:00 PM auto-checkout
-    runStartupSelfHealing().catch(err => console.error('Startup self-healing failed:', err));
-    startAutoCheckoutScheduler();
+    // Start daily 6:00 PM auto-lock scheduler
+    startAutoLockScheduler();
   } else {
     console.warn('Could not run database bootstrap, database not connected.');
   }
 
   app.listen(PORT, () => {
-    console.log(`Gaytri Commercial Face Attendance MVP Backend running on port ${PORT}`);
+    console.log(`Gaytri Commercial Workforce Backend running on port ${PORT}`);
   });
 };
 

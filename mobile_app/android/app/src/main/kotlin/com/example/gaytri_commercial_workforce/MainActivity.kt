@@ -1,4 +1,4 @@
-package com.example.gaytri_commercial_smart_erp
+package com.example.gaytri_commercial_workforce
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,0 +1,21 @@
+{
+  "appName": "Gaytri Commercial Workforce",
+  "appDescription": "Workforce Management & Attendance System",
+  "loginTitle": "Workforce Sign In",
+  "employeeId": "Employee ID",
+  "password": "Password",
+  "loginButton": "Sign In",
+  "forgotPassword": "Forgot Password?",
+  "contactAdmin": "Contact Admin",
+  "employeeDashboard": "Employee Dashboard",
+  "managerDashboard": "Manager Dashboard",
+  "shiftTimings": "Shift Timings",
+  "personalLogs": "Personal Logs",
+  "requestLeave": "Request Leave",
+  "profileDetails": "Profile Details",
+  "logout": "Logout",
+  "loading": "Loading...",
+  "errorConnection": "Could not establish connection.",
+  "active": "Active",
+  "suspended": "Suspended"
+}

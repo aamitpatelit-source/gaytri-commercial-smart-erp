@@ -11,7 +11,7 @@ import {
   Clock,
   ArrowRight,
   UserPlus,
-  Camera,
+  Settings,
   History
 } from 'lucide-react';
 
@@ -207,14 +207,14 @@ export default function DashboardPage() {
             </button>
 
             <button
-              onClick={() => router.push('/employees')}
+              onClick={() => router.push('/settings')}
               className="w-full flex items-center justify-between p-4 rounded-lg bg-slate-900/70 border border-slate-800 hover:border-cyan-500/30 text-slate-200 hover:text-white transition-all text-xs font-bold group"
             >
               <div className="flex items-center space-x-3">
-                <Camera className="w-5 h-5 text-emerald-450" />
-                <span>Register Face Signature</span>
+                <Settings className="w-5 h-5 text-indigo-400" />
+                <span>Configure Shifts & settings</span>
               </div>
-              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-450 group-hover:translate-x-1 transition-all" />
+              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
             </button>
 
             <button

@@ -1,792 +1,510 @@
 import { Response } from 'express';
-import { query } from '../config/db';
+import poolProxy, { query } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
-import { decryptBiometric } from './employeeController';
-import { BiometricService } from '../services/biometricService';
+import moment from 'moment-timezone';
 
-const FACTORY_LAT = 23.0225;
-const FACTORY_LNG = 72.5714;
-const GEOFENCE_RADIUS_METERS = 150.0;
-const SHIFT_START_HOUR = 9;
-const SHIFT_START_MINUTE = 0;
-const GRACE_PERIOD_MINUTES = 15;
+// Typography / Timezone / Provider Core Domain Interfaces
+export interface AttendanceProviderPayload {
+  employeeId: string;
+  managerId: string | null;
+  date: string;
+  time: string;
+  status: string;
+  remarks?: string;
+  createdDevice?: string;
+}
 
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371e3;
-  const phi1 = (lat1 * Math.PI) / 180;
-  const phi2 = (lat2 * Math.PI) / 180;
-  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
-  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+export interface AttendanceProvider {
+  readonly sourceName: string;
+  processAttendance(client: any, payload: AttendanceProviderPayload): Promise<{ success: boolean; id: string }>;
+}
 
-  const a =
-    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+export class ManagerManualProvider implements AttendanceProvider {
+  readonly sourceName = 'MANAGER_MANUAL';
 
-  return R * c;
-};
-
-const parseThreshold = (value: string | undefined, fallback: number): number => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
-    return fallback;
-  }
-
-  return parsed;
-};
-
-export const getISTDateTime = (date: Date): Date => {
-  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-  return new Date(utc + (3600000 * 5.5));
-};
-
-export const calculateWorkingHours = (checkInStr: string, checkOutStr: string): string => {
-  try {
-    if (!checkInStr || !checkOutStr) return '0h 0m';
-    const [hIn, mIn] = checkInStr.split(':').map(Number);
-    const [hOut, mOut] = checkOutStr.split(':').map(Number);
-
-    const inMin = hIn * 60 + mIn;
-    const outMin = hOut * 60 + mOut;
-
-    const diff = outMin - inMin;
-    if (diff <= 0) return '0h 0m';
-
-    const h = Math.floor(diff / 60);
-    const m = diff % 60;
-    return `${h}h ${m}m`;
-  } catch (err) {
-    console.error('Error calculating working hours:', err);
-    return '0h 0m';
-  }
-};
-
-const writeAuditLog = async (
-  employeeUuid: string | null,
-  similarityScore: number | null,
-  result: 'SUCCESS' | 'FAILED',
-  deviceId: string | null,
-  ipAddress: string | null,
-  livenessStatus: any,
-  failureReason: string | null,
-  nonce: string | null
-) => {
-  try {
-    await query(
-      `INSERT INTO biometric_audit_logs (employee_id, similarity_score, result, device_id, ip_address, liveness_status, failure_reason, nonce)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+  async processAttendance(client: any, payload: AttendanceProviderPayload): Promise<{ success: boolean; id: string }> {
+    const res = await client.query(
+      `INSERT INTO attendance (employee_id, manager_id, date, time, status, remarks, created_device, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id`,
       [
-        employeeUuid,
-        similarityScore,
-        result,
-        deviceId,
-        ipAddress,
-        livenessStatus ? JSON.stringify(livenessStatus) : null,
-        failureReason,
-        nonce
+        payload.employeeId,
+        payload.managerId,
+        payload.date,
+        payload.time,
+        payload.status,
+        payload.remarks || null,
+        payload.createdDevice || null,
+        this.sourceName
       ]
     );
-  } catch (err) {
-    console.error('[Audit Log Error] Failed to write biometric audit log:', err);
+    return { success: true, id: res.rows[0].id };
+  }
+}
+
+// Registry of extensible sources
+const providers: Record<string, AttendanceProvider> = {
+  'MANAGER_MANUAL': new ManagerManualProvider()
+};
+
+// Retrieve company timezone dynamically from settings
+export const getCompanyTimezone = async (): Promise<string> => {
+  try {
+    const settings = await query('SELECT timezone FROM company_settings LIMIT 1');
+    return settings.rows[0]?.timezone || 'Asia/Kolkata';
+  } catch {
+    return 'Asia/Kolkata';
   }
 };
 
-const decodeStoredEmbedding = (encryptedEmbedding: string): number[] => {
-  const decrypted = decryptBiometric(encryptedEmbedding);
-  return BiometricService.normalizeEmbedding(JSON.parse(decrypted));
+// Void attendance (ADMIN only)
+export const voidAttendance = async (req: AuthRequest, res: Response) => {
+  const { id, reason } = req.body;
+
+  if (!id || !reason || reason.trim() === '') {
+    return res.status(400).json({ success: false, message: 'Attendance ID and a valid reason are required.' });
+  }
+
+  if (req.user?.role !== 'ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ success: false, message: 'Access denied. Administrator privileges required to void records.' });
+  }
+
+  const client = await poolProxy.connect();
+  try {
+    await client.query('BEGIN');
+
+    // SELECT existing row FOR UPDATE to prevent concurrency race conditions
+    const existing = await client.query('SELECT status, remarks, is_locked FROM attendance WHERE id = $1 FOR UPDATE', [id]);
+    if (existing.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Attendance record not found.' });
+    }
+
+    const row = existing.rows[0];
+    const oldStatus = row.status;
+    const oldRemarks = row.remarks;
+
+    // Void the record
+    await client.query(
+      `UPDATE attendance 
+       SET status = 'VOIDED', remarks = $1, manager_id = $2, updated_at = NOW() 
+       WHERE id = $3`,
+      [`VOIDED - Reason: ${reason.trim()}`, req.user.id, id]
+    );
+
+    // Insert to immutable audit log within the same transaction
+    await client.query(
+      `INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason)
+       VALUES ($1, $2, $3, 'VOIDED', $4, $5, $6)`,
+      [id, req.user.id, oldStatus, oldRemarks, `VOIDED - Reason: ${reason.trim()}`, reason.trim()]
+    );
+
+    await client.query('COMMIT');
+    console.log(`[Admin Action] Voided attendance ${id} for reason: ${reason.trim()}`);
+    return res.status(200).json({ success: true, message: 'Attendance record voided successfully.' });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('[Admin Action Error] Void attendance failed:', error);
+    return res.status(500).json({ success: false, message: 'Failed to void attendance record.' });
+  } finally {
+    client.release();
+  }
 };
 
-export const verifyAndRecordAttendance = async (req: AuthRequest, res: Response) => {
-  const { employee_id, face_embedding, gps_lat, gps_lng, device_id, nonce, timestamp, liveness_metadata } = req.body;
-  const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || null;
+// Mark / Edit Attendance (Manager same-day rules, Admin historical access)
+export const markAttendance = async (req: AuthRequest, res: Response) => {
+  const { date, records } = req.body;
+  const changedBy = req.user?.id;
+  const userRole = req.user?.role;
+  const ipAddress = req.ip || null;
+  const deviceId = req.headers['x-device-id'] as string || null;
 
-  if (!employee_id) {
-    await writeAuditLog(null, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_EMPLOYEE_ID', nonce || null);
-    return res.status(400).json({ success: false, message: 'Employee ID is required for biometric verification.' });
+  if (!date || !records || !Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ success: false, message: 'Missing required fields (date, records array).' });
   }
 
-  if (req.user && req.user.role === 'EMPLOYEE' && employee_id !== req.user.employee_id) {
-    console.warn(`[Security Alert] Employee ${req.user.employee_id} tried to log attendance for: ${employee_id}`);
-    return res.status(403).json({
-      success: false,
-      message: 'Security violation: you can only log attendance for your own account.',
-    });
+  const tz = await getCompanyTimezone();
+  const todayStr = moment().tz(tz).format('YYYY-MM-DD');
+
+  // Same-day manager restriction
+  const isToday = date === todayStr;
+  if (userRole === 'MANAGER' && !isToday) {
+    return res.status(403).json({ success: false, message: 'Managers are restricted to logging/editing same-day attendance only.' });
   }
 
-  let employee: any = null;
-  let employeeUuid: string | null = null;
+  const client = await poolProxy.connect();
   try {
-    const candidates = await BiometricService.getMatchingCandidates(employee_id);
-    if (candidates.length > 0) {
-      employee = candidates[0];
-      employeeUuid = employee.id;
-    }
-  } catch (err) {
-    console.error('[Biometric Verification] Error fetching candidate:', err);
-  }
+    await client.query('BEGIN');
 
-  if (!nonce) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_NONCE', null);
-    return res.status(400).json({ success: false, error_code: 'REPLAY_ATTEMPT_DETECTED', message: 'Request nonce is required.' });
-  }
+    for (const record of records) {
+      const { employee_id, status, remarks, reason } = record;
 
-  if (!timestamp) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_TIMESTAMP', nonce);
-    return res.status(400).json({ success: false, error_code: 'REPLAY_ATTEMPT_DETECTED', message: 'Request timestamp is required.' });
-  }
-
-  const clientTime = Number(timestamp);
-  if (!Number.isFinite(clientTime) || Math.abs(Date.now() - clientTime) > 10000) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'TIMESTAMP_OUT_OF_BOUNDS', nonce);
-    return res.status(400).json({
-      success: false,
-      error_code: 'REPLAY_ATTEMPT_DETECTED',
-      message: 'Request timestamp is invalid or expired.'
-    });
-  }
-
-  try {
-    const nonceCheck = await query('SELECT id FROM biometric_audit_logs WHERE nonce = $1 LIMIT 1', [nonce]);
-    if (nonceCheck.rows.length > 0) {
-      await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'DUPLICATE_NONCE', nonce);
-      return res.status(400).json({
-        success: false,
-        error_code: 'REPLAY_ATTEMPT_DETECTED',
-        message: 'Duplicate request detected.'
-      });
-    }
-  } catch (err) {
-    console.error('[Biometric Verification] Nonce check error:', err);
-  }
-
-  if (!liveness_metadata || liveness_metadata.success !== true) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'LIVENESS_CHECK_FAILED', nonce);
-    return res.status(400).json({
-      success: false,
-      error_code: 'LIVENESS_CHECK_FAILED',
-      message: 'Liveness validation failed. Please look at the camera and perform the prompt.'
-    });
-  }
-
-  try {
-    const rateLimitRes = await query(
-      `SELECT COUNT(*) FROM biometric_audit_logs 
-       WHERE (employee_id = $1 OR device_id = $2) 
-         AND result = 'FAILED' 
-         AND timestamp >= NOW() - INTERVAL '1 minute'`,
-      [employeeUuid, device_id || null]
-    );
-    const failedAttempts = parseInt(rateLimitRes.rows[0].count, 10);
-    if (failedAttempts >= 5) {
-      await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'RATE_LIMIT_EXCEEDED', nonce);
-      return res.status(429).json({
-        success: false,
-        error_code: 'RATE_LIMIT_EXCEEDED',
-        message: 'Too many failed attempts. Please wait 1 minute before trying again.'
-      });
-    }
-  } catch (err) {
-    console.error('[Biometric Verification] Rate limit check error:', err);
-  }
-
-  let probeEmbedding: number[];
-  try {
-    probeEmbedding = BiometricService.normalizeEmbedding(face_embedding);
-  } catch (err: any) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'INVALID_EMBEDDING', nonce);
-    return res.status(400).json({ success: false, message: err.message });
-  }
-
-  if (gps_lat === undefined || gps_lng === undefined) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'MISSING_GPS', nonce);
-    return res.status(400).json({ success: false, message: 'GPS coordinates are required.' });
-  }
-
-  const distance = calculateDistance(gps_lat, gps_lng, FACTORY_LAT, FACTORY_LNG);
-  if (distance > GEOFENCE_RADIUS_METERS) {
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'GEOFENCE_VIOLATION', nonce);
-    return res.status(403).json({
-      success: false,
-      message: `Geofence block: you are ${distance.toFixed(0)} meters from the factory. Allowed range is 150m.`,
-    });
-  }
-
-  try {
-    const MATCH_THRESHOLD = parseThreshold(process.env.BIOMETRIC_MATCH_THRESHOLD, 0.82);
-    const REJECT_THRESHOLD = parseThreshold(process.env.BIOMETRIC_REJECT_THRESHOLD, 0.70);
-    if (REJECT_THRESHOLD > MATCH_THRESHOLD) {
-      throw new Error('BIOMETRIC_REJECT_THRESHOLD cannot exceed BIOMETRIC_MATCH_THRESHOLD.');
-    }
-
-    if (!employee) {
-      await writeAuditLog(null, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'EMPLOYEE_NOT_FOUND', nonce);
-      return res.status(404).json({
-        success: false,
-        message: 'Employee not found or inactive.',
-      });
-    }
-
-    if (!employee.biometric_enrolled || !employee.biometric_embedding) {
-      await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'NO_FACE_REGISTERED', nonce);
-      return res.status(409).json({
-        success: false,
-        error_code: 'NO_FACE_REGISTERED',
-        message: 'No Face Registered. Enroll biometric data before verification.',
-      });
-    }
-
-    let storedEmbedding: number[];
-    try {
-      storedEmbedding = decodeStoredEmbedding(employee.biometric_embedding);
-    } catch (err) {
-      console.error('[Biometric Verification] Failed to decrypt/parse biometric_embedding:', err);
-      await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'INVALID_STORED_EMBEDDING', nonce);
-      return res.status(500).json({ success: false, message: 'Stored biometric profile is corrupted.' });
-    }
-
-    const similarity = BiometricService.calculateSimilarity(probeEmbedding, storedEmbedding);
-
-    const competingCandidates = await BiometricService.getMatchingCandidates();
-    let highestOtherScore = 0.0;
-    let highestOtherEmployee: any = null;
-    for (const candidate of competingCandidates) {
-      if (candidate.id === employee.id) {
-        continue;
+      if (!employee_id || !status) {
+        throw new Error('Each record must include employee_id and status.');
       }
 
-      try {
-        const candidateEmbedding = decodeStoredEmbedding(candidate.biometric_embedding);
-        const candidateScore = BiometricService.calculateSimilarity(probeEmbedding, candidateEmbedding);
-        if (candidateScore > highestOtherScore) {
-          highestOtherScore = candidateScore;
-          highestOtherEmployee = candidate;
-        }
-      } catch (err) {
-        console.error('[Biometric Verification] Failed to evaluate competing candidate:', err);
-      }
-    }
-
-    if (highestOtherEmployee && highestOtherScore >= MATCH_THRESHOLD && highestOtherScore > similarity) {
-      console.warn(
-        `[Security Alert] Cross-user biometric match detected. Probe for ${employee.employee_id} matched ${highestOtherEmployee.employee_id} better.`
-      );
-      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'CROSS_USER_MATCH_DETECTED', nonce);
-      return res.status(401).json({
-        success: false,
-        error_code: 'CROSS_USER_MATCH_DETECTED',
-        message: 'Face belongs to another enrolled employee.',
-        confidence: Math.round(highestOtherScore * 100),
-      });
-    }
-
-    if (similarity < REJECT_THRESHOLD) {
-      console.warn(
-        `[Attendance Gateway] Face verification failed: Match confidence ${(similarity * 100).toFixed(1)}% is below reject threshold ${(REJECT_THRESHOLD * 100).toFixed(1)}%`
-      );
-      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'BIOMETRIC_VERIFICATION_FAILED', nonce);
-      return res.status(401).json({
-        success: false,
-        error_code: 'BIOMETRIC_VERIFICATION_FAILED',
-        message: 'Face does not match employee records. Please try again with the correct person.',
-        confidence: Math.round(similarity * 100),
-      });
-    }
-
-    if (similarity < MATCH_THRESHOLD) {
-      console.warn(
-        `[Attendance Gateway] Face verification warning: Match confidence ${(similarity * 100).toFixed(1)}% is below match threshold ${(MATCH_THRESHOLD * 100).toFixed(1)}%`
-      );
-      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'BIOMETRIC_RETRY_REQUIRED', nonce);
-      return res.status(400).json({
-        success: false,
-        error_code: 'BIOMETRIC_RETRY_REQUIRED',
-        message: 'Face match confidence is low. Please adjust lighting and retry.',
-        confidence: Math.round(similarity * 100),
-      });
-    }
-
-    if (similarity > 0.999) {
-      console.warn(
-        `[Security Alert] Biometric replay detected for employee: ${employee.full_name} (${employee.employee_id}). Similarity: ${similarity}`
-      );
-      await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'SPOOF_ATTEMPT_DETECTED', nonce);
-      return res.status(400).json({
-        success: false,
-        error_code: 'SPOOF_ATTEMPT_DETECTED',
-        message: 'Biometric spoof or replay attempt detected. Attendance not marked.',
-      });
-    }
-
-    const now = new Date();
-    const istDate = getISTDateTime(now);
-    const yyyy = istDate.getFullYear();
-    const mm = (istDate.getMonth() + 1).toString().padStart(2, '0');
-    const dd = istDate.getDate().toString().padStart(2, '0');
-    const today = `${yyyy}-${mm}-${dd}`;
-
-    const hh = istDate.getHours().toString().padStart(2, '0');
-    const min = istDate.getMinutes().toString().padStart(2, '0');
-    const ss = istDate.getSeconds().toString().padStart(2, '0');
-    const timeString = `${hh}:${min}:${ss}`;
-
-    const duplicateCheck = await query(
-      'SELECT id, check_in_time, check_out FROM attendance_records WHERE employee_id = $1 AND date = $2 LIMIT 1',
-      [employee.id, today]
-    );
-
-    if (duplicateCheck.rows.length > 0) {
-      const record = duplicateCheck.rows[0];
-      const prevCheckin = record.check_in_time;
-      const prevCheckout = record.check_out;
-
-      if (prevCheckout) {
-        console.warn(
-          `[Attendance Gateway] Blocked checkout scan: ${employee.full_name} (${employee.employee_id}) already completed shift for date ${today}.`
+      // 1. Verify Manager Scope Boundary
+      if (userRole === 'MANAGER') {
+        const scopeCheck = await client.query(
+          `SELECT EXISTS (
+             SELECT 1 FROM employees e
+             JOIN manager_departments md ON e.department_id = md.department_id
+             WHERE e.id = $1 AND md.manager_id = $2
+           )`,
+          [employee_id, changedBy]
         );
-        await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'ATTENDANCE_COMPLETED', nonce);
-        return res.status(409).json({
-          success: false,
-          error_code: 'ATTENDANCE_COMPLETED',
-          message: 'Attendance already completed for today.'
-        });
-      }
-
-      const checkoutTime = new Date();
-      const checkoutIstDate = getISTDateTime(checkoutTime);
-      const hhOut = checkoutIstDate.getHours().toString().padStart(2, '0');
-      const minOut = checkoutIstDate.getMinutes().toString().padStart(2, '0');
-      const ssOut = checkoutIstDate.getSeconds().toString().padStart(2, '0');
-      const checkoutTimeString = `${hhOut}:${minOut}:${ssOut}`;
-
-      const [hIn, mIn, sIn] = prevCheckin.split(':').map(Number);
-      const [hOutVal, mOutVal, sOutVal] = checkoutTimeString.split(':').map(Number);
-      const inTotalSeconds = hIn * 3600 + mIn * 60 + (sIn || 0);
-      const outTotalSeconds = hOutVal * 3600 + mOutVal * 60 + (sOutVal || 0);
-      const diffSeconds = outTotalSeconds - inTotalSeconds;
-
-      if (diffSeconds < 300) {
-        console.warn(
-          `[Attendance Gateway] Blocked checkout scan: ${employee.full_name} (${employee.employee_id}) scanned again within 5 minutes (diff: ${diffSeconds}s).`
-        );
-        await writeAuditLog(employeeUuid, similarity, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'DUPLICATE_SCAN', nonce);
-        return res.status(429).json({
-          success: false,
-          error_code: 'DUPLICATE_SCAN',
-          message: 'Duplicate scan detected. Please wait 5 minutes before checking out.',
-        });
-      }
-
-      const workingHours = calculateWorkingHours(prevCheckin, checkoutTimeString);
-
-      await query(
-        `UPDATE attendance_records 
-         SET check_out = $1, checkout_type = $2, working_hours = $3
-         WHERE id = $4`,
-        [checkoutTime, 'MANUAL_CHECKOUT', workingHours, record.id]
-      );
-
-      console.log(
-        `[Attendance Gateway] Success: ${employee.full_name} (${employee.employee_id}) early checkout recorded. Working hours: ${workingHours}`
-      );
-      await writeAuditLog(employeeUuid, similarity, 'SUCCESS', device_id || null, ipAddress, liveness_metadata, null, nonce);
-
-      return res.status(200).json({
-        success: true,
-        message: 'Early checkout recorded successfully.',
-        employee: {
-          employee_id: employee.employee_id,
-          full_name: employee.full_name
-        },
-        checkout: {
-          check_out: checkoutTime.toISOString(),
-          checkout_type: 'MANUAL_CHECKOUT',
-          working_hours: workingHours
+        if (!scopeCheck.rows[0].exists) {
+          throw new Error(`Employee ${employee_id} is outside your managed department scope.`);
         }
-      });
-    }
-
-    const settingsRes = await query('SELECT * FROM attendance_settings LIMIT 1');
-    let shiftStartHour = SHIFT_START_HOUR;
-    let shiftStartMinute = SHIFT_START_MINUTE;
-    let gracePeriodMinutes = GRACE_PERIOD_MINUTES;
-
-    if (settingsRes.rows.length > 0) {
-      const settings = settingsRes.rows[0];
-      if (settings.checkin_start) {
-        const parts = settings.checkin_start.split(':');
-        shiftStartHour = parseInt(parts[0], 10);
-        shiftStartMinute = parseInt(parts[1], 10);
       }
-      gracePeriodMinutes = settings.grace_minutes ?? 15;
+
+      // SELECT existing row FOR UPDATE to capture database-read old values
+      const existingRes = await client.query(
+        'SELECT id, status, remarks, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
+        [employee_id, date]
+      );
+
+      const timeStr = moment().tz(tz).format('HH:mm:ss');
+
+      if (existingRes.rows.length === 0) {
+        // Create new record using extensible AttendanceProvider
+        const provider = providers['MANAGER_MANUAL'];
+        await provider.processAttendance(client, {
+          employeeId: employee_id,
+          managerId: changedBy || null,
+          date,
+          time: timeStr,
+          status,
+          remarks,
+          createdDevice: deviceId || undefined
+        });
+      } else {
+        const row = existingRes.rows[0];
+
+        // Verify edit locking rules
+        if (row.is_locked && userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
+          throw new Error(`Attendance for employee ${employee_id} on date ${date} is locked.`);
+        }
+
+        // Verify mandatory reason
+        if (!reason || reason.trim() === '') {
+          throw new Error('A mandatory reason is required to modify existing attendance records.');
+        }
+
+        // Capture authoritative old values from DB (preventing client spoofing)
+        const oldStatus = row.status;
+        const oldRemarks = row.remarks;
+
+        // Perform transactional update
+        await client.query(
+          `UPDATE attendance 
+           SET status = $1, remarks = $2, manager_id = $3, updated_at = NOW() 
+           WHERE id = $4`,
+          [status, remarks || null, changedBy, row.id]
+        );
+
+        // Insert immutable audit log record
+        await client.query(
+          `INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address, device_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [row.id, changedBy, oldStatus, status, oldRemarks, remarks || null, reason.trim(), ipAddress, deviceId]
+        );
+      }
     }
 
-    let status = 'PRESENT';
-    const shiftStart = new Date(istDate);
-    shiftStart.setHours(shiftStartHour, shiftStartMinute, 0, 0);
-    const graceLimit = new Date(shiftStart.getTime() + gracePeriodMinutes * 60 * 1000);
-
-    if (istDate > graceLimit) {
-      status = 'LATE';
-    }
-
-    await query(
-      `INSERT INTO attendance_records (employee_id, date, check_in_time, gps_lat, gps_lng, device_id, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [employee.id, today, timeString, gps_lat, gps_lng, device_id || null, status]
-    );
-
-    console.log(
-      `[Attendance Gateway] Success: ${employee.full_name} (${employee.employee_id}) checked in. Confidence: ${(similarity * 100).toFixed(1)}%, Status: ${status}, GPS: [${gps_lat}, ${gps_lng}]`
-    );
-    await writeAuditLog(employeeUuid, similarity, 'SUCCESS', device_id || null, ipAddress, liveness_metadata, null, nonce);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Check-in marked successfully.',
-      match: {
-        employee_id: employee.employee_id,
-        full_name: employee.full_name,
-        confidence: Math.round(similarity * 100),
-      },
+    await client.query('COMMIT');
+    return res.status(200).json({ success: true, message: 'Attendance records saved successfully.' });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('[Attendance API Error] Transaction aborted:', error.message);
+    return res.status(error.message.includes('scope') || error.message.includes('locked') ? 403 : 400).json({
+      success: false,
+      message: error.message || 'Transaction failed.'
     });
-  } catch (error) {
-    console.error('[Attendance Gateway Error] Verification failed:', error);
-    await writeAuditLog(employeeUuid, null, 'FAILED', device_id || null, ipAddress, liveness_metadata, 'INTERNAL_SERVER_ERROR', nonce);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+  } finally {
+    client.release();
   }
 };
 
+// Retrieve Attendance Dashboard Stats
 export const getDashboardStats = async (req: AuthRequest, res: Response) => {
-  const today = new Date().toISOString().split('T')[0];
+  const tz = await getCompanyTimezone();
+  const today = moment().tz(tz).format('YYYY-MM-DD');
 
   try {
-    const totalEmpRes = await query('SELECT COUNT(*) as count FROM employees');
+    // Total staff count
+    const totalEmpRes = await query('SELECT COUNT(*) as count FROM employees WHERE is_active = TRUE');
     const totalStaff = parseInt(totalEmpRes.rows[0].count, 10);
 
+    // Group counts by status
     const attendanceRes = await query(
       `SELECT status, COUNT(*) as count 
-       FROM attendance_records 
-       WHERE date = $1 
+       FROM attendance 
+       WHERE date = $1 AND is_deleted = FALSE
        GROUP BY status`,
       [today]
     );
 
     let present = 0;
-    let late = 0;
     let absent = 0;
+    let late = 0;
+    let halfDay = 0;
+    let leave = 0;
+    let wfh = 0;
+    let onDuty = 0;
 
     attendanceRes.rows.forEach((row) => {
       if (row.status === 'PRESENT') present += parseInt(row.count, 10);
-      if (row.status === 'LATE') {
-        present += parseInt(row.count, 10);
-        late += parseInt(row.count, 10);
-      }
+      if (row.status === 'LATE') late += parseInt(row.count, 10);
+      if (row.status === 'HALF_DAY') halfDay += parseInt(row.count, 10);
       if (row.status === 'ABSENT') absent += parseInt(row.count, 10);
+      if (row.status === 'LEAVE') leave += parseInt(row.count, 10);
+      if (row.status === 'WORK_FROM_HOME') wfh += parseInt(row.count, 10);
+      if (row.status === 'ON_DUTY') onDuty += parseInt(row.count, 10);
     });
 
-    const autoAbsent = Math.max(0, totalStaff - present - absent);
+    const totalMarked = present + late + halfDay + absent + leave + wfh + onDuty;
+    const autoAbsent = Math.max(0, totalStaff - totalMarked);
     absent += autoAbsent;
 
+    // Fetch recent logs feed
     const feedRes = await query(
-      `SELECT a.check_in_time, a.check_out, a.checkout_type, a.working_hours, a.status, e.full_name, e.employee_id, e.department
-       FROM attendance_records a
+      `SELECT a.date, a.time, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
+       FROM attendance a
        JOIN employees e ON a.employee_id = e.id
-       WHERE a.date = $1
-       ORDER BY a.created_at DESC
+       LEFT JOIN departments d ON e.department_id = d.id
+       WHERE a.date = $1 AND a.is_deleted = FALSE
+       ORDER BY a.updated_at DESC
        LIMIT 10`,
       [today]
     );
-
-    console.log(`[Console Sync] Successfully aggregated dashboard statistics for date: ${today}`);
 
     return res.status(200).json({
       success: true,
       stats: {
         totalStaff,
-        present,
+        present: present + late + halfDay + wfh + onDuty,
         absent,
         late,
+        halfDay,
+        leave,
+        wfh,
+        onDuty
       },
       feed: feedRes.rows,
     });
   } catch (error) {
-    console.error('[Console Sync Error] Dashboard stats aggregation failed:', error);
+    console.error('[Dashboard Stats Error] Aggregation failed:', error);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
 
+// Retrieve Attendance History with advanced filtering
 export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
+  const { start_date, end_date, status, department_id, shift_id, search } = req.query;
+
   try {
-    let result;
+    let selectFields = `
+      a.id, a.date, a.time, a.status, a.remarks, a.created_device, a.source, a.is_locked,
+      e.full_name, e.employee_id, d.name as department, s.name as shift
+    `;
+    let queryStr = `
+      FROM attendance a
+      JOIN employees e ON a.employee_id = e.id
+      LEFT JOIN departments d ON e.department_id = d.id
+      LEFT JOIN shifts s ON e.shift_id = s.id
+      WHERE a.is_deleted = FALSE
+    `;
+    let params: any[] = [];
+    let counter = 1;
 
     if (req.user && req.user.role === 'EMPLOYEE') {
-      result = await query(
-        `SELECT a.date, a.check_in_time, a.check_out, a.checkout_type, a.working_hours, a.status, a.gps_lat, a.gps_lng, a.device_id,
-                e.full_name, e.employee_id, e.department, e.shift
-         FROM attendance_records a
-         JOIN employees e ON a.employee_id = e.id
-         WHERE e.id = $1
-         ORDER BY a.date DESC, a.check_in_time DESC`,
-        [req.user.id]
-      );
-      console.log(`[Console Sync] Fetched personal attendance logs history for employee ID ${req.user.employee_id}. Total records: ${result.rows.length}`);
+      queryStr += ` AND e.id = $${counter++}`;
+      params.push(req.user.id);
     } else {
-      result = await query(
-        `SELECT a.date, a.check_in_time, a.check_out, a.checkout_type, a.working_hours, a.status, a.gps_lat, a.gps_lng, a.device_id,
-                e.full_name, e.employee_id, e.department, e.shift
-         FROM attendance_records a
-         JOIN employees e ON a.employee_id = e.id
-         ORDER BY a.date DESC, a.check_in_time DESC`
-      );
-      console.log(`[Console Sync] Fetched all attendance logs history. Total records: ${result.rows.length}`);
+      if (search) {
+        queryStr += ` AND (e.full_name ILIKE $${counter} OR e.employee_id ILIKE $${counter})`;
+        params.push(`%${search}%`);
+        counter++;
+      }
+      if (department_id) {
+        queryStr += ` AND e.department_id = $${counter++}`;
+        params.push(department_id);
+      }
+      if (shift_id) {
+        queryStr += ` AND e.shift_id = $${counter++}`;
+        params.push(shift_id);
+      }
     }
+
+    if (start_date) {
+      queryStr += ` AND a.date >= $${counter++}`;
+      params.push(start_date);
+    }
+    if (end_date) {
+      queryStr += ` AND a.date <= $${counter++}`;
+      params.push(end_date);
+    }
+    if (status) {
+      queryStr += ` AND a.status = $${counter++}`;
+      params.push(status);
+    }
+
+    const finalQuery = `SELECT ${selectFields} ${queryStr} ORDER BY a.date DESC, a.time DESC`;
+    const result = await query(finalQuery, params);
 
     return res.status(200).json({
       success: true,
       logs: result.rows,
     });
   } catch (error) {
-    console.error('[Console Sync Error] Fetch history failed:', error);
+    console.error('[Attendance History Error] Fetch failed:', error);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
 
-export const getAttendanceSettings = async (req: any, res: Response) => {
-  try {
-    const result = await query('SELECT * FROM attendance_settings LIMIT 1');
-    if (result.rows.length === 0) {
-      await query(`
-        INSERT INTO attendance_settings (shift_name, checkin_start, late_after, checkout_time, grace_minutes)
-        VALUES ('Morning Shift', '09:00:00', '09:15:00', '17:00:00', 15)
-      `);
-      const retryResult = await query('SELECT * FROM attendance_settings LIMIT 1');
-      return res.status(200).json({
-        success: true,
-        settings: retryResult.rows[0]
-      });
-    }
-    return res.status(200).json({
-      success: true,
-      settings: result.rows[0],
-    });
-  } catch (error: any) {
-    console.error('[Settings API Error] Get settings failed, attempting self-healing table check:', error);
-    try {
-      await query(`
-        CREATE TABLE IF NOT EXISTS attendance_settings (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          shift_name VARCHAR(100) DEFAULT 'Morning Shift',
-          checkin_start TIME DEFAULT '09:00:00',
-          late_after TIME DEFAULT '09:15:00',
-          checkout_time TIME DEFAULT '17:00:00',
-          grace_minutes INTEGER DEFAULT 15,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
-      await query(`
-        INSERT INTO attendance_settings (shift_name, checkin_start, late_after, checkout_time, grace_minutes)
-        VALUES ('Morning Shift', '09:00:00', '09:15:00', '17:00:00', 15)
-        ON CONFLICT DO NOTHING
-      `);
-      const fallbackResult = await query('SELECT * FROM attendance_settings LIMIT 1');
-      return res.status(200).json({
-        success: true,
-        settings: fallbackResult.rows[0]
-      });
-    } catch (dbError: any) {
-      console.error('[Settings API Self-Healing Error] Table creation/seeding failed, using memory defaults:', dbError);
-      const memoryFallback = {
-        shift_name: 'Morning Shift (Default Fallback)',
-        checkin_start: '09:00:00',
-        late_after: '09:15:00',
-        checkout_time: '17:00:00',
-        grace_minutes: 15,
-      };
-      return res.status(200).json({
-        success: true,
-        settings: memoryFallback,
-        warning: 'Database is currently offline. Loaded default configurations from cache.'
-      });
-    }
-  }
-};
-
-export const updateAttendanceSettings = async (req: any, res: Response) => {
-  const { shift_name, checkin_start, late_after, checkout_time, grace_minutes } = req.body;
-
-  if (!shift_name || typeof shift_name !== 'string' || !shift_name.trim()) {
-    return res.status(400).json({ success: false, message: 'Invalid shift name. It cannot be empty.' });
-  }
-
-  const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/;
-  if (!checkin_start || !timeRegex.test(checkin_start)) {
-    return res.status(400).json({ success: false, message: 'Invalid check-in start time. Must be HH:MM or HH:MM:SS.' });
-  }
-  if (!late_after || !timeRegex.test(late_after)) {
-    return res.status(400).json({ success: false, message: 'Invalid late marking time. Must be HH:MM or HH:MM:SS.' });
-  }
-  if (!checkout_time || !timeRegex.test(checkout_time)) {
-    return res.status(400).json({ success: false, message: 'Invalid check-out time. Must be HH:MM or HH:MM:SS.' });
-  }
-  if (grace_minutes === undefined || grace_minutes === null || isNaN(Number(grace_minutes)) || Number(grace_minutes) < 0) {
-    return res.status(400).json({ success: false, message: 'Grace period must be a non-negative number.' });
+// Retrieve Audit logs (ADMIN only)
+export const getAuditLogs = async (req: AuthRequest, res: Response) => {
+  if (req.user?.role !== 'ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ success: false, message: 'Access denied. Administrator privileges required.' });
   }
 
   try {
-    const checkSettings = await query('SELECT id FROM attendance_settings LIMIT 1');
-
-    if (checkSettings.rows.length === 0) {
-      await query(
-        `INSERT INTO attendance_settings (shift_name, checkin_start, late_after, checkout_time, grace_minutes)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [shift_name.trim(), checkin_start, late_after, checkout_time, Number(grace_minutes)]
-      );
-    } else {
-      const id = checkSettings.rows[0].id;
-      await query(
-        `UPDATE attendance_settings 
-         SET shift_name = $1, checkin_start = $2, late_after = $3, checkout_time = $4, grace_minutes = $5, updated_at = NOW()
-         WHERE id = $6`,
-        [shift_name.trim(), checkin_start, late_after, checkout_time, Number(grace_minutes), id]
-      );
-    }
-
-    console.log(`[Console Sync] Attendance settings updated successfully: ${shift_name} (${checkin_start} - ${checkout_time})`);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Attendance settings updated successfully.',
-    });
-  } catch (error: any) {
-    console.error('[Settings API Error] Update settings failed:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update settings in the database. Please try again.',
-      error: error.message
-    });
-  }
-};
-
-export const runStartupSelfHealing = async () => {
-  try {
-    const now = new Date();
-    const istDateNow = getISTDateTime(now);
-    const today = `${istDateNow.getFullYear()}-${(istDateNow.getMonth() + 1).toString().padStart(2, '0')}-${istDateNow.getDate().toString().padStart(2, '0')}`;
-
-    console.log('[Auto Checkout Self-Healing] Scanning for incomplete past attendance records...');
-
-    const openRecords = await query(
-      `SELECT id, date, check_in_time FROM attendance_records 
-       WHERE date < $1 AND check_out IS NULL`,
-      [today]
+    const result = await query(
+      `SELECT al.id, al.changed_at, al.old_status, al.new_status, al.old_remarks, al.new_remarks, al.reason, al.ip_address, al.device_id,
+              e.full_name as employee_name, e.employee_id, adm.full_name as changed_by_name
+       FROM attendance_audit_logs al
+       JOIN attendance a ON al.attendance_id = a.id
+       JOIN employees e ON a.employee_id = e.id
+       LEFT JOIN admins adm ON al.changed_by = adm.id
+       ORDER BY al.changed_at DESC`
     );
 
-    if (openRecords.rows.length === 0) {
-      console.log('[Auto Checkout Self-Healing] No incomplete past records found.');
-      return;
-    }
-
-    console.log(`[Auto Checkout Self-Healing] Found ${openRecords.rows.length} open records from past dates. Closing them...`);
-
-    for (const record of openRecords.rows) {
-      let year: number;
-      let month: number;
-      let day: number;
-      if (record.date instanceof Date) {
-        year = record.date.getFullYear();
-        month = record.date.getMonth();
-        day = record.date.getDate();
-      } else {
-        const parts = record.date.split('-');
-        year = parseInt(parts[0], 10);
-        month = parseInt(parts[1], 10) - 1;
-        day = parseInt(parts[2], 10);
-      }
-
-      const checkoutTime = new Date(Date.UTC(year, month, day, 11, 30, 0, 0));
-      const workingHours = calculateWorkingHours(record.check_in_time, '17:00:00');
-
-      await query(
-        `UPDATE attendance_records 
-         SET check_out = $1, checkout_type = $2, working_hours = $3 
-         WHERE id = $4`,
-        [checkoutTime, 'AUTO_CHECKOUT', workingHours, record.id]
-      );
-    }
-
-    console.log(`[Auto Checkout Self-Healing] Successfully closed ${openRecords.rows.length} past records.`);
+    return res.status(200).json({ success: true, logs: result.rows });
   } catch (error) {
-    console.error('[Auto Checkout Self-Healing Error] Failed to heal past records:', error);
+    console.error('[Audit Logs Error] Fetch failed:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
 
-export const startAutoCheckoutScheduler = () => {
-  console.log('[Auto Checkout Scheduler] Initializing daily 5:00 PM auto-checkout process...');
+// Retrieve Employee Personal Summary
+export const getEmployeeSummary = async (req: AuthRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'EMPLOYEE') {
+    return res.status(403).json({ success: false, message: 'Forbidden. Employee context required.' });
+  }
 
-  const scheduleNextRun = () => {
-    const now = new Date();
-    const istNow = getISTDateTime(now);
+  const employeeId = req.user.id;
+  const tz = await getCompanyTimezone();
+  const now = moment().tz(tz);
+  const startOfMonth = now.clone().startOf('month').format('YYYY-MM-DD');
+  const endOfMonth = now.clone().endOf('month').format('YYYY-MM-DD');
 
-    const istTarget = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 17, 0, 0, 0);
+  try {
+    // 1. Get Leave Balance
+    const balanceRes = await query(
+      'SELECT casual_leave, sick_leave, paid_leave FROM leave_balances WHERE employee_id = $1',
+      [employeeId]
+    );
 
-    if (istNow >= istTarget) {
-      istTarget.setDate(istTarget.getDate() + 1);
+    // 2. Count Monthly attendance stats
+    const monthlyLogs = await query(
+      `SELECT status, COUNT(*) as count 
+       FROM attendance 
+       WHERE employee_id = $1 AND date >= $2 AND date <= $3 AND is_deleted = FALSE
+       GROUP BY status`,
+      [employeeId, startOfMonth, endOfMonth]
+    );
+
+    let present = 0;
+    let late = 0;
+    let halfDay = 0;
+    let absent = 0;
+    let leaveCount = 0;
+
+    monthlyLogs.rows.forEach((row) => {
+      if (row.status === 'PRESENT') present = parseInt(row.count, 10);
+      if (row.status === 'LATE') late = parseInt(row.count, 10);
+      if (row.status === 'HALF_DAY') halfDay = parseInt(row.count, 10);
+      if (row.status === 'ABSENT') absent = parseInt(row.count, 10);
+      if (row.status === 'LEAVE') leaveCount = parseInt(row.count, 10);
+    });
+
+    const totalWorkingDays = present + late + halfDay + absent;
+    const presentSum = present + late + (halfDay * 0.5);
+    const attendancePercentage = totalWorkingDays > 0 ? Math.round((presentSum / totalWorkingDays) * 100) : 100;
+
+    // 3. Get today's attendance status
+    const todayStr = now.format('YYYY-MM-DD');
+    const todayRes = await query(
+      'SELECT status, time FROM attendance WHERE employee_id = $1 AND date = $2 AND is_deleted = FALSE LIMIT 1',
+      [employeeId, todayStr]
+    );
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        attendancePercentage,
+        todayStatus: todayRes.rows[0]?.status || 'NOT_MARKED',
+        todayTime: todayRes.rows[0]?.time || null,
+        leaves: balanceRes.rows[0] || { casual_leave: 0, sick_leave: 0, paid_leave: 0 },
+        stats: {
+          present: present + late,
+          absent,
+          late,
+          halfDay,
+          leave: leaveCount
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[Employee Summary Error] Fetch failed:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
+  }
+};
+
+// EOD Auto-Lock Scheduler Query
+export const lockDailyAttendance = async () => {
+  const tz = await getCompanyTimezone();
+  const today = moment().tz(tz).format('YYYY-MM-DD');
+  
+  try {
+    console.log(`[Auto Lock] Locking daily attendance for date: ${today}`);
+    await query(
+      `UPDATE attendance 
+       SET is_locked = TRUE 
+       WHERE date = $1 AND is_locked = FALSE`,
+      [today]
+    );
+    console.log(`[Auto Lock] Daily attendance for ${today} locked successfully.`);
+  } catch (err) {
+    console.error('[Auto Lock Error] Failed to lock records:', err);
+  }
+};
+
+// Scheduler bootstrap
+export const startAutoLockScheduler = () => {
+  console.log('[Auto Lock Scheduler] Initializing EOD lock routines...');
+  
+  const scheduleNextRun = async () => {
+    const tz = await getCompanyTimezone();
+    const now = moment().tz(tz);
+    
+    // Set target EOD time to 6:00 PM (18:00:00)
+    const target = moment().tz(tz).set({ hour: 18, minute: 0, second: 0, millisecond: 0 });
+    
+    if (now.isAfter(target)) {
+      target.add(1, 'day');
     }
-
-    const delay = istTarget.getTime() - istNow.getTime();
-    const targetDisplay = new Date(now.getTime() + delay);
-
-    console.log(`[Auto Checkout Scheduler] Next auto-checkout run scheduled in ${Math.round(delay / 1000 / 60)} minutes (at ${targetDisplay.toLocaleString()})`);
-
+    
+    const delay = target.diff(now);
+    console.log(`[Auto Lock Scheduler] Next lock event in ${Math.round(delay / 1000 / 60)} minutes (at ${target.format()})`);
+    
     setTimeout(async () => {
-      await runDailyAutoCheckout();
+      await lockDailyAttendance();
       scheduleNextRun();
     }, delay);
   };
 
-  scheduleNextRun();
+  scheduleNextRun().catch(err => console.error('[Auto Lock Scheduler Boot Error] Failed:', err));
 };
 
-const runDailyAutoCheckout = async () => {
-  try {
-    const now = new Date();
-    const istNow = getISTDateTime(now);
-    const today = `${istNow.getFullYear()}-${(istNow.getMonth() + 1).toString().padStart(2, '0')}-${istNow.getDate().toString().padStart(2, '0')}`;
-
-    console.log(`[Auto Checkout Scheduler] Running EOD auto-checkout for date: ${today}`);
-
-    const openRecords = await query(
-      `SELECT id, date, check_in_time FROM attendance_records 
-       WHERE date = $1 AND check_out IS NULL`,
-      [today]
-    );
-
-    if (openRecords.rows.length === 0) {
-      console.log('[Auto Checkout Scheduler] No open records for today.');
-      return;
-    }
-
-    console.log(`[Auto Checkout Scheduler] Found ${openRecords.rows.length} open records today. Automatically checking out...`);
-
-    const year = istNow.getFullYear();
-    const month = istNow.getMonth();
-    const day = istNow.getDate();
-    const checkoutTime = new Date(Date.UTC(year, month, day, 11, 30, 0, 0));
-
-    for (const record of openRecords.rows) {
-      const workingHours = calculateWorkingHours(record.check_in_time, '17:00:00');
-
-      await query(
-        `UPDATE attendance_records 
-         SET check_out = $1, checkout_type = $2, working_hours = $3 
-         WHERE id = $4`,
-        [checkoutTime, 'AUTO_CHECKOUT', workingHours, record.id]
-      );
-    }
-
-    console.log(`[Auto Checkout Scheduler] Successfully auto-checked out ${openRecords.rows.length} employees.`);
-  } catch (error) {
-    console.error('[Auto Checkout Scheduler Error] Daily auto-checkout failed:', error);
-  }
-};

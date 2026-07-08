@@ -4,11 +4,6 @@ import {
   createEmployee,
   updateEmployee,
   deleteEmployee,
-  registerFace,
-  enrollBiometric,
-  requestReEnrollment,
-  approveReEnrollment,
-  rejectReEnrollment,
 } from '../controllers/employeeController';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -19,16 +14,8 @@ const router = Router();
 router.use(authenticateToken as any);
 
 router.get('/', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(getEmployees));
-router.post('/enroll-biometric', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(enrollBiometric));
 router.post('/', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(createEmployee));
-router.post('/register-face', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(registerFace));
 router.put('/:id', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(updateEmployee));
 router.delete('/:id', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(deleteEmployee));
-router.post('/:id/register-face', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(registerFace));
-
-// Re-enrollment workflow
-router.post('/re-enrollment/request', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(requestReEnrollment));
-router.post('/re-enrollment/approve/:id', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(approveReEnrollment));
-router.post('/re-enrollment/reject/:id', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(rejectReEnrollment));
 
 export default router;

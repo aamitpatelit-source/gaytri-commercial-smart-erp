@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../../l10n/app_localizations.dart';
+import '../../core/providers/language_provider.dart';
 import '../../core/config/api_config.dart';
 import '../../core/theme/app_theme.dart';
 import 'login_screen.dart';
-import 'scanner_screen.dart';
 
 class ManagerDashboard extends StatefulWidget {
   const ManagerDashboard({super.key});
@@ -201,12 +203,13 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('GAYTRI COMMERCIAL'),
+            Text(l10n?.appName ?? 'GAYTRI COMMERCIAL'),
             if (_currentTimeString.isNotEmpty)
               Text(
                 _currentTimeString,
@@ -216,14 +219,26 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         ),
         actions: [
           IconButton(
+            onPressed: () {
+              final langProvider = Provider.of<LanguageProvider>(context, listen: false);
+              if (langProvider.locale.languageCode == 'en') {
+                langProvider.changeLanguage('hi');
+              } else {
+                langProvider.changeLanguage('en');
+              }
+            },
+            icon: const Icon(Icons.translate_rounded, color: AppTheme.neonCyan, size: 20),
+            tooltip: 'Switch Language / भाषा बदलें',
+          ),
+          IconButton(
             onPressed: _isLoading ? null : _loadDashboardData,
             icon: const Icon(Icons.refresh_rounded, color: AppTheme.neonCyan, size: 20),
-            tooltip: 'Refresh Data',
+            tooltip: l10n?.loading ?? 'Refresh Data',
           ),
           IconButton(
             onPressed: () => _logout(sessionExpired: false),
             icon: const Icon(Icons.logout_rounded, color: AppTheme.errorRed, size: 20),
-            tooltip: 'Sign Out',
+            tooltip: l10n?.logout ?? 'Sign Out',
           ),
         ],
       ),
@@ -429,40 +444,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 40,
-                                child: ElevatedButton(
-                                  onPressed: () async {
-                                    final result = await Navigator.of(context).push(
-                                      MaterialPageRoute(builder: (context) => const ScannerScreen()),
-                                    );
-                                    if (result == true) {
-                                      _loadDashboardData();
-                                    }
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.neonCyan,
-                                    foregroundColor: AppTheme.darkBg,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    elevation: 0,
-                                  ),
-                                  child: const Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.face_unlock_rounded, size: 16),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'Start Face Scan',
-                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+
                             ],
                           ),
                         ),
