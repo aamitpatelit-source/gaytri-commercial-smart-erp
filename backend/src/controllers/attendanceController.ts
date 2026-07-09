@@ -508,3 +508,132 @@ export const startAutoLockScheduler = () => {
   scheduleNextRun().catch(err => console.error('[Auto Lock Scheduler Boot Error] Failed:', err));
 };
 
+// GET /settings (Gets default shift settings)
+export const getAttendanceSettings = async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await query('SELECT * FROM shifts ORDER BY id ASC LIMIT 1');
+    if (result.rows.length === 0) {
+      // Seed default shift if empty
+      const insert = await query(
+        `INSERT INTO shifts (name, checkin_start, late_after, half_day_after, checkout_time, working_hours)
+         VALUES ('Morning Shift', '09:00:00', '09:15:00', '13:00:00', '17:00:00', 8.00)
+         RETURNING *`
+      );
+      const row = insert.rows[0];
+      return res.status(200).json({
+        success: true,
+        settings: {
+          shift_name: row.name,
+          checkin_start: row.checkin_start,
+          late_after: row.late_after,
+          checkout_time: row.checkout_time,
+          grace_minutes: 15
+        }
+      });
+    }
+
+    const row = result.rows[0];
+    
+    // Parse grace minutes as checkin_start vs late_after difference in minutes
+    let graceMinutes = 15;
+    try {
+      const startParts = row.checkin_start.split(':');
+      const lateParts = row.late_after.split(':');
+      const startMinutes = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10);
+      const lateMinutes = parseInt(lateParts[0], 10) * 60 + parseInt(lateParts[1], 10);
+      graceMinutes = Math.max(0, lateMinutes - startMinutes);
+    } catch (e) {
+      // fallback
+    }
+
+    return res.status(200).json({
+      success: true,
+      settings: {
+        shift_name: row.name,
+        checkin_start: row.checkin_start,
+        late_after: row.late_after,
+        checkout_time: row.checkout_time,
+        grace_minutes: graceMinutes
+      }
+    });
+  } catch (error) {
+    console.error('[Attendance API] Get settings failed:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// PUT /settings (Updates default shift settings)
+export const updateAttendanceSettings = async (req: AuthRequest, res: Response) => {
+  const { shift_name, checkin_start, late_after, checkout_time, grace_minutes } = req.body;
+
+  try {
+    const result = await query('SELECT id FROM shifts ORDER BY id ASC LIMIT 1');
+    
+    // calculate late_after based on checkin_start and grace_minutes if not provided explicitly
+    let calculatedLateAfter = late_after;
+    if (checkin_start && grace_minutes !== undefined && !late_after) {
+      const startParts = checkin_start.split(':');
+      const startMinutes = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10) + Number(grace_minutes);
+      const hr = Math.floor(startMinutes / 60).toString().padStart(2, '0');
+      const min = (startMinutes % 60).toString().padStart(2, '0');
+      calculatedLateAfter = `${hr}:${min}:00`;
+    }
+
+    if (result.rows.length === 0) {
+      const name = shift_name || 'Morning Shift';
+      const checkin = checkin_start || '09:00:00';
+      const late = calculatedLateAfter || '09:15:00';
+      const checkout = checkout_time || '17:00:00';
+      
+      const insert = await query(
+        `INSERT INTO shifts (name, checkin_start, late_after, half_day_after, checkout_time, working_hours)
+         VALUES ($1, $2, $3, '13:00:00', $4, 8.00)
+         RETURNING *`,
+        [name, checkin, late, checkout]
+      );
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Shift settings updated successfully.',
+        settings: {
+          shift_name: insert.rows[0].name,
+          checkin_start: insert.rows[0].checkin_start,
+          late_after: insert.rows[0].late_after,
+          checkout_time: insert.rows[0].checkout_time,
+          grace_minutes: grace_minutes || 15
+        }
+      });
+    } else {
+      const id = result.rows[0].id;
+      const name = shift_name || 'Morning Shift';
+      const checkin = checkin_start || '09:00:00';
+      const late = calculatedLateAfter || '09:15:00';
+      const checkout = checkout_time || '17:00:00';
+
+      const update = await query(
+        `UPDATE shifts
+         SET name = $1, checkin_start = $2, late_after = $3, checkout_time = $4, updated_at = NOW()
+         WHERE id = $5
+         RETURNING *`,
+        [name, checkin, late, checkout, id]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Shift settings updated successfully.',
+        settings: {
+          shift_name: update.rows[0].name,
+          checkin_start: update.rows[0].checkin_start,
+          late_after: update.rows[0].late_after,
+          checkout_time: update.rows[0].checkout_time,
+          grace_minutes: grace_minutes || 15
+        }
+      });
+    }
+  } catch (error) {
+    console.error('[Attendance API] Update settings failed:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+

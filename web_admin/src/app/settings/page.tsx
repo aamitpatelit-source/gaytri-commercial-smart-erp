@@ -63,10 +63,13 @@ export default function SettingsPage() {
           headers: { 'Authorization': `Bearer ${token}` }
         }, 5000);
 
-        if (res.status === 401 || res.status === 403) {
-          localStorage.clear();
-          if (active) router.push('/login');
-          return;
+        if (!res.ok) {
+          throw new Error(`Server returned error status ${res.status}: ${res.statusText}`);
+        }
+
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Server returned an invalid non-JSON response.');
         }
 
         const data = await res.json();
@@ -139,10 +142,18 @@ export default function SettingsPage() {
         },
         body: JSON.stringify(form)
       }, 6000);
+      if (!res.ok) {
+        throw new Error(`Server returned error status ${res.status}: ${res.statusText}`);
+      }
+
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned an invalid non-JSON response.');
+      }
 
       const data = await res.json();
       
-      if (res.ok && data.success) {
+      if (data.success) {
         showToastMsg('success', 'ERP settings saved and synchronized successfully.');
       } else {
         showToastMsg('error', data.message || 'Failed to update shift settings.');

@@ -92,7 +92,7 @@ export default function AttendanceLogsPage() {
       setLoading(true);
       setError('');
       
-      const res = await fetch(`${API_URL}/attendance`, {
+      const res = await fetch(`${API_URL}/attendance/history`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -102,14 +102,23 @@ export default function AttendanceLogsPage() {
         return;
       }
 
+      if (!res.ok) {
+        throw new Error(`Server returned error status ${res.status}: ${res.statusText}`);
+      }
+
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned an invalid non-JSON response.');
+      }
+
       const data = await res.json();
       if (data.success) {
         setLogs(data.logs || []);
       } else {
         setError(data.message || 'Failed to retrieve logs.');
       }
-    } catch (err) {
-      setError('Error connecting to backend database server.');
+    } catch (err: any) {
+      setError(err.message || 'Error connecting to backend database server.');
       console.error(err);
     } finally {
       setLoading(false);
