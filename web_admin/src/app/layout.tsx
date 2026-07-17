@@ -306,7 +306,13 @@ export default function RootLayout({
     { name: 'Employees', icon: Users, path: '/employees' },
     { name: 'Manager Accounts', icon: Shield, path: '/managers' },
     { name: 'Attendance Logs', icon: Clock, path: '/attendance' },
-    { name: 'Shift Settings', icon: Settings, path: '/settings' },
+    { name: 'Attendance Audit Logs', icon: ShieldAlert, path: '/attendance-audit-logs' },
+    { name: 'Leave Management', icon: Clock, path: '/leaves' },
+    { name: 'Leave Balances', icon: Settings, path: '/leave-balances' },
+    { name: 'Holidays', icon: LayoutDashboard, path: '/holidays' },
+    { name: 'Shifts', icon: Clock, path: '/shifts' },
+    { name: 'Departments', icon: Layers, path: '/departments' },
+    { name: 'Shift Timings Config', icon: Settings, path: '/settings' },
   ];
 
   if (isLoginPage) {
@@ -423,7 +429,18 @@ export default function RootLayout({
           {/* Main Top Header Nav */}
           <header className="h-16 border-b border-slate-850 px-8 flex items-center justify-between z-10 glass-panel">
             <h1 className="text-xl font-bold text-slate-100 capitalize">
-              {pathname === '/' ? 'Operational Overview' : pathname === '/employees' ? 'Employee Directory' : pathname === '/managers' ? 'Manager Accounts' : pathname === '/attendance' ? 'Attendance Logs' : pathname === '/settings' ? 'Shift Settings' : pathname.replace('/', '').replace('-', ' ')}
+              {pathname === '/' ? 'Operational Overview' : 
+               pathname === '/employees' ? 'Employee Directory' : 
+               pathname === '/managers' ? 'Manager Accounts' : 
+               pathname === '/attendance' ? 'Attendance Logs' : 
+               pathname === '/attendance-audit-logs' ? 'Attendance Audit Logs' : 
+               pathname === '/leaves' ? 'Leave Management' : 
+               pathname === '/leave-balances' ? 'Leave Balances' : 
+               pathname === '/holidays' ? 'Holidays Calendar' : 
+               pathname === '/shifts' ? 'Shifts Registry' : 
+               pathname === '/departments' ? 'Departments Directory' : 
+               pathname === '/settings' ? 'Shift Timings Config' : 
+               pathname.replace('/', '').replace(/-/g, ' ')}
             </h1>
 
             {/* Top Toolbar: Alert, Notifications, System Clock, Dropdown */}

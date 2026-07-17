@@ -211,6 +211,384 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Suspended'**
   String get suspended;
+
+  /// No description provided for @dashboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Dashboard'**
+  String get dashboard;
+
+  /// No description provided for @attendance.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance'**
+  String get attendance;
+
+  /// No description provided for @leaves.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaves'**
+  String get leaves;
+
+  /// No description provided for @settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settings;
+
+  /// No description provided for @present.
+  ///
+  /// In en, this message translates to:
+  /// **'Present'**
+  String get present;
+
+  /// No description provided for @absent.
+  ///
+  /// In en, this message translates to:
+  /// **'Absent'**
+  String get absent;
+
+  /// No description provided for @late.
+  ///
+  /// In en, this message translates to:
+  /// **'Late'**
+  String get late;
+
+  /// No description provided for @halfDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Half Day'**
+  String get halfDay;
+
+  /// No description provided for @leave.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave'**
+  String get leave;
+
+  /// No description provided for @markAllPresent.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark All Present'**
+  String get markAllPresent;
+
+  /// No description provided for @saveAttendance.
+  ///
+  /// In en, this message translates to:
+  /// **'Save Attendance'**
+  String get saveAttendance;
+
+  /// No description provided for @remarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Remarks'**
+  String get remarks;
+
+  /// No description provided for @searchEmployee.
+  ///
+  /// In en, this message translates to:
+  /// **'Search employee'**
+  String get searchEmployee;
+
+  /// No description provided for @noEmployeesFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No employees found'**
+  String get noEmployeesFound;
+
+  /// No description provided for @attendanceSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance saved successfully'**
+  String get attendanceSaved;
+
+  /// No description provided for @failedLoadEmployees.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load employees'**
+  String get failedLoadEmployees;
+
+  /// No description provided for @workforceOverview.
+  ///
+  /// In en, this message translates to:
+  /// **'Workforce Attendance Overview'**
+  String get workforceOverview;
+
+  /// No description provided for @attendanceActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance Activity'**
+  String get attendanceActivity;
+
+  /// No description provided for @noActivityToday.
+  ///
+  /// In en, this message translates to:
+  /// **'No attendance activity recorded today'**
+  String get noActivityToday;
+
+  /// No description provided for @casualLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Casual Leave'**
+  String get casualLeave;
+
+  /// No description provided for @sickLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Sick Leave'**
+  String get sickLeave;
+
+  /// No description provided for @paidLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Paid Leave'**
+  String get paidLeave;
+
+  /// No description provided for @unpaidLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpaid Leave'**
+  String get unpaidLeave;
+
+  /// No description provided for @remaining.
+  ///
+  /// In en, this message translates to:
+  /// **'Remaining'**
+  String get remaining;
+
+  /// No description provided for @used.
+  ///
+  /// In en, this message translates to:
+  /// **'Used'**
+  String get used;
+
+  /// No description provided for @pending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get pending;
+
+  /// No description provided for @approved.
+  ///
+  /// In en, this message translates to:
+  /// **'Approved'**
+  String get approved;
+
+  /// No description provided for @rejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Rejected'**
+  String get rejected;
+
+  /// No description provided for @startDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Date'**
+  String get startDate;
+
+  /// No description provided for @endDate.
+  ///
+  /// In en, this message translates to:
+  /// **'End Date'**
+  String get endDate;
+
+  /// No description provided for @reason.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get reason;
+
+  /// No description provided for @enterReason.
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a reason'**
+  String get enterReason;
+
+  /// No description provided for @selectLeaveType.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Leave Type'**
+  String get selectLeaveType;
+
+  /// No description provided for @submitRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Request'**
+  String get submitRequest;
+
+  /// No description provided for @submitting.
+  ///
+  /// In en, this message translates to:
+  /// **'Submitting...'**
+  String get submitting;
+
+  /// No description provided for @cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancel;
+
+  /// No description provided for @confirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get confirm;
+
+  /// No description provided for @approve.
+  ///
+  /// In en, this message translates to:
+  /// **'Approve'**
+  String get approve;
+
+  /// No description provided for @reject.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject'**
+  String get reject;
+
+  /// No description provided for @rejectionRemarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Rejection Remarks'**
+  String get rejectionRemarks;
+
+  /// No description provided for @enterRejectionRemarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Rejection remarks are mandatory'**
+  String get enterRejectionRemarks;
+
+  /// No description provided for @confirmAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure?'**
+  String get confirmAction;
+
+  /// No description provided for @confirmApproveLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Do you want to approve this leave request?'**
+  String get confirmApproveLeave;
+
+  /// No description provided for @confirmRejectLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Do you want to reject this leave request?'**
+  String get confirmRejectLeave;
+
+  /// No description provided for @cancelRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Request'**
+  String get cancelRequest;
+
+  /// No description provided for @confirmCancelRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Do you want to cancel this pending leave request?'**
+  String get confirmCancelRequest;
+
+  /// No description provided for @changePassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Change Password'**
+  String get changePassword;
+
+  /// No description provided for @oldPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Current Password'**
+  String get oldPassword;
+
+  /// No description provided for @newPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'New Password'**
+  String get newPassword;
+
+  /// No description provided for @confirmNewPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm New Password'**
+  String get confirmNewPassword;
+
+  /// No description provided for @passwordsDoNotMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords do not match'**
+  String get passwordsDoNotMatch;
+
+  /// No description provided for @passwordTooShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Password must be at least 6 characters'**
+  String get passwordTooShort;
+
+  /// No description provided for @update.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get update;
+
+  /// No description provided for @selectLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get selectLanguage;
+
+  /// No description provided for @english.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get english;
+
+  /// No description provided for @hindi.
+  ///
+  /// In en, this message translates to:
+  /// **'Hindi'**
+  String get hindi;
+
+  /// No description provided for @managedEmployees.
+  ///
+  /// In en, this message translates to:
+  /// **'Managed Employees'**
+  String get managedEmployees;
+
+  /// No description provided for @assignedDepartments.
+  ///
+  /// In en, this message translates to:
+  /// **'Assigned Departments'**
+  String get assignedDepartments;
+
+  /// No description provided for @marked.
+  ///
+  /// In en, this message translates to:
+  /// **'Marked'**
+  String get marked;
+
+  /// No description provided for @unmarked.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmarked'**
+  String get unmarked;
+
+  /// No description provided for @noScopeError.
+  ///
+  /// In en, this message translates to:
+  /// **'You cannot mark attendance for this employee. Please contact the administrator.'**
+  String get noScopeError;
+
+  /// No description provided for @success.
+  ///
+  /// In en, this message translates to:
+  /// **'Success'**
+  String get success;
+
+  /// No description provided for @error.
+  ///
+  /// In en, this message translates to:
+  /// **'Error'**
+  String get error;
 }
 
 class _AppLocalizationsDelegate
