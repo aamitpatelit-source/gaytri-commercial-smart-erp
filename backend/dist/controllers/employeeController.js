@@ -8,8 +8,12 @@ const db_1 = require("../config/db");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 // Get all employees
 const getEmployees = async (req, res) => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
     try {
-        const result = await (0, db_1.query)(`SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
+        let queryStr = `
+       SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
               e.require_password_change, e.created_at, e.updated_at,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,
@@ -18,7 +22,15 @@ const getEmployees = async (req, res) => {
        LEFT JOIN departments d ON e.department_id = d.id
        LEFT JOIN designations dg ON e.designation_id = dg.id
        LEFT JOIN shifts s ON e.shift_id = s.id
-       ORDER BY e.employee_id ASC`);
+       WHERE e.is_active = TRUE
+    `;
+        const params = [];
+        if (req.user.role === 'MANAGER') {
+            queryStr += ` AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $1) `;
+            params.push(req.user.id);
+        }
+        queryStr += ` ORDER BY e.employee_id ASC `;
+        const result = await (0, db_1.query)(queryStr, params);
         console.log(`[Employee Info] Fetched ${result.rows.length} employees from database.`);
         return res.status(200).json({
             success: true,

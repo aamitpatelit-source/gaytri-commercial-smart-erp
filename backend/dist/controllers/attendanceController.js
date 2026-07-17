@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateAttendanceSettings = exports.getAttendanceSettings = exports.startAutoLockScheduler = exports.lockDailyAttendance = exports.getEmployeeSummary = exports.getAuditLogs = exports.getAttendanceHistory = exports.getDashboardStats = exports.markAttendance = exports.voidAttendance = exports.getCompanyTimezone = exports.ManagerManualProvider = void 0;
 const db_1 = __importStar(require("../config/db"));
 const moment_timezone_1 = __importDefault(require("moment-timezone"));
+const managerScopeService_1 = require("../services/managerScopeService");
 class ManagerManualProvider {
     sourceName = 'MANAGER_MANUAL';
     async processAttendance(client, payload) {
@@ -134,6 +135,12 @@ const markAttendance = async (req, res) => {
     }
     const client = await db_1.default.connect();
     try {
+        console.log('[Attendance Mark Diagnostic] Request Initiated:', {
+            authenticatedUserId: changedBy,
+            authenticatedRole: userRole,
+            resolvedManagerAdminId: changedBy,
+            submittedEmployeeUuids: records.map((r) => r.employee_id)
+        });
         await client.query('BEGIN');
         for (const record of records) {
             const { employee_id, status, remarks, reason } = record;
@@ -141,15 +148,13 @@ const markAttendance = async (req, res) => {
                 throw new Error('Each record must include employee_id and status.');
             }
             // 1. Verify Manager Scope Boundary
-            if (userRole === 'MANAGER') {
-                const scopeCheck = await client.query(`SELECT EXISTS (
-             SELECT 1 FROM employees e
-             JOIN manager_departments md ON e.department_id = md.department_id
-             WHERE e.id = $1 AND md.manager_id = $2
-           )`, [employee_id, changedBy]);
-                if (!scopeCheck.rows[0].exists) {
-                    throw new Error(`Employee ${employee_id} is outside your managed department scope.`);
-                }
+            const hasPermission = await (0, managerScopeService_1.canManageEmployee)(changedBy, employee_id, userRole);
+            if (!hasPermission) {
+                console.warn('[Attendance Mark Diagnostic] Scope Validation FAILED:', {
+                    failedEmployeeUuid: employee_id,
+                    managerId: changedBy
+                });
+                throw new Error('You cannot mark attendance for this employee. Please contact the administrator.');
             }
             // SELECT existing row FOR UPDATE to capture database-read old values
             const existingRes = await client.query('SELECT id, status, remarks, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE', [employee_id, date]);

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { query } from '../config/db';
+import poolProxy, { query } from '../config/db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'gaytri_commercial_smart_erp_jwt_secret_2026';
 
@@ -275,8 +275,18 @@ export const updateProfile = async (req: any, res: Response) => {
 export const getManagers = async (req: any, res: Response) => {
   try {
     const managers = await query(
-      `SELECT id, email, full_name, role, is_active, must_change_password, created_at 
-       FROM admins WHERE id != $1 ORDER BY created_at DESC`,
+      `SELECT 
+        a.id, a.email, a.full_name, a.role, a.is_active, a.must_change_password, a.created_at,
+        (
+          SELECT COALESCE(COUNT(me.id), 0)
+          FROM manager_employees me
+          JOIN employees e ON me.employee_id = e.id
+          WHERE me.manager_id = a.id AND e.is_active = TRUE
+        )::int as employee_count,
+        '[]'::json as departments
+      FROM admins a
+      WHERE a.id != $1
+      ORDER BY a.created_at DESC`,
       [req.user.id]
     );
 
@@ -292,7 +302,7 @@ export const getManagers = async (req: any, res: Response) => {
 
 // Create a New Manager/Admin Account
 export const createManager = async (req: any, res: Response) => {
-  const { full_name, email, password, role } = req.body;
+  const { full_name, email, password, role, departments } = req.body;
 
   if (!full_name || !email || !password || !role) {
     return res.status(400).json({ success: false, message: 'All fields (full_name, email, password, role) are required.' });
@@ -303,12 +313,15 @@ export const createManager = async (req: any, res: Response) => {
     return res.status(400).json({ success: false, message: 'Invalid role assigned.' });
   }
 
+  const client = await poolProxy.connect();
   try {
+    await client.query('BEGIN');
     const cleanEmail = email.trim().toLowerCase();
 
     // Check if email already in use
-    const checkUser = await query('SELECT id FROM admins WHERE email = $1', [cleanEmail]);
+    const checkUser = await client.query('SELECT id FROM admins WHERE email = $1', [cleanEmail]);
     if (checkUser.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'Email address is already in use.' });
     }
 
@@ -316,11 +329,15 @@ export const createManager = async (req: any, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const newId = uuidv4();
 
-    await query(
+    await client.query(
       `INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [newId, cleanEmail, passwordHash, full_name.trim(), role]
     );
+
+    // manager_departments table is retired, no inserts required here
+
+    await client.query('COMMIT');
 
     return res.status(201).json({
       success: true,
@@ -331,29 +348,38 @@ export const createManager = async (req: any, res: Response) => {
         full_name: full_name.trim(),
         role,
         is_active: true,
-        must_change_password: true
+        must_change_password: true,
+        departments: []
       }
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('[Managers API] Failed to create account:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  } finally {
+    client.release();
   }
 };
 
 // Update Manager/Admin Account (Update properties or Reset Password)
 export const updateManager = async (req: any, res: Response) => {
   const { id } = req.params;
-  const { full_name, email, role, is_active, password } = req.body;
+  const { full_name, email, role, is_active, password, departments } = req.body;
 
+  const client = await poolProxy.connect();
   try {
+    await client.query('BEGIN');
+
     // Check if target account exists
-    const checkUser = await query('SELECT role FROM admins WHERE id = $1', [id]);
+    const checkUser = await client.query('SELECT role FROM admins WHERE id = $1', [id]);
     if (checkUser.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: 'Account not found.' });
     }
 
     // Check for self-modification restriction
     if (id === req.user.id) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'Self-modification of status/role not allowed via this panel.' });
     }
 
@@ -369,17 +395,22 @@ export const updateManager = async (req: any, res: Response) => {
     if (email !== undefined) {
       const cleanEmail = email.trim().toLowerCase();
       // Check if email already in use by another account
-      const checkEmail = await query('SELECT id FROM admins WHERE email = $1 AND id != $2', [cleanEmail, id]);
+      const checkEmail = await client.query('SELECT id FROM admins WHERE email = $1 AND id != $2', [cleanEmail, id]);
       if (checkEmail.rows.length > 0) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ success: false, message: 'Email address is already in use.' });
       }
       queryParts.push(`email = $${counter++}`);
       queryParams.push(cleanEmail);
     }
 
+    const currentRole = checkUser.rows[0].role;
+    const finalRole = role !== undefined ? role : currentRole;
+
     if (role !== undefined) {
       const validRoles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
       if (!validRoles.includes(role)) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ success: false, message: 'Invalid role assigned.' });
       }
       queryParts.push(`role = $${counter++}`);
@@ -400,27 +431,34 @@ export const updateManager = async (req: any, res: Response) => {
       queryParams.push(true);
     }
 
-    if (queryParts.length === 0) {
-      return res.status(400).json({ success: false, message: 'No fields to update provided.' });
+    if (queryParts.length > 0) {
+      queryParts.push(`updated_at = CURRENT_TIMESTAMP`);
+      queryParams.push(id);
+
+      const updateQuery = `
+        UPDATE admins SET ${queryParts.join(', ')} 
+        WHERE id = $${counter}
+      `;
+      await client.query(updateQuery, queryParams);
     }
 
-    queryParts.push(`updated_at = CURRENT_TIMESTAMP`);
-    queryParams.push(id);
+    // Clean up direct manager employee assignments if demoted from MANAGER role
+    if (finalRole !== 'MANAGER') {
+      await client.query('DELETE FROM manager_employees WHERE manager_id = $1', [id]);
+    }
 
-    const updateQuery = `
-      UPDATE admins SET ${queryParts.join(', ')} 
-      WHERE id = $${counter}
-    `;
-
-    await query(updateQuery, queryParams);
+    await client.query('COMMIT');
 
     return res.status(200).json({
       success: true,
       message: 'Account updated successfully.'
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('[Managers API] Failed to update account:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  } finally {
+    client.release();
   }
 };
 
@@ -623,3 +661,110 @@ export const resetPassword = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
   }
 };
+
+// Get List of All Active Employees with Assignment Flag for a Manager
+export const getManagerEmployees = async (req: any, res: Response) => {
+  const { id } = req.params;
+  try {
+    const allEmployees = await query(
+      `SELECT id, employee_id, full_name, role 
+       FROM employees 
+       WHERE is_active = TRUE 
+       ORDER BY employee_id ASC`
+    );
+
+    const assigned = await query(
+      `SELECT employee_id 
+       FROM manager_employees 
+       WHERE manager_id = $1`,
+      [id]
+    );
+
+    const assignedIds = new Set(assigned.rows.map(row => row.employee_id));
+
+    const employeesWithFlag = allEmployees.rows.map(emp => ({
+      ...emp,
+      is_assigned: assignedIds.has(emp.id)
+    }));
+
+    return res.status(200).json({
+      success: true,
+      employees: employeesWithFlag
+    });
+  } catch (error) {
+    console.error('[Managers API] Failed to fetch manager employees:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Transactionally Save Selected Manager-Employee Assignments
+export const assignManagerEmployees = async (req: any, res: Response) => {
+  const { id } = req.params;
+  const { employee_ids } = req.body;
+
+  if (!Array.isArray(employee_ids)) {
+    return res.status(400).json({ success: false, message: 'employee_ids must be an array.' });
+  }
+
+  const client = await poolProxy.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Clear existing assignments for this manager
+    await client.query('DELETE FROM manager_employees WHERE manager_id = $1', [id]);
+
+    // Insert new assignments transactionally
+    for (const empId of employee_ids) {
+      await client.query(
+        'INSERT INTO manager_employees (manager_id, employee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [id, empId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Employees assigned successfully.'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('[Managers API] Failed to assign employees:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  } finally {
+    client.release();
+  }
+};
+
+// Transactionally Assign All Active Employees to a Manager
+export const assignAllEmployees = async (req: any, res: Response) => {
+  const { id } = req.params;
+  const client = await poolProxy.connect();
+  try {
+    await client.query('BEGIN');
+
+    const allEmployees = await client.query('SELECT id FROM employees WHERE is_active = TRUE');
+    
+    await client.query('DELETE FROM manager_employees WHERE manager_id = $1', [id]);
+
+    for (const emp of allEmployees.rows) {
+      await client.query(
+        'INSERT INTO manager_employees (manager_id, employee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [id, emp.id]
+      );
+    }
+
+    await client.query('COMMIT');
+    return res.status(200).json({
+      success: true,
+      message: `Successfully assigned all ${allEmployees.rows.length} active employees to this manager.`
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('[Managers API] Failed to assign all employees:', error);
+    return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  } finally {
+    client.release();
+  }
+};
+

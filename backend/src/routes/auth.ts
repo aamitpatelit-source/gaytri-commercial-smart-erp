@@ -12,6 +12,9 @@ import {
   createManager,
   updateManager,
   deleteManager,
+  getManagerEmployees,
+  assignManagerEmployees,
+  assignAllEmployees,
 } from '../controllers/authController';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -35,5 +38,10 @@ router.get('/managers', authenticateToken as any, requireRole(['SUPER_ADMIN', 'A
 router.post('/managers', authenticateToken as any, requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(createManager));
 router.put('/managers/:id', authenticateToken as any, requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(updateManager));
 router.delete('/managers/:id', authenticateToken as any, requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(deleteManager));
+
+// Manager Direct Employee Assignment routes (restricted to SUPER_ADMIN & ADMIN)
+router.get('/managers/:id/employees', authenticateToken as any, requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(getManagerEmployees));
+router.post('/managers/:id/employees', authenticateToken as any, requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(assignManagerEmployees));
+router.post('/managers/:id/assign-all', authenticateToken as any, requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(assignAllEmployees));
 
 export default router;

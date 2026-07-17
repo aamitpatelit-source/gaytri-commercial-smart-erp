@@ -20,4 +20,8 @@ router.get('/managers', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPE
 router.post('/managers', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(authController_1.createManager));
 router.put('/managers/:id', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(authController_1.updateManager));
 router.delete('/managers/:id', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(authController_1.deleteManager));
+// Manager Direct Employee Assignment routes (restricted to SUPER_ADMIN & ADMIN)
+router.get('/managers/:id/employees', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(authController_1.getManagerEmployees));
+router.post('/managers/:id/employees', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(authController_1.assignManagerEmployees));
+router.post('/managers/:id/assign-all', auth_1.authenticateToken, (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(authController_1.assignAllEmployees));
 exports.default = router;

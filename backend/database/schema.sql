@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS shifts (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Seed default lookup table references to satisfy foreign keys for existing data
+INSERT INTO departments (id, name) VALUES (1, 'Production') ON CONFLICT DO NOTHING;
+INSERT INTO designations (id, name) VALUES (1, 'Worker') ON CONFLICT DO NOTHING;
+INSERT INTO shifts (id, name, checkin_start, late_after, half_day_after, checkout_time) 
+VALUES (1, 'Morning Shift', '09:00:00', '09:15:00', '11:00:00', '17:00:00') ON CONFLICT DO NOTHING;
+
+-- Reset lookup sequences
+SELECT setval(pg_get_serial_sequence('departments', 'id'), COALESCE(max(id), 1)) FROM departments;
+SELECT setval(pg_get_serial_sequence('designations', 'id'), COALESCE(max(id), 1)) FROM designations;
+SELECT setval(pg_get_serial_sequence('shifts', 'id'), COALESCE(max(id), 1)) FROM shifts;
+
 -- Admins Table (Stores SUPER_ADMIN, ADMIN, and MANAGER roles)
 CREATE TABLE IF NOT EXISTS admins (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -244,6 +255,17 @@ FOR EACH ROW EXECUTE FUNCTION prevent_audit_modification();
 CREATE OR REPLACE TRIGGER trg_prevent_general_audit_delete
 BEFORE DELETE ON audit_logs
 FOR EACH ROW EXECUTE FUNCTION prevent_audit_modification();
+
+
+-- Manager Employees Direct Scope mapping
+CREATE TABLE IF NOT EXISTS manager_employees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    manager_id UUID REFERENCES admins(id) ON DELETE CASCADE,
+    employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(manager_id, employee_id)
+);
+
 
 
 

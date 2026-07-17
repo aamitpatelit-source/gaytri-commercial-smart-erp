@@ -13,6 +13,7 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const employees_1 = __importDefault(require("./routes/employees"));
 const attendance_1 = __importDefault(require("./routes/attendance"));
 const company_1 = __importDefault(require("./routes/company"));
+const leaves_1 = __importDefault(require("./routes/leaves"));
 const errorHandler_1 = require("./middleware/errorHandler");
 const attendanceController_1 = require("./controllers/attendanceController");
 dotenv_1.default.config();
@@ -48,6 +49,14 @@ app.use('/api/v1/auth', auth_1.default);
 app.use('/api/v1/employees', employees_1.default);
 app.use('/api/v1/attendance', attendance_1.default);
 app.use('/api/v1/company', company_1.default);
+app.use('/api/v1/leaves', leaves_1.default);
+app.get(['/api/v1', '/api/v1/health'], (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'Gaytri Commercial Workforce API is running.',
+        timestamp: new Date().toISOString(),
+    });
+});
 app.get('/', (req, res) => {
     res.status(200).json({
         success: true,
@@ -238,15 +247,42 @@ const bootstrapDatabase = async () => {
         INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
         VALUES ($1, 'manager@gaytri.com', $2, 'Workforce Manager', 'MANAGER', TRUE, TRUE)
       `, [managerId, managerHash]);
-            // Associate with default Production department
-            if (defaultDept.rows.length > 0) {
+            // Assign all active employees to this manager
+            const activeEmps = await (0, db_1.query)('SELECT id FROM employees WHERE is_active = TRUE');
+            for (const emp of activeEmps.rows) {
                 await (0, db_1.query)(`
-          INSERT INTO manager_departments (manager_id, department_id)
+          INSERT INTO manager_employees (manager_id, employee_id)
           VALUES ($1, $2)
           ON CONFLICT DO NOTHING
-        `, [managerId, defaultDept.rows[0].id]);
+        `, [managerId, emp.id]);
             }
             console.log('Default manager seeded successfully with temporary password "workforce@2026".');
+        }
+        // Verify manager mappings and warn if any manager has no assigned employees
+        const unmappedManagers = await (0, db_1.query)(`
+      SELECT id, full_name, email FROM admins 
+      WHERE role = 'MANAGER' AND id NOT IN (SELECT DISTINCT manager_id FROM manager_employees)
+    `);
+        if (unmappedManagers.rows.length > 0) {
+            console.warn('======================================================================');
+            console.warn('WARNING: The following manager accounts have no assigned employees:');
+            for (const mgr of unmappedManagers.rows) {
+                console.warn(`  - Name: ${mgr.full_name}, Email: ${mgr.email}`);
+            }
+            console.warn('They will NOT be able to view rosters or mark attendance.');
+            console.warn('======================================================================');
+        }
+        // Backfill leave_balances for any existing employee that doesn't have a row
+        const unbalancedEmployees = await (0, db_1.query)(`
+      SELECT id FROM employees e 
+      WHERE NOT EXISTS (SELECT 1 FROM leave_balances WHERE employee_id = e.id)
+    `);
+        if (unbalancedEmployees.rows.length > 0) {
+            console.log(`[Migration] Generating default leave balances for ${unbalancedEmployees.rows.length} employees...`);
+            for (const emp of unbalancedEmployees.rows) {
+                await (0, db_1.query)('INSERT INTO leave_balances (employee_id, casual_leave, sick_leave, paid_leave) VALUES ($1, 12, 12, 12) ON CONFLICT DO NOTHING', [emp.id]);
+            }
+            console.log('[Migration] Leave balances initialized.');
         }
         console.log('Database tables, columns and legacy schema verified.');
     }

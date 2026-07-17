@@ -2,6 +2,7 @@ import { Response } from 'express';
 import poolProxy, { query } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 import moment from 'moment-timezone';
+import { canManageEmployee } from '../services/managerScopeService';
 
 // Typography / Timezone / Provider Core Domain Interfaces
 export interface AttendanceProviderPayload {
@@ -134,6 +135,13 @@ export const markAttendance = async (req: AuthRequest, res: Response) => {
 
   const client = await poolProxy.connect();
   try {
+    console.log('[Attendance Mark Diagnostic] Request Initiated:', {
+      authenticatedUserId: changedBy,
+      authenticatedRole: userRole,
+      resolvedManagerAdminId: changedBy,
+      submittedEmployeeUuids: records.map((r: any) => r.employee_id)
+    });
+
     await client.query('BEGIN');
 
     for (const record of records) {
@@ -144,18 +152,13 @@ export const markAttendance = async (req: AuthRequest, res: Response) => {
       }
 
       // 1. Verify Manager Scope Boundary
-      if (userRole === 'MANAGER') {
-        const scopeCheck = await client.query(
-          `SELECT EXISTS (
-             SELECT 1 FROM employees e
-             JOIN manager_departments md ON e.department_id = md.department_id
-             WHERE e.id = $1 AND md.manager_id = $2
-           )`,
-          [employee_id, changedBy]
-        );
-        if (!scopeCheck.rows[0].exists) {
-          throw new Error(`Employee ${employee_id} is outside your managed department scope.`);
-        }
+      const hasPermission = await canManageEmployee(changedBy!, employee_id, userRole!);
+      if (!hasPermission) {
+        console.warn('[Attendance Mark Diagnostic] Scope Validation FAILED:', {
+          failedEmployeeUuid: employee_id,
+          managerId: changedBy
+        });
+        throw new Error('You cannot mark attendance for this employee. Please contact the administrator.');
       }
 
       // SELECT existing row FOR UPDATE to capture database-read old values

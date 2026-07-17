@@ -1,12 +1,45 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetPassword = exports.forgotPassword = exports.employeeLogin = exports.deleteManager = exports.updateManager = exports.createManager = exports.getManagers = exports.updateProfile = exports.changePassword = exports.getMe = exports.adminLogin = exports.login = void 0;
+exports.assignAllEmployees = exports.assignManagerEmployees = exports.getManagerEmployees = exports.resetPassword = exports.forgotPassword = exports.employeeLogin = exports.deleteManager = exports.updateManager = exports.createManager = exports.getManagers = exports.updateProfile = exports.changePassword = exports.getMe = exports.adminLogin = exports.login = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
-const db_1 = require("../config/db");
+const db_1 = __importStar(require("../config/db"));
 const JWT_SECRET = process.env.JWT_SECRET || 'gaytri_commercial_smart_erp_jwt_secret_2026';
 // 1. Mobile App Login (Repurposed to authenticate ONLY MANAGER accounts from the 'admins' table)
 const login = async (req, res) => {
@@ -220,8 +253,18 @@ exports.updateProfile = updateProfile;
 // Get All Manager/Admin Accounts
 const getManagers = async (req, res) => {
     try {
-        const managers = await (0, db_1.query)(`SELECT id, email, full_name, role, is_active, must_change_password, created_at 
-       FROM admins WHERE id != $1 ORDER BY created_at DESC`, [req.user.id]);
+        const managers = await (0, db_1.query)(`SELECT 
+        a.id, a.email, a.full_name, a.role, a.is_active, a.must_change_password, a.created_at,
+        (
+          SELECT COALESCE(COUNT(me.id), 0)
+          FROM manager_employees me
+          JOIN employees e ON me.employee_id = e.id
+          WHERE me.manager_id = a.id AND e.is_active = TRUE
+        )::int as employee_count,
+        '[]'::json as departments
+      FROM admins a
+      WHERE a.id != $1
+      ORDER BY a.created_at DESC`, [req.user.id]);
         return res.status(200).json({
             success: true,
             managers: managers.rows
@@ -235,7 +278,7 @@ const getManagers = async (req, res) => {
 exports.getManagers = getManagers;
 // Create a New Manager/Admin Account
 const createManager = async (req, res) => {
-    const { full_name, email, password, role } = req.body;
+    const { full_name, email, password, role, departments } = req.body;
     if (!full_name || !email || !password || !role) {
         return res.status(400).json({ success: false, message: 'All fields (full_name, email, password, role) are required.' });
     }
@@ -243,18 +286,23 @@ const createManager = async (req, res) => {
     if (!validRoles.includes(role)) {
         return res.status(400).json({ success: false, message: 'Invalid role assigned.' });
     }
+    const client = await db_1.default.connect();
     try {
+        await client.query('BEGIN');
         const cleanEmail = email.trim().toLowerCase();
         // Check if email already in use
-        const checkUser = await (0, db_1.query)('SELECT id FROM admins WHERE email = $1', [cleanEmail]);
+        const checkUser = await client.query('SELECT id FROM admins WHERE email = $1', [cleanEmail]);
         if (checkUser.rows.length > 0) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ success: false, message: 'Email address is already in use.' });
         }
         const { v4: uuidv4 } = require('uuid');
         const passwordHash = await bcryptjs_1.default.hash(password, 10);
         const newId = uuidv4();
-        await (0, db_1.query)(`INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
+        await client.query(`INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, [newId, cleanEmail, passwordHash, full_name.trim(), role]);
+        // manager_departments table is retired, no inserts required here
+        await client.query('COMMIT');
         return res.status(201).json({
             success: true,
             message: 'Account created successfully.',
@@ -264,28 +312,37 @@ const createManager = async (req, res) => {
                 full_name: full_name.trim(),
                 role,
                 is_active: true,
-                must_change_password: true
+                must_change_password: true,
+                departments: []
             }
         });
     }
     catch (error) {
+        await client.query('ROLLBACK');
         console.error('[Managers API] Failed to create account:', error);
         return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+    finally {
+        client.release();
     }
 };
 exports.createManager = createManager;
 // Update Manager/Admin Account (Update properties or Reset Password)
 const updateManager = async (req, res) => {
     const { id } = req.params;
-    const { full_name, email, role, is_active, password } = req.body;
+    const { full_name, email, role, is_active, password, departments } = req.body;
+    const client = await db_1.default.connect();
     try {
+        await client.query('BEGIN');
         // Check if target account exists
-        const checkUser = await (0, db_1.query)('SELECT role FROM admins WHERE id = $1', [id]);
+        const checkUser = await client.query('SELECT role FROM admins WHERE id = $1', [id]);
         if (checkUser.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ success: false, message: 'Account not found.' });
         }
         // Check for self-modification restriction
         if (id === req.user.id) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ success: false, message: 'Self-modification of status/role not allowed via this panel.' });
         }
         let queryParts = [];
@@ -298,16 +355,20 @@ const updateManager = async (req, res) => {
         if (email !== undefined) {
             const cleanEmail = email.trim().toLowerCase();
             // Check if email already in use by another account
-            const checkEmail = await (0, db_1.query)('SELECT id FROM admins WHERE email = $1 AND id != $2', [cleanEmail, id]);
+            const checkEmail = await client.query('SELECT id FROM admins WHERE email = $1 AND id != $2', [cleanEmail, id]);
             if (checkEmail.rows.length > 0) {
+                await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Email address is already in use.' });
             }
             queryParts.push(`email = $${counter++}`);
             queryParams.push(cleanEmail);
         }
+        const currentRole = checkUser.rows[0].role;
+        const finalRole = role !== undefined ? role : currentRole;
         if (role !== undefined) {
             const validRoles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
             if (!validRoles.includes(role)) {
+                await client.query('ROLLBACK');
                 return res.status(400).json({ success: false, message: 'Invalid role assigned.' });
             }
             queryParts.push(`role = $${counter++}`);
@@ -325,24 +386,32 @@ const updateManager = async (req, res) => {
             queryParts.push(`must_change_password = $${counter++}`);
             queryParams.push(true);
         }
-        if (queryParts.length === 0) {
-            return res.status(400).json({ success: false, message: 'No fields to update provided.' });
+        if (queryParts.length > 0) {
+            queryParts.push(`updated_at = CURRENT_TIMESTAMP`);
+            queryParams.push(id);
+            const updateQuery = `
+        UPDATE admins SET ${queryParts.join(', ')} 
+        WHERE id = $${counter}
+      `;
+            await client.query(updateQuery, queryParams);
         }
-        queryParts.push(`updated_at = CURRENT_TIMESTAMP`);
-        queryParams.push(id);
-        const updateQuery = `
-      UPDATE admins SET ${queryParts.join(', ')} 
-      WHERE id = $${counter}
-    `;
-        await (0, db_1.query)(updateQuery, queryParams);
+        // Clean up direct manager employee assignments if demoted from MANAGER role
+        if (finalRole !== 'MANAGER') {
+            await client.query('DELETE FROM manager_employees WHERE manager_id = $1', [id]);
+        }
+        await client.query('COMMIT');
         return res.status(200).json({
             success: true,
             message: 'Account updated successfully.'
         });
     }
     catch (error) {
+        await client.query('ROLLBACK');
         console.error('[Managers API] Failed to update account:', error);
         return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+    finally {
+        client.release();
     }
 };
 exports.updateManager = updateManager;
@@ -498,3 +567,89 @@ const resetPassword = async (req, res) => {
     }
 };
 exports.resetPassword = resetPassword;
+// Get List of All Active Employees with Assignment Flag for a Manager
+const getManagerEmployees = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const allEmployees = await (0, db_1.query)(`SELECT id, employee_id, full_name, role 
+       FROM employees 
+       WHERE is_active = TRUE 
+       ORDER BY employee_id ASC`);
+        const assigned = await (0, db_1.query)(`SELECT employee_id 
+       FROM manager_employees 
+       WHERE manager_id = $1`, [id]);
+        const assignedIds = new Set(assigned.rows.map(row => row.employee_id));
+        const employeesWithFlag = allEmployees.rows.map(emp => ({
+            ...emp,
+            is_assigned: assignedIds.has(emp.id)
+        }));
+        return res.status(200).json({
+            success: true,
+            employees: employeesWithFlag
+        });
+    }
+    catch (error) {
+        console.error('[Managers API] Failed to fetch manager employees:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+};
+exports.getManagerEmployees = getManagerEmployees;
+// Transactionally Save Selected Manager-Employee Assignments
+const assignManagerEmployees = async (req, res) => {
+    const { id } = req.params;
+    const { employee_ids } = req.body;
+    if (!Array.isArray(employee_ids)) {
+        return res.status(400).json({ success: false, message: 'employee_ids must be an array.' });
+    }
+    const client = await db_1.default.connect();
+    try {
+        await client.query('BEGIN');
+        // Clear existing assignments for this manager
+        await client.query('DELETE FROM manager_employees WHERE manager_id = $1', [id]);
+        // Insert new assignments transactionally
+        for (const empId of employee_ids) {
+            await client.query('INSERT INTO manager_employees (manager_id, employee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, empId]);
+        }
+        await client.query('COMMIT');
+        return res.status(200).json({
+            success: true,
+            message: 'Employees assigned successfully.'
+        });
+    }
+    catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Managers API] Failed to assign employees:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+    finally {
+        client.release();
+    }
+};
+exports.assignManagerEmployees = assignManagerEmployees;
+// Transactionally Assign All Active Employees to a Manager
+const assignAllEmployees = async (req, res) => {
+    const { id } = req.params;
+    const client = await db_1.default.connect();
+    try {
+        await client.query('BEGIN');
+        const allEmployees = await client.query('SELECT id FROM employees WHERE is_active = TRUE');
+        await client.query('DELETE FROM manager_employees WHERE manager_id = $1', [id]);
+        for (const emp of allEmployees.rows) {
+            await client.query('INSERT INTO manager_employees (manager_id, employee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, emp.id]);
+        }
+        await client.query('COMMIT');
+        return res.status(200).json({
+            success: true,
+            message: `Successfully assigned all ${allEmployees.rows.length} active employees to this manager.`
+        });
+    }
+    catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Managers API] Failed to assign all employees:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+    finally {
+        client.release();
+    }
+};
+exports.assignAllEmployees = assignAllEmployees;
