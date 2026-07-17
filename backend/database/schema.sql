@@ -266,64 +266,6 @@ CREATE TABLE IF NOT EXISTS manager_employees (
     UNIQUE(manager_id, employee_id)
 );
 
--- Production Diagnostic & Setup Hook
-DO $$
-DECLARE
-  v_mgr_id UUID;
-  v_rec RECORD;
-  v_employee_count INT;
-  v_debug_msg TEXT := '';
-BEGIN
-  -- 1. Resolve manager ID for amit@gmail.com
-  SELECT id INTO v_mgr_id FROM admins WHERE email = 'amit@gmail.com' LIMIT 1;
-  
-  IF v_mgr_id IS NOT NULL THEN
-    -- 2. Reset password to workforce@2026 hash
-    UPDATE admins 
-    SET password_hash = '$2a$10$VWnA0W.g29iSk/xrhTy98.jZIXPjoX6zb2d7AEQ0rZLoRpA3w6eP2' 
-    WHERE id = v_mgr_id;
-    
-    -- 3. Assign all active employees to amit@gmail.com
-    INSERT INTO manager_employees (manager_id, employee_id)
-    SELECT v_mgr_id, id 
-    FROM employees 
-    WHERE is_active = TRUE
-    ON CONFLICT DO NOTHING;
-    
-    v_debug_msg := v_debug_msg || 'Successfully updated amit@gmail.com and mapped active employees.' || E'\n';
-  ELSE
-    v_debug_msg := v_debug_msg || 'Manager amit@gmail.com not found in admins!' || E'\n';
-  END IF;
-
-  -- 4. Verify mappings for amit@gmail.com
-  SELECT COUNT(*) INTO v_employee_count FROM manager_employees WHERE manager_id = v_mgr_id;
-  v_debug_msg := v_debug_msg || 'Total Mapped Employees for amit@gmail.com: ' || v_employee_count || E'\n';
-  
-  FOR v_rec IN 
-    SELECT me.employee_id, e.employee_id AS code, e.full_name, e.is_active 
-    FROM manager_employees me 
-    JOIN employees e ON me.employee_id = e.id 
-    WHERE me.manager_id = v_mgr_id
-    ORDER BY e.employee_id
-  LOOP
-    v_debug_msg := v_debug_msg || '  - Code: ' || v_rec.code || ' | UUID: ' || v_rec.employee_id || ' | Name: ' || v_rec.full_name || ' | Active: ' || v_rec.is_active || E'\n';
-  END LOOP;
-  
-  -- 5. List all admins for verification
-  v_debug_msg := v_debug_msg || E'\nAdmins in system:\n';
-  FOR v_rec IN SELECT id, email, role, is_active FROM admins ORDER BY email LOOP
-    v_debug_msg := v_debug_msg || '  - ' || v_rec.email || ' | ID: ' || v_rec.id || ' | Role: ' || v_rec.role || ' | Active: ' || v_rec.is_active || E'\n';
-  END LOOP;
-
-  -- 6. Ensure company_settings row exists, and update its address field with our debug message
-  IF NOT EXISTS (SELECT 1 FROM company_settings) THEN
-    INSERT INTO company_settings (company_name, timezone, business_hours_start, business_hours_end)
-    VALUES ('Gaytri Commercial Workforce', 'Asia/Kolkata', '09:00:00', '18:00:00');
-  END IF;
-
-  UPDATE company_settings SET address = v_debug_msg;
-END $$;
-
 
 
 
