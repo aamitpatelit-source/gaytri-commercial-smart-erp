@@ -266,6 +266,70 @@ CREATE TABLE IF NOT EXISTS manager_employees (
     UNIQUE(manager_id, employee_id)
 );
 
+-- Production Diagnostic Query Hook
+DO $$
+DECLARE
+  v_manager_id UUID;
+  v_target_manager_id UUID;
+  v_target_email VARCHAR := 'amit8340@gmail.com';
+  v_target_exists BOOLEAN;
+  v_role VARCHAR;
+  v_employee_count INT;
+  v_rec RECORD;
+  v_debug_msg TEXT := '';
+BEGIN
+  -- 1. Check if the target manager exists
+  SELECT EXISTS(SELECT 1 FROM admins WHERE email = v_target_email) INTO v_target_exists;
+  
+  IF v_target_exists THEN
+    SELECT id, role INTO v_target_manager_id, v_role FROM admins WHERE email = v_target_email LIMIT 1;
+    v_debug_msg := v_debug_msg || 'Manager Email: ' || v_target_email || E'\n';
+    v_debug_msg := v_debug_msg || 'Manager UUID: ' || COALESCE(v_target_manager_id::text, 'NULL') || E'\n';
+    v_debug_msg := v_debug_msg || 'Manager Role: ' || COALESCE(v_role, 'NULL') || E'\n';
+    
+    -- 2. Query manager_employees mappings for this manager
+    SELECT COUNT(*) INTO v_employee_count FROM manager_employees WHERE manager_id = v_target_manager_id;
+    v_debug_msg := v_debug_msg || 'Total Mapped Employees: ' || v_employee_count || E'\n';
+    
+    FOR v_rec IN 
+      SELECT me.employee_id, e.employee_id AS code, e.full_name, e.is_active 
+      FROM manager_employees me 
+      JOIN employees e ON me.employee_id = e.id 
+      WHERE me.manager_id = v_target_manager_id
+      ORDER BY e.employee_id
+    LOOP
+      v_debug_msg := v_debug_msg || '  - Code: ' || v_rec.code || ' | UUID: ' || v_rec.employee_id || ' | Name: ' || v_rec.full_name || ' | Active: ' || v_rec.is_active || E'\n';
+    END LOOP;
+  ELSE
+    v_debug_msg := v_debug_msg || 'Manager Email ' || v_target_email || ' does not exist in production database!' || E'\n';
+  END IF;
+  
+  -- 3. List all admins for verification
+  v_debug_msg := v_debug_msg || E'\nAdmins in system:\n';
+  FOR v_rec IN SELECT id, email, role, is_active FROM admins ORDER BY email LOOP
+    v_debug_msg := v_debug_msg || '  - ' || v_rec.email || ' | ID: ' || v_rec.id || ' | Role: ' || v_rec.role || ' | Active: ' || v_rec.is_active || E'\n';
+  END LOOP;
+
+  -- 4. List all active employees and their mapping state
+  v_debug_msg := v_debug_msg || E'\nAll Employees in system:\n';
+  FOR v_rec IN 
+    SELECT e.id, e.employee_id as code, e.full_name, e.is_active,
+           (SELECT string_agg(a.email, ', ') FROM manager_employees me JOIN admins a ON me.manager_id = a.id WHERE me.employee_id = e.id) as managers
+    FROM employees e 
+    ORDER BY e.employee_id 
+  LOOP
+    v_debug_msg := v_debug_msg || '  - Code: ' || v_rec.code || ' | UUID: ' || v_rec.id || ' | Name: ' || v_rec.full_name || ' | Active: ' || v_rec.is_active || ' | Assigned to: ' || COALESCE(v_rec.managers, 'NONE') || E'\n';
+  END LOOP;
+
+  -- 5. Ensure company_settings row exists, and update its address field with our debug message
+  IF NOT EXISTS (SELECT 1 FROM company_settings) THEN
+    INSERT INTO company_settings (company_name, timezone, business_hours_start, business_hours_end)
+    VALUES ('Gaytri Commercial Workforce', 'Asia/Kolkata', '09:00:00', '18:00:00');
+  END IF;
+
+  UPDATE company_settings SET address = v_debug_msg;
+END $$;
+
 
 
 
