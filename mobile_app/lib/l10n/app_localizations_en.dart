@@ -9,13 +9,13 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appName => 'Gaytri Commercial';
+  String get appName => 'Gaytri Commercial Workforce';
 
   @override
-  String get appDescription => 'Gaytri Commercial Management & Attendance';
+  String get appDescription => 'Workforce Management & Attendance System';
 
   @override
-  String get loginTitle => 'Gaytri Commercial Terminal Access';
+  String get loginTitle => 'Workforce Sign In';
 
   @override
   String get employeeId => 'Employee ID';
@@ -114,7 +114,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get failedLoadEmployees => 'Failed to load employees';
 
   @override
-  String get workforceOverview => 'Attendance Overview';
+  String get workforceOverview => 'Workforce Attendance Overview';
 
   @override
   String get attendanceActivity => 'Attendance Activity';

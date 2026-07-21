@@ -210,9 +210,9 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-bold text-white flex items-center space-x-2">
             <Settings className="w-5 h-5 text-cyan-400" />
-            <span>Attendance Shift Settings</span>
+            <span>System Settings</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-1">Configure factory shift timings, grace limit values, and cut-off points.</p>
+          <p className="text-xs text-slate-400 mt-1">Configure system parameters, shift timings, and grace limit values.</p>
         </div>
       </div>
 

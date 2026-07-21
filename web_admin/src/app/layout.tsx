@@ -306,13 +306,7 @@ export default function RootLayout({
     { name: 'Employees', icon: Users, path: '/employees' },
     { name: 'Manager Accounts', icon: Shield, path: '/managers' },
     { name: 'Attendance Logs', icon: Clock, path: '/attendance' },
-    { name: 'Attendance Audit Logs', icon: ShieldAlert, path: '/attendance-audit-logs' },
-    { name: 'Leave Management', icon: Clock, path: '/leaves' },
-    { name: 'Leave Balances', icon: Settings, path: '/leave-balances' },
-    { name: 'Holidays', icon: LayoutDashboard, path: '/holidays' },
-    { name: 'Shifts', icon: Clock, path: '/shifts' },
-    { name: 'Departments', icon: Layers, path: '/departments' },
-    { name: 'Shift Timings Config', icon: Settings, path: '/settings' },
+    { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   if (isLoginPage) {
@@ -433,13 +427,7 @@ export default function RootLayout({
                pathname === '/employees' ? 'Employee Directory' : 
                pathname === '/managers' ? 'Manager Accounts' : 
                pathname === '/attendance' ? 'Attendance Logs' : 
-               pathname === '/attendance-audit-logs' ? 'Attendance Audit Logs' : 
-               pathname === '/leaves' ? 'Leave Management' : 
-               pathname === '/leave-balances' ? 'Leave Balances' : 
-               pathname === '/holidays' ? 'Holidays Calendar' : 
-               pathname === '/shifts' ? 'Shifts Registry' : 
-               pathname === '/departments' ? 'Departments Directory' : 
-               pathname === '/settings' ? 'Shift Timings Config' : 
+               pathname === '/settings' ? 'System Settings' : 
                pathname.replace('/', '').replace(/-/g, ' ')}
             </h1>
 

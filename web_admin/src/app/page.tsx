@@ -245,7 +245,7 @@ export default function DashboardPage() {
             >
               <div className="flex items-center space-x-3">
                 <Settings className="w-5 h-5 text-indigo-400" />
-                <span>Configure Shifts & settings</span>
+                <span>Configure System Settings</span>
               </div>
               <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
             </button>
