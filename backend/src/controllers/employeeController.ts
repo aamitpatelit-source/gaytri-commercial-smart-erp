@@ -83,8 +83,8 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
       finalHash = await bcrypt.hash(password, 10);
       requireChange = req.body.require_password_change !== false;
     } else {
-      // Secure unique temporary password (e.g. Workforce@GC-0001)
-      const tempPassword = `Workforce@${employee_id.trim()}`;
+      // Secure unique temporary password (e.g. Gaytri@GC-0001)
+      const tempPassword = `Gaytri@${employee_id.trim()}`;
       finalHash = await bcrypt.hash(tempPassword, 10);
       requireChange = true;
     }

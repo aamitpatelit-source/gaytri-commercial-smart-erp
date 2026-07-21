@@ -218,6 +218,9 @@ const getDashboardStats = async (req, res) => {
         // Total staff count
         const totalEmpRes = await (0, db_1.query)('SELECT COUNT(*) as count FROM employees WHERE is_active = TRUE');
         const totalStaff = parseInt(totalEmpRes.rows[0].count, 10);
+        // Total active managers count
+        const totalMgrRes = await (0, db_1.query)("SELECT COUNT(*) as count FROM admins WHERE role = 'MANAGER' AND is_active = TRUE");
+        const totalManagers = parseInt(totalMgrRes.rows[0].count, 10);
         // Group counts by status
         const attendanceRes = await (0, db_1.query)(`SELECT status, COUNT(*) as count 
        FROM attendance 
@@ -249,6 +252,9 @@ const getDashboardStats = async (req, res) => {
         const totalMarked = present + late + halfDay + absent + leave + wfh + onDuty;
         const autoAbsent = Math.max(0, totalStaff - totalMarked);
         absent += autoAbsent;
+        const totalPresent = present + late + halfDay + wfh + onDuty;
+        const attendanceRate = totalStaff > 0 ? Math.round((totalPresent / totalStaff) * 100) : 100;
+        const onTimeRate = totalPresent > 0 ? Math.round(((present + wfh + onDuty) / totalPresent) * 100) : 100;
         // Fetch recent logs feed
         const feedRes = await (0, db_1.query)(`SELECT a.date, a.time, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
        FROM attendance a
@@ -261,13 +267,21 @@ const getDashboardStats = async (req, res) => {
             success: true,
             stats: {
                 totalStaff,
-                present: present + late + halfDay + wfh + onDuty,
+                totalEmployees: totalStaff,
+                totalManagers,
+                present: totalPresent,
                 absent,
                 late,
                 halfDay,
                 leave,
                 wfh,
-                onDuty
+                onDuty,
+                todaysVisits: totalMarked,
+                livePresentCount: totalPresent,
+                performanceSummary: {
+                    attendanceRate,
+                    onTimeRate
+                }
             },
             feed: feedRes.rows,
         });

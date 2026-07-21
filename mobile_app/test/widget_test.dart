@@ -6,10 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:gaytri_commercial_workforce/main.dart';
-import 'package:gaytri_commercial_workforce/l10n/app_localizations.dart';
-import 'package:gaytri_commercial_workforce/core/providers/language_provider.dart';
-import 'package:gaytri_commercial_workforce/presentation/screens/manager_dashboard.dart';
+import 'package:gaytri_commercial/main.dart';
+import 'package:gaytri_commercial/l10n/app_localizations.dart';
+import 'package:gaytri_commercial/core/providers/language_provider.dart';
+import 'package:gaytri_commercial/presentation/screens/manager_dashboard.dart';
 
 // Mock HttpOverrides to intercept network calls and return fake responses
 class MockHttpOverrides extends HttpOverrides {
@@ -253,8 +253,8 @@ void main() {
   }
 
   testWidgets('App builds and launches splash screen', (WidgetTester tester) async {
-    await tester.pumpWidget(const GaytriWorkforceApp());
-    expect(find.byType(GaytriWorkforceApp), findsOneWidget);
+    await tester.pumpWidget(const GaytriCommercialApp());
+    expect(find.byType(GaytriCommercialApp), findsOneWidget);
     // Pump frames to complete the delayed transition timer
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();

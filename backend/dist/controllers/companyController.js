@@ -277,7 +277,7 @@ const getCompanySettings = async (req, res) => {
         if (result.rows.length === 0) {
             // Seed default if empty
             const insert = await (0, db_1.query)(`INSERT INTO company_settings (company_name, timezone, business_hours_start, business_hours_end)
-         VALUES ('Gaytri Commercial Workforce', 'Asia/Kolkata', '09:00:00', '18:00:00')
+         VALUES ('Gaytri Commercial', 'Asia/Kolkata', '09:00:00', '18:00:00')
          RETURNING *`);
             return res.status(200).json({ success: true, settings: insert.rows[0] });
         }
@@ -302,7 +302,7 @@ const updateCompanySettings = async (req, res) => {
         RETURNING *
       `;
             params = [
-                company_name || 'Gaytri Commercial Workforce',
+                company_name || 'Gaytri Commercial',
                 address || null,
                 contact_email || null,
                 contact_phone || null,
@@ -320,7 +320,7 @@ const updateCompanySettings = async (req, res) => {
         RETURNING *
       `;
             params = [
-                company_name || 'Gaytri Commercial Workforce',
+                company_name || 'Gaytri Commercial',
                 address || null,
                 contact_email || null,
                 contact_phone || null,

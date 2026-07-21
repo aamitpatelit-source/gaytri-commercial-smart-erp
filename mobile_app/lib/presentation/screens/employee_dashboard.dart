@@ -1551,7 +1551,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'GAYTRI WORKFORCE',
+              'GAYTRI COMMERCIAL',
               style: TextStyle(fontFamily: 'Outfit', fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0.5),
             ),
             Row(

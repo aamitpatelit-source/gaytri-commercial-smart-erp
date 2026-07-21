@@ -472,7 +472,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(l10n?.workforceOverview ?? 'Workforce Attendance Overview', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                        Text(l10n?.workforceOverview ?? 'Attendance Overview', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
                         const SizedBox(height: 2),
                         Text(
                           _totalStaff > 0 
@@ -1579,7 +1579,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'GAYTRI WORKFORCE',
+              'GAYTRI COMMERCIAL',
               style: TextStyle(fontFamily: 'Outfit', fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0.5),
             ),
             Row(

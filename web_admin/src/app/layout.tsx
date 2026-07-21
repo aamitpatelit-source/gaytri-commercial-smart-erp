@@ -419,7 +419,7 @@ export default function RootLayout({
           </nav>
 
           <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
-            <span>ERP Console v4.0</span>
+            <span>Management Console v4.0</span>
             <span className="text-cyan-455 font-bold uppercase">Prod Mode</span>
           </div>
         </aside>
@@ -760,7 +760,7 @@ function ForcePasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
       <div className="text-center py-6 space-y-4">
         <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto animate-bounce" />
         <h3 className="text-lg font-bold text-white">Password Secured!</h3>
-        <p className="text-xs text-slate-400">Default credentials updated. Unlocking ERP console...</p>
+        <p className="text-xs text-slate-400">Default credentials updated. Unlocking Management Console...</p>
       </div>
     );
   }

@@ -15,7 +15,7 @@ const client = new Client({
 const API_URL = 'http://localhost:5000/api/v1';
 
 async function runSmokeTests() {
-  console.log('--- STARTING GAYTRI WORKFORCE ENTERPRISE HTTP SMOKE TESTS ---');
+  console.log('--- STARTING GAYTRI COMMERCIAL ENTERPRISE HTTP SMOKE TESTS ---');
   await client.connect();
 
   const email = 'gc-smoke-admin@test.com';
@@ -68,7 +68,7 @@ async function runSmokeTests() {
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
-        shift_name: 'Workforce Day Shift',
+        shift_name: 'Gaytri Day Shift',
         checkin_start: '09:30:00',
         late_after: '09:45:00',
         checkout_time: '18:30:00',

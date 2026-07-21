@@ -213,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 2),
                           const Text(
-                            'WORKFORCE SYSTEM',
+                            'COMMERCIAL SYSTEM',
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,

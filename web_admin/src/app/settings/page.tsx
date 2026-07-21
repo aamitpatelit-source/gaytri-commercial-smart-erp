@@ -130,7 +130,7 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     setError('');
-    showToastMsg('loading', 'Saving ERP configuration parameters...', true);
+    showToastMsg('loading', 'Saving configuration parameters...', true);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -154,7 +154,7 @@ export default function SettingsPage() {
       const data = await res.json();
       
       if (data.success) {
-        showToastMsg('success', 'ERP settings saved and synchronized successfully.');
+        showToastMsg('success', 'Settings saved and synchronized successfully.');
       } else {
         showToastMsg('error', data.message || 'Failed to update shift settings.');
         setError(data.message || 'Error updating settings.');

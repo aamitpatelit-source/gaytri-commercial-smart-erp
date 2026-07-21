@@ -1,4 +1,4 @@
--- SQL Database Schema for Gaytri Commercial Workforce
+-- SQL Database Schema for Gaytri Commercial
 -- Targets: PostgreSQL 14+
 
 -- Core Setup
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 -- Company Settings Table
 CREATE TABLE IF NOT EXISTS company_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    company_name VARCHAR(150) DEFAULT 'Gaytri Commercial Workforce',
+    company_name VARCHAR(150) DEFAULT 'Gaytri Commercial',
     address TEXT,
     contact_email VARCHAR(100),
     contact_phone VARCHAR(20),

@@ -16,7 +16,7 @@ const client = new Client({
 
 async function runTests() {
   await client.connect();
-  console.log('--- STARTING GAYTRI WORKFORCE ENTERPRISE SYSTEM INTEGRATION TESTS ---');
+  console.log('--- STARTING GAYTRI COMMERCIAL ENTERPRISE SYSTEM INTEGRATION TESTS ---');
 
   // Load and apply schema.sql to ensure database is bootstrapped
   const fs = require('fs');

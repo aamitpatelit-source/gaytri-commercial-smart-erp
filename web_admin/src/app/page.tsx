@@ -18,8 +18,16 @@ import {
 import { API_URL } from '../config';
 interface Stats {
   totalStaff: number;
+  totalEmployees?: number;
+  totalManagers?: number;
   present: number;
   absent: number;
+  late?: number;
+  todaysVisits?: number;
+  performanceSummary?: {
+    attendanceRate: number;
+    onTimeRate: number;
+  };
 }
 
 interface ScanLog {
@@ -123,7 +131,7 @@ export default function DashboardPage() {
             <span>Gaytri Commercial Operations Center</span>
             <Sparkles className="w-5 h-5 text-cyan-400" />
           </h2>
-          <p className="text-sm text-slate-350 mt-1">Real-time attendance dashboard active. System restricted to Admin controls.</p>
+          <p className="text-sm text-slate-350 mt-1">Real-time enterprise management & attendance dashboard active.</p>
         </div>
         <div className="text-right hidden sm:block">
           <span className="text-xs text-slate-400 block font-semibold">Current System Date</span>
@@ -140,19 +148,19 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Total Employees */}
         <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(0,229,255,0.06)] border border-slate-700">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Total Registered Employees</p>
+              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Total Staff</p>
               <h3 className="text-3xl font-extrabold text-white mt-2 font-sans">{stats.totalStaff}</h3>
             </div>
             <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-cyan-400">
               <Users className="w-6 h-6" />
             </div>
           </div>
-          <p className="text-[11px] text-cyan-400 mt-4 font-semibold">Registered staff profile database</p>
+          <p className="text-[11px] text-cyan-400 mt-4 font-semibold">Registered staff directory</p>
         </div>
 
         {/* Present Today */}
@@ -167,8 +175,22 @@ export default function DashboardPage() {
             </div>
           </div>
           <p className="text-[11px] text-emerald-400 mt-4 font-semibold">
-            {stats.totalStaff > 0 ? ((stats.present / stats.totalStaff) * 100).toFixed(1) : 0}% Attendance Rate
+            {stats.performanceSummary?.attendanceRate ?? (stats.totalStaff > 0 ? Math.round((stats.present / stats.totalStaff) * 100) : 100)}% Attendance Rate
           </p>
+        </div>
+
+        {/* Late Today */}
+        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.06)] border border-slate-700">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Late Today</p>
+              <h3 className="text-3xl font-extrabold text-white mt-2 font-sans">{stats.late ?? 0}</h3>
+            </div>
+            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-amber-400">
+              <Clock className="w-6 h-6" />
+            </div>
+          </div>
+          <p className="text-[11px] text-amber-400 mt-4 font-semibold">Arrived after grace time</p>
         </div>
 
         {/* Absent Today */}
@@ -182,7 +204,7 @@ export default function DashboardPage() {
               <UserX className="w-6 h-6" />
             </div>
           </div>
-          <p className="text-[11px] text-rose-400 mt-4 font-semibold">Unchecked roster profiles</p>
+          <p className="text-[11px] text-rose-400 mt-4 font-semibold">Unmarked roster staff</p>
         </div>
       </div>
 
@@ -204,6 +226,17 @@ export default function DashboardPage() {
                 <span>Onboard Employee</span>
               </div>
               <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
+            </button>
+
+            <button
+              onClick={() => router.push('/managers')}
+              className="w-full flex items-center justify-between p-4 rounded-lg bg-slate-900/70 border border-slate-800 hover:border-cyan-500/30 text-slate-200 hover:text-white transition-all text-xs font-bold group"
+            >
+              <div className="flex items-center space-x-3">
+                <Users className="w-5 h-5 text-emerald-400" />
+                <span>Manage Manager Accounts</span>
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
             </button>
 
             <button
@@ -231,7 +264,7 @@ export default function DashboardPage() {
 
           <div className="p-3 rounded-lg bg-cyan-950/20 border border-cyan-500/10 flex items-center justify-between text-[11px] font-semibold text-slate-300">
             <span>Operational Mode:</span>
-            <span className="font-extrabold text-cyan-400">ACTIVE MVP</span>
+            <span className="font-extrabold text-cyan-400">ENTERPRISE PROD MODE</span>
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 {
-  "name": "gaytri-commercial-erp-backend",
+  "name": "gaytri-commercial-backend",
   "version": "1.0.0",
-  "description": "Enterprise Backend for Gaytri Commercial Workforce",
+  "description": "Enterprise Backend for Gaytri Commercial",
   "main": "dist/app.js",
   "scripts": {
     "build": "tsc",

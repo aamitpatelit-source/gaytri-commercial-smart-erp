@@ -139,7 +139,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'WORKFORCE SYSTEM',
+                    'COMMERCIAL SYSTEM',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,

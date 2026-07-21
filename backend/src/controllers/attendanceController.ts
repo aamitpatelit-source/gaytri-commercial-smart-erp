@@ -239,6 +239,10 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     const totalEmpRes = await query('SELECT COUNT(*) as count FROM employees WHERE is_active = TRUE');
     const totalStaff = parseInt(totalEmpRes.rows[0].count, 10);
 
+    // Total active managers count
+    const totalMgrRes = await query("SELECT COUNT(*) as count FROM admins WHERE role = 'MANAGER' AND is_active = TRUE");
+    const totalManagers = parseInt(totalMgrRes.rows[0].count, 10);
+
     // Group counts by status
     const attendanceRes = await query(
       `SELECT status, COUNT(*) as count 
@@ -270,6 +274,10 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     const autoAbsent = Math.max(0, totalStaff - totalMarked);
     absent += autoAbsent;
 
+    const totalPresent = present + late + halfDay + wfh + onDuty;
+    const attendanceRate = totalStaff > 0 ? Math.round((totalPresent / totalStaff) * 100) : 100;
+    const onTimeRate = totalPresent > 0 ? Math.round(((present + wfh + onDuty) / totalPresent) * 100) : 100;
+
     // Fetch recent logs feed
     const feedRes = await query(
       `SELECT a.date, a.time, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
@@ -286,13 +294,21 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       success: true,
       stats: {
         totalStaff,
-        present: present + late + halfDay + wfh + onDuty,
+        totalEmployees: totalStaff,
+        totalManagers,
+        present: totalPresent,
         absent,
         late,
         halfDay,
         leave,
         wfh,
-        onDuty
+        onDuty,
+        todaysVisits: totalMarked,
+        livePresentCount: totalPresent,
+        performanceSummary: {
+          attendanceRate,
+          onTimeRate
+        }
       },
       feed: feedRes.rows,
     });

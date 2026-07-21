@@ -65,7 +65,7 @@ export default function LoginPage() {
             <Layers className="w-7 h-7 text-slate-950" />
           </div>
           <h1 className="text-2xl font-extrabold text-white tracking-wide">GAYTRI COMMERCIAL</h1>
-          <p className="text-xs text-cyan-400 font-bold uppercase tracking-wider mt-1">Workforce & Attendance Portal</p>
+          <p className="text-xs text-cyan-400 font-bold uppercase tracking-wider mt-1">Management & Attendance Portal</p>
         </div>
 
         {error && (
@@ -128,7 +128,7 @@ export default function LoginPage() {
 
         <div className="mt-8 border-t border-slate-800/80 pt-4 text-center">
           <p className="text-xs text-slate-400 font-medium">
-            Gaytri Commercial Workforce • Secure Authorization System v4.0
+            Gaytri Commercial • Secure Authorization System v4.0
           </p>
         </div>
       </div>

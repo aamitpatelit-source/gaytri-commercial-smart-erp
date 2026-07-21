@@ -1,6 +1,6 @@
-# Gaytri Commercial Smart ERP
+# Gaytri Commercial
 
-An enterprise-grade, offline-first AI-powered Employee Attendance and Payroll management system with Face Recognition verification.
+An enterprise-grade Employee Attendance and Management System.
 
 ---
 

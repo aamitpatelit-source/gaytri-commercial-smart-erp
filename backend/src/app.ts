@@ -58,7 +58,7 @@ app.use('/api/v1/leaves', leaveRoutes);
 app.get(['/api/v1', '/api/v1/health'], (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Gaytri Commercial Workforce API is running.',
+    message: 'Gaytri Commercial API is running.',
     timestamp: new Date().toISOString(),
   });
 });
@@ -66,7 +66,7 @@ app.get(['/api/v1', '/api/v1/health'], (req, res) => {
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Gaytri Commercial Workforce API is running.',
+    message: 'Gaytri Commercial API is running.',
     timestamp: new Date().toISOString(),
   });
 });
@@ -245,8 +245,8 @@ const bootstrapDatabase = async () => {
     if (uncredentialedEmployees.rows.length > 0) {
       console.log(`[Migration] Generating secure temporary credentials for ${uncredentialedEmployees.rows.length} employees...`);
       for (const emp of uncredentialedEmployees.rows) {
-        // Secure deterministic temporary password based on employee_id (e.g. Workforce@GC-0001)
-        const tempPassword = `Workforce@${emp.employee_id}`;
+        // Secure deterministic temporary password based on employee_id (e.g. Gaytri@GC-0001)
+        const tempPassword = `Gaytri@${emp.employee_id}`;
         const tempHash = bcrypt.hashSync(tempPassword, 10);
         await query(
           'UPDATE employees SET password_hash = $1, require_password_change = TRUE WHERE id = $2',
@@ -265,7 +265,7 @@ const bootstrapDatabase = async () => {
       const adminPasswordHash = bcrypt.hashSync('workforce@2026', 10);
       await query(`
         INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
-        VALUES ($1, 'admin@gaytri.com', $2, 'Workforce Admin', 'SUPER_ADMIN', TRUE, TRUE)
+        VALUES ($1, 'admin@gaytri.com', $2, 'Gaytri Admin', 'SUPER_ADMIN', TRUE, TRUE)
       `, [uuidv4(), adminPasswordHash]);
       console.log('Default super admin seeded successfully with temporary password "workforce@2026".');
     }
@@ -278,7 +278,7 @@ const bootstrapDatabase = async () => {
       const managerHash = bcrypt.hashSync('workforce@2026', 10);
       await query(`
         INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
-        VALUES ($1, 'manager@gaytri.com', $2, 'Workforce Manager', 'MANAGER', TRUE, TRUE)
+        VALUES ($1, 'manager@gaytri.com', $2, 'Gaytri Manager', 'MANAGER', TRUE, TRUE)
       `, [managerId, managerHash]);
       
       // Assign all active employees to this manager
@@ -341,7 +341,7 @@ const startServer = async () => {
   }
 
   app.listen(PORT, () => {
-    console.log(`Gaytri Commercial Workforce Backend running on port ${PORT}`);
+    console.log(`Gaytri Commercial Backend running on port ${PORT}`);
   });
 };
 

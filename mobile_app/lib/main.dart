@@ -8,11 +8,11 @@ import 'presentation/screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const GaytriWorkforceApp());
+  runApp(const GaytriCommercialApp());
 }
 
-class GaytriWorkforceApp extends StatelessWidget {
-  const GaytriWorkforceApp({super.key});
+class GaytriCommercialApp extends StatelessWidget {
+  const GaytriCommercialApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +21,7 @@ class GaytriWorkforceApp extends StatelessWidget {
       child: Consumer<LanguageProvider>(
         builder: (context, languageProvider, _) {
           return MaterialApp(
-            title: 'Gaytri Commercial Workforce',
+            title: 'Gaytri Commercial',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.darkTheme,
             locale: languageProvider.locale,
