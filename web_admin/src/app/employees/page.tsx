@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Search, 
   UserPlus, 
-  Filter, 
   Trash2, 
   Edit3, 
   X, 
@@ -15,26 +14,28 @@ import {
 } from 'lucide-react';
 import { API_URL } from '../../config';
 
-
-
-
 interface Employee {
   id: string;
   employee_id: string;
   full_name: string;
-  department: string;
   shift: string;
+  shift_id?: number | string;
   mobile: string;
   is_active: boolean;
+}
+
+interface ShiftOption {
+  id: number | string;
+  name: string;
 }
 
 export default function EmployeesPage() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [shifts, setShifts] = useState<ShiftOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDept, setSelectedDept] = useState('ALL');
   const [error, setError] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -47,7 +48,7 @@ export default function EmployeesPage() {
   const [empForm, setEmpForm] = useState({
     employee_id: '',
     full_name: '',
-    department: 'Production',
+    shift_id: 1 as number | string,
     shift: 'Morning Shift',
     mobile: '',
     is_active: true,
@@ -55,10 +56,33 @@ export default function EmployeesPage() {
 
   const [deletingEmp, setDeletingEmp] = useState<{ id: string; name: string } | null>(null);
 
-
   const showToastMsg = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchShifts = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+      const res = await fetch(`${API_URL}/company/shifts`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.shifts) && data.shifts.length > 0) {
+        setShifts(data.shifts);
+      } else {
+        setShifts([
+          { id: 1, name: 'Morning Shift' },
+          { id: 2, name: 'Night Shift' }
+        ]);
+      }
+    } catch (err) {
+      setShifts([
+        { id: 1, name: 'Morning Shift' },
+        { id: 2, name: 'Night Shift' }
+      ]);
+    }
   };
 
   const fetchEmployees = async () => {
@@ -95,6 +119,7 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     fetchEmployees();
+    fetchShifts();
   }, []);
 
   const handleCreateEmployee = async (e: React.FormEvent) => {
@@ -111,7 +136,7 @@ export default function EmployeesPage() {
         body: JSON.stringify({
           employee_id: empForm.employee_id,
           full_name: empForm.full_name,
-          department: empForm.department,
+          shift_id: empForm.shift_id,
           shift: empForm.shift,
           mobile: empForm.mobile,
           is_active: empForm.is_active,
@@ -126,11 +151,13 @@ export default function EmployeesPage() {
         });
         showToastMsg('success', 'Employee onboarded successfully');
         setShowAddModal(false);
+        const defaultShiftId = shifts.length > 0 ? shifts[0].id : 1;
+        const defaultShiftName = shifts.length > 0 ? shifts[0].name : 'Morning Shift';
         setEmpForm({
           employee_id: '',
           full_name: '',
-          department: 'Production',
-          shift: 'Morning Shift',
+          shift_id: defaultShiftId,
+          shift: defaultShiftName,
           mobile: '',
           is_active: true,
         });
@@ -163,7 +190,7 @@ export default function EmployeesPage() {
         },
         body: JSON.stringify({
           full_name: empForm.full_name,
-          department: empForm.department,
+          shift_id: empForm.shift_id,
           shift: empForm.shift,
           mobile: empForm.mobile,
           is_active: empForm.is_active,
@@ -219,25 +246,22 @@ export default function EmployeesPage() {
     }
   };
 
-
-
   const openEditModal = (emp: Employee) => {
     setEditingEmployee(emp);
+    const matchingShift = shifts.find(s => s.name === emp.shift || String(s.id) === String(emp.shift_id));
     setEmpForm({
       employee_id: emp.employee_id,
       full_name: emp.full_name,
-      department: emp.department,
-      shift: emp.shift,
+      shift_id: matchingShift ? matchingShift.id : (emp.shift_id || (shifts.length > 0 ? shifts[0].id : 1)),
+      shift: emp.shift || (matchingShift ? matchingShift.name : 'Morning Shift'),
       mobile: emp.mobile,
       is_active: emp.is_active !== false,
     });
   };
 
   const filteredEmployees = employees.filter(emp => {
-    const matchesSearch = emp.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          emp.employee_id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesDept = selectedDept === 'ALL' || emp.department === selectedDept;
-    return matchesSearch && matchesDept;
+    return emp.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           emp.employee_id.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   return (
@@ -269,41 +293,25 @@ export default function EmployeesPage() {
           />
         </div>
 
-        <div className="flex space-x-3">
-          {/* Department Filter dropdown */}
-          <div className="relative">
-            <select
-              value={selectedDept}
-              onChange={(e) => setSelectedDept(e.target.value)}
-              className="pl-3 pr-8 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-cyan-400 focus:outline-none focus:border-cyan-500 appearance-none cursor-pointer hover:border-cyan-400"
-            >
-              <option value="ALL">All Departments</option>
-              <option value="Production">Production</option>
-              <option value="Quality Control">Quality Control</option>
-              <option value="Logistics">Logistics</option>
-              <option value="Administration">Administration</option>
-            </select>
-            <Filter className="absolute right-2.5 top-3.5 w-3.5 h-3.5 text-cyan-400 pointer-events-none" />
-          </div>
-
-          <button
-            onClick={() => {
-              setEmpForm({
-                employee_id: '',
-                full_name: '',
-                department: 'Production',
-                shift: 'Morning Shift',
-                mobile: '',
-                is_active: true,
-              });
-              setShowAddModal(true);
-            }}
-            className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold flex items-center space-x-2 shadow-neon-glow text-xs"
-          >
-            <UserPlus className="w-4 h-4 text-slate-950" />
-            <span>Onboard Employee</span>
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            const defaultShiftId = shifts.length > 0 ? shifts[0].id : 1;
+            const defaultShiftName = shifts.length > 0 ? shifts[0].name : 'Morning Shift';
+            setEmpForm({
+              employee_id: '',
+              full_name: '',
+              shift_id: defaultShiftId,
+              shift: defaultShiftName,
+              mobile: '',
+              is_active: true,
+            });
+            setShowAddModal(true);
+          }}
+          className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold flex items-center space-x-2 shadow-neon-glow text-xs shrink-0"
+        >
+          <UserPlus className="w-4 h-4 text-slate-950" />
+          <span>Onboard Employee</span>
+        </button>
       </div>
 
       {error && (
@@ -328,19 +336,18 @@ export default function EmployeesPage() {
             </div>
           ) : filteredEmployees.length === 0 ? (
             <div className="text-center py-16 text-slate-400 font-semibold text-xs">
-              No employees registered under current selection criteria.
+              No employees registered under current search criteria.
             </div>
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                  <th className="pb-3 pt-4 pl-6 w-[12%]">Employee ID</th>
-                  <th className="pb-3 pt-4 w-[20%]">Name</th>
-                  <th className="pb-3 pt-4 w-[14%]">Department</th>
-                  <th className="pb-3 pt-4 w-[14%]">Assigned Shift</th>
-                  <th className="pb-3 pt-4 w-[14%]">Mobile</th>
-                  <th className="pb-3 pt-4 w-[14%]">Status</th>
-                  <th className="pb-3 pt-4 pr-6 text-center w-[12%]">Actions</th>
+                  <th className="pb-3 pt-4 pl-6 w-[15%]">Employee ID</th>
+                  <th className="pb-3 pt-4 w-[25%]">Name</th>
+                  <th className="pb-3 pt-4 w-[20%]">Assigned Shift</th>
+                  <th className="pb-3 pt-4 w-[20%]">Mobile</th>
+                  <th className="pb-3 pt-4 w-[10%]">Status</th>
+                  <th className="pb-3 pt-4 pr-6 text-center w-[10%]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850/50 text-xs text-slate-300">
@@ -348,8 +355,7 @@ export default function EmployeesPage() {
                   <tr key={emp.id} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
                     <td className="py-4 pl-6 font-mono text-cyan-400 font-extrabold">{emp.employee_id}</td>
                     <td className="py-4 font-bold text-white text-sm">{emp.full_name}</td>
-                    <td className="py-4 font-semibold text-slate-200">{emp.department}</td>
-                    <td className="py-4 font-medium text-slate-200">{emp.shift}</td>
+                    <td className="py-4 font-medium text-slate-200">{emp.shift || 'Morning Shift'}</td>
                     <td className="py-4 font-mono text-slate-200">{emp.mobile}</td>
                     <td className="py-4">
                       {emp.is_active !== false ? (
@@ -429,41 +435,36 @@ export default function EmployeesPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number</label>
-                <input
-                  type="text"
-                  value={empForm.mobile}
-                  onChange={(e) => setEmpForm({...empForm, mobile: e.target.value})}
-                  placeholder="e.g. +91 98765 43210"
-                  className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium"
-                  required
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Department</label>
-                  <select
-                    value={empForm.department}
-                    onChange={(e) => setEmpForm({...empForm, department: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-slate-950 border border-slate-500 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
-                  >
-                    <option value="Production">Production</option>
-                    <option value="Quality Control">Quality Control</option>
-                    <option value="Logistics">Logistics</option>
-                    <option value="Administration">Administration</option>
-                  </select>
+                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number</label>
+                  <input
+                    type="text"
+                    value={empForm.mobile}
+                    onChange={(e) => setEmpForm({...empForm, mobile: e.target.value})}
+                    placeholder="e.g. +91 98765 43210"
+                    className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Assigned Shift</label>
                   <select
-                    value={empForm.shift}
-                    onChange={(e) => setEmpForm({...empForm, shift: e.target.value})}
+                    value={empForm.shift_id}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const found = shifts.find(s => String(s.id) === String(selId));
+                      setEmpForm({
+                        ...empForm,
+                        shift_id: selId,
+                        shift: found ? found.name : 'Morning Shift'
+                      });
+                    }}
                     className="w-full px-3 py-2.5 bg-slate-950 border border-slate-500 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
                   >
-                    <option value="Morning Shift">Morning Shift</option>
-                    <option value="Night Shift">Night Shift</option>
+                    {shifts.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -518,40 +519,35 @@ export default function EmployeesPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number</label>
-                <input
-                  type="text"
-                  value={empForm.mobile}
-                  onChange={(e) => setEmpForm({...empForm, mobile: e.target.value})}
-                  className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium"
-                  required
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Department</label>
-                  <select
-                    value={empForm.department}
-                    onChange={(e) => setEmpForm({...empForm, department: e.target.value})}
-                    className="w-full px-3 py-2.5 bg-slate-950 border border-slate-500 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
-                  >
-                    <option value="Production">Production</option>
-                    <option value="Quality Control">Quality Control</option>
-                    <option value="Logistics">Logistics</option>
-                    <option value="Administration">Administration</option>
-                  </select>
+                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number</label>
+                  <input
+                    type="text"
+                    value={empForm.mobile}
+                    onChange={(e) => setEmpForm({...empForm, mobile: e.target.value})}
+                    className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Assigned Shift</label>
                   <select
-                    value={empForm.shift}
-                    onChange={(e) => setEmpForm({...empForm, shift: e.target.value})}
+                    value={empForm.shift_id}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const found = shifts.find(s => String(s.id) === String(selId));
+                      setEmpForm({
+                        ...empForm,
+                        shift_id: selId,
+                        shift: found ? found.name : 'Morning Shift'
+                      });
+                    }}
                     className="w-full px-3 py-2.5 bg-slate-950 border border-slate-500 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
                   >
-                    <option value="Morning Shift">Morning Shift</option>
-                    <option value="Night Shift">Night Shift</option>
+                    {shifts.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>

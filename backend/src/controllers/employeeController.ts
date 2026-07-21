@@ -89,6 +89,21 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
       requireChange = true;
     }
 
+    // Enforce shift_id resolution (by ID, by name string, or fallback to first shift)
+    let resolvedShiftId = shift_id ? parseInt(shift_id, 10) : null;
+    if ((!resolvedShiftId || isNaN(resolvedShiftId)) && req.body.shift) {
+      const shiftLookup = await query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift]);
+      if (shiftLookup.rows.length > 0) {
+        resolvedShiftId = shiftLookup.rows[0].id;
+      }
+    }
+    if (!resolvedShiftId || isNaN(resolvedShiftId)) {
+      const defaultShiftLookup = await query('SELECT id FROM shifts ORDER BY id ASC LIMIT 1');
+      if (defaultShiftLookup.rows.length > 0) {
+        resolvedShiftId = defaultShiftLookup.rows[0].id;
+      }
+    }
+
     const result = await query(
       `INSERT INTO employees (
         employee_id, full_name, department_id, designation_id, shift_id, mobile,
@@ -101,7 +116,7 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
         full_name.trim(),
         department_id || null,
         designation_id || null,
-        shift_id || null,
+        resolvedShiftId,
         mobile.trim(),
         joiningDate,
         salaryType,
@@ -168,6 +183,14 @@ export const updateEmployee = async (req: AuthRequest, res: Response) => {
     const employee = empCheck.rows[0];
     const activeStatus = is_active !== false;
 
+    let resolvedShiftId = shift_id ? parseInt(shift_id, 10) : null;
+    if ((!resolvedShiftId || isNaN(resolvedShiftId)) && req.body.shift) {
+      const shiftLookup = await query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift]);
+      if (shiftLookup.rows.length > 0) {
+        resolvedShiftId = shiftLookup.rows[0].id;
+      }
+    }
+
     let updateFields = [
       'full_name = $1',
       'department_id = $2',
@@ -181,7 +204,7 @@ export const updateEmployee = async (req: AuthRequest, res: Response) => {
       full_name.trim(),
       department_id || null,
       designation_id || null,
-      shift_id || null,
+      resolvedShiftId,
       mobile.trim(),
       activeStatus,
     ];
