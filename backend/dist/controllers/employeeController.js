@@ -51,7 +51,11 @@ const getEmployees = async (req, res) => {
               e.require_password_change, e.created_at, e.updated_at,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,
-              s.name as shift, s.id as shift_id
+              s.name as shift, s.id as shift_id,
+              (SELECT string_agg(adm.full_name, ', ') 
+               FROM manager_employees me 
+               JOIN admins adm ON me.manager_id = adm.id 
+               WHERE me.employee_id = e.id) as reporting_manager
        FROM employees e
        LEFT JOIN departments d ON e.department_id = d.id
        LEFT JOIN designations dg ON e.designation_id = dg.id

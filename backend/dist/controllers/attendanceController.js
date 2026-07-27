@@ -406,7 +406,7 @@ const getAttendanceHistory = async (req, res) => {
       a.id, a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, 
       a.gps_lat_in, a.gps_lng_in, a.gps_lat_out, a.gps_lng_out, a.device_name, a.network_type, a.battery_percentage, a.face_image_url,
       a.created_device, a.source, a.is_locked,
-      e.full_name, e.employee_id, e.mobile, d.name as department, s.name as shift
+      e.id as employee_uuid, e.full_name, e.employee_id, e.mobile, d.name as department, s.name as shift
     `;
         let queryStr = `
       FROM attendance a

@@ -304,8 +304,7 @@ export default function RootLayout({
 
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
-    { name: 'Today\'s Attendance', icon: Clock, path: '/attendance' },
-    { name: 'Employee Attendance', icon: Users, path: '/attendance/employee' },
+    { name: 'Attendance', icon: Users, path: '/attendance' },
     { name: 'Reports', icon: BarChart2, path: '/attendance/reports' },
     { name: 'Manager Accounts', icon: Shield, path: '/managers' },
     { name: 'Settings', icon: Settings, path: '/settings' },
@@ -426,9 +425,8 @@ export default function RootLayout({
           <header className="h-16 border-b border-slate-850 px-8 flex items-center justify-between z-10 glass-panel">
             <h1 className="text-xl font-bold text-slate-100 capitalize">
               {pathname === '/' ? 'Operational Overview' : 
-               pathname === '/attendance' ? 'Today\'s Attendance' : 
-               pathname === '/attendance/employee' ? 'Employee Attendance' : 
-               pathname.startsWith('/attendance/employee/') ? 'Employee Attendance Profile' : 
+               pathname === '/attendance' ? 'Attendance Directory' : 
+               (pathname.startsWith('/attendance/') && pathname !== '/attendance/reports') ? 'Employee Attendance Profile' : 
                pathname === '/attendance/reports' ? 'Attendance Reports' : 
                pathname === '/managers' ? 'Manager Accounts' : 
                pathname === '/settings' ? 'System Settings' : 

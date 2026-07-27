@@ -1,50 +1,28 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Users,
   UserCheck,
   UserX,
   Sparkles,
-  MapPin,
-  Clock,
-  ArrowRight,
-  UserPlus,
-  Settings,
-  History
+  Clock
 } from 'lucide-react';
 
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
 import { API_URL } from '../config';
+
 interface Stats {
   totalStaff: number;
-  totalEmployees?: number;
-  totalManagers?: number;
   present: number;
   absent: number;
   working?: number;
   missedCheckout?: number;
-  late?: number;
-  todaysVisits?: number;
-  performanceSummary?: {
-    attendanceRate: number;
-    onTimeRate: number;
-  };
   lastCheckout: {
     full_name: string;
     check_out_time: string;
   } | null;
-}
-
-interface ScanLog {
-  check_in_time: string;
-  check_out: string | null;
-  checkout_type: string | null;
-  working_hours: string | null;
-  status: string;
-  full_name: string;
-  employee_id: string;
-  department: string;
 }
 
 export default function DashboardPage() {
@@ -55,7 +33,6 @@ export default function DashboardPage() {
     absent: 0,
     lastCheckout: null
   });
-  const [logs, setLogs] = useState<ScanLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -109,7 +86,6 @@ export default function DashboardPage() {
         const data = await res.json();
         if (data.success) {
           setStats(data.stats);
-          setLogs(data.feed || []);
         } else {
           setError(data.message || 'Failed to fetch operations data.');
         }
@@ -215,139 +191,6 @@ export default function DashboardPage() {
             </div>
           </div>
           <p className="text-[11px] text-amber-400 mt-4 font-semibold">Latest EOD sync checkout</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Quick Actions Panel */}
-        <div className="glass-panel p-6 rounded-xl border border-slate-700 flex flex-col justify-between h-full">
-          <div>
-            <h3 className="font-bold text-white text-base">Quick Action Console</h3>
-            <p className="text-xs text-slate-350 mt-1">Roster updates and profile registers</p>
-          </div>
-
-          <div className="space-y-3 my-6">
-            <button
-              onClick={() => router.push('/employees')}
-              className="w-full flex items-center justify-between p-4 rounded-lg bg-slate-900/70 border border-slate-800 hover:border-cyan-500/30 text-slate-200 hover:text-white transition-all text-xs font-bold group"
-            >
-              <div className="flex items-center space-x-3">
-                <UserPlus className="w-5 h-5 text-cyan-400" />
-                <span>Onboard Employee</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
-            </button>
-
-            <button
-              onClick={() => router.push('/managers')}
-              className="w-full flex items-center justify-between p-4 rounded-lg bg-slate-900/70 border border-slate-800 hover:border-cyan-500/30 text-slate-200 hover:text-white transition-all text-xs font-bold group"
-            >
-              <div className="flex items-center space-x-3">
-                <Users className="w-5 h-5 text-emerald-400" />
-                <span>Manage Manager Accounts</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
-            </button>
-
-            <button
-              onClick={() => router.push('/settings')}
-              className="w-full flex items-center justify-between p-4 rounded-lg bg-slate-900/70 border border-slate-800 hover:border-cyan-500/30 text-slate-200 hover:text-white transition-all text-xs font-bold group"
-            >
-              <div className="flex items-center space-x-3">
-                <Settings className="w-5 h-5 text-indigo-400" />
-                <span>Configure System Settings</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
-            </button>
-
-            <button
-              onClick={() => router.push('/attendance')}
-              className="w-full flex items-center justify-between p-4 rounded-lg bg-slate-900/70 border border-slate-800 hover:border-cyan-500/30 text-slate-200 hover:text-white transition-all text-xs font-bold group"
-            >
-              <div className="flex items-center space-x-3">
-                <History className="w-5 h-5 text-amber-500" />
-                <span>View Full Roster Logs</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-amber-500 group-hover:translate-x-1 transition-all" />
-            </button>
-          </div>
-
-          <div className="p-3 rounded-lg bg-cyan-950/20 border border-cyan-500/10 flex items-center justify-between text-[11px] font-semibold text-slate-300">
-            <span>Operational Mode:</span>
-            <span className="font-extrabold text-cyan-400">ENTERPRISE PROD MODE</span>
-          </div>
-        </div>
-
-        {/* Recent Attendance Logs */}
-        <div className="lg:col-span-2 glass-panel p-6 rounded-xl border border-slate-700">
-          <div className="flex items-center space-x-2 border-b border-slate-850 pb-4 mb-4">
-            <Clock className="w-5 h-5 text-cyan-400" />
-            <h3 className="font-bold text-white text-base">Recent Check-In Activity</h3>
-          </div>
-
-          <div className="overflow-x-auto">
-            {logs.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 font-semibold text-xs">
-                No check-in actions recorded yet today.
-              </div>
-            ) : (
-              <table className="w-full border-collapse text-left">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-350 text-[10px] font-extrabold uppercase tracking-wider">
-                    <th className="pb-3 pt-2">Employee</th>
-                    <th className="pb-3 pt-2">Department</th>
-                    <th className="pb-3 pt-2">Check-In</th>
-                    <th className="pb-3 pt-2">Check-Out</th>
-                    <th className="pb-3 pt-2">Hours</th>
-                    <th className="pb-3 pt-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-850/50 text-xs">
-                  {logs.map((log, index) => (
-                    <tr key={index} className="hover:bg-slate-900/30 transition-colors">
-                      <td className="py-3.5 flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-cyan-400">
-                          {log.full_name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-200">{log.full_name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{log.employee_id}</p>
-                        </div>
-                      </td>
-                      <td className="py-3.5 font-semibold text-slate-300">{log.department}</td>
-                      <td className="py-3.5 font-mono text-slate-350">{formatTo12Hour(log.check_in_time)}</td>
-                      <td className="py-3.5 font-mono text-slate-350">
-                        {log.check_out ? (
-                          <span className="font-bold text-cyan-400">{formatTo12Hour(log.check_out)}</span>
-                        ) : (
-                          <span className="text-slate-500 font-medium italic">Active</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 font-mono text-slate-350">{log.working_hours || '-'}</td>
-                      <td className="py-3.5">
-                        <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          log.status === 'PRESENT'
-                            ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/20'
-                            : log.status === 'WORKING'
-                            ? 'bg-sky-950/30 text-sky-400 border border-sky-500/20'
-                            : log.status === 'LATE'
-                            ? 'bg-amber-950/30 text-amber-400 border border-amber-500/20'
-                            : 'bg-rose-950/30 text-rose-400 border border-rose-500/20'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            log.status === 'PRESENT' ? 'bg-emerald-400' :
-                            log.status === 'WORKING' ? 'bg-sky-450' :
-                            log.status === 'LATE' ? 'bg-amber-450' : 'bg-rose-550'
-                          }`} />
-                          <span>{log.status}</span>
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
         </div>
       </div>
     </div>
