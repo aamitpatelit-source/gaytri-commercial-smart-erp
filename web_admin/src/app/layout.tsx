@@ -19,7 +19,8 @@ import {
   Shield,
   AlertTriangle,
   RefreshCw,
-  X
+  X,
+  BarChart2
 } from 'lucide-react';
 import { API_URL } from '../config';
 import './globals.css';
@@ -303,9 +304,10 @@ export default function RootLayout({
 
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
-    { name: 'Employees', icon: Users, path: '/employees' },
+    { name: 'Today\'s Attendance', icon: Clock, path: '/attendance' },
+    { name: 'Employee Attendance', icon: Users, path: '/attendance/employee' },
+    { name: 'Reports', icon: BarChart2, path: '/attendance/reports' },
     { name: 'Manager Accounts', icon: Shield, path: '/managers' },
-    { name: 'Attendance Logs', icon: Clock, path: '/attendance' },
     { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 
@@ -424,9 +426,11 @@ export default function RootLayout({
           <header className="h-16 border-b border-slate-850 px-8 flex items-center justify-between z-10 glass-panel">
             <h1 className="text-xl font-bold text-slate-100 capitalize">
               {pathname === '/' ? 'Operational Overview' : 
-               pathname === '/employees' ? 'Employee Directory' : 
+               pathname === '/attendance' ? 'Today\'s Attendance' : 
+               pathname === '/attendance/employee' ? 'Employee Attendance' : 
+               pathname.startsWith('/attendance/employee/') ? 'Employee Attendance Profile' : 
+               pathname === '/attendance/reports' ? 'Attendance Reports' : 
                pathname === '/managers' ? 'Manager Accounts' : 
-               pathname === '/attendance' ? 'Attendance Logs' : 
                pathname === '/settings' ? 'System Settings' : 
                pathname.replace('/', '').replace(/-/g, ' ')}
             </h1>

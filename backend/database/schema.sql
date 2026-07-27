@@ -107,9 +107,6 @@ BEGIN
   END IF;
 END $$;
 
--- Drop legacy attendance table first if exists to ensure clean structure mapping
-DROP TABLE IF EXISTS attendance CASCADE;
-
 -- Attendance Table
 CREATE TABLE IF NOT EXISTS attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -117,10 +114,22 @@ CREATE TABLE IF NOT EXISTS attendance (
     manager_id UUID REFERENCES admins(id) ON DELETE SET NULL,
     date DATE NOT NULL,
     time TIME NOT NULL,
-    status VARCHAR(20) CHECK (status IN ('PRESENT', 'ABSENT', 'LATE', 'HALF_DAY', 'LEAVE', 'HOLIDAY', 'WEEKEND', 'WORK_FROM_HOME', 'ON_DUTY', 'VOIDED')) NOT NULL,
+    check_in_time TIME,
+    check_out_time TIME,
+    status VARCHAR(20) CHECK (status IN ('PRESENT', 'ABSENT', 'LATE', 'HALF_DAY', 'LEAVE', 'HOLIDAY', 'WEEKEND', 'WORK_FROM_HOME', 'ON_DUTY', 'VOIDED', 'WORKING', 'MISSED_CHECKOUT')) NOT NULL,
     remarks TEXT,
     created_device VARCHAR(150),
     source VARCHAR(50) DEFAULT 'MANAGER_MANUAL',
+    gps_lat_in DOUBLE PRECISION,
+    gps_lng_in DOUBLE PRECISION,
+    gps_lat_out DOUBLE PRECISION,
+    gps_lng_out DOUBLE PRECISION,
+    device_name VARCHAR(150),
+    network_type VARCHAR(50),
+    battery_percentage INTEGER,
+    face_image_url VARCHAR(255),
+    created_by UUID REFERENCES admins(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES admins(id) ON DELETE SET NULL,
     is_locked BOOLEAN DEFAULT FALSE,
     is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

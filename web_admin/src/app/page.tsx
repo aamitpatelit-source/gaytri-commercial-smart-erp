@@ -22,12 +22,18 @@ interface Stats {
   totalManagers?: number;
   present: number;
   absent: number;
+  working?: number;
+  missedCheckout?: number;
   late?: number;
   todaysVisits?: number;
   performanceSummary?: {
     attendanceRate: number;
     onTimeRate: number;
   };
+  lastCheckout: {
+    full_name: string;
+    check_out_time: string;
+  } | null;
 }
 
 interface ScanLog {
@@ -43,7 +49,12 @@ interface ScanLog {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({ totalStaff: 0, present: 0, absent: 0 });
+  const [stats, setStats] = useState<Stats>({
+    totalStaff: 0,
+    present: 0,
+    absent: 0,
+    lastCheckout: null
+  });
   const [logs, setLogs] = useState<ScanLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -111,6 +122,10 @@ export default function DashboardPage() {
     };
 
     fetchDashboardData();
+    
+    // Polling setup: 30 seconds interval (Smart polling configuration)
+    const pollInterval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(pollInterval);
   }, [router]);
 
   if (loading) {
@@ -148,26 +163,12 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Total Employees */}
-        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(0,229,255,0.06)] border border-slate-700">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Total Staff</p>
-              <h3 className="text-3xl font-extrabold text-white mt-2 font-sans">{stats.totalStaff}</h3>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-cyan-400">
-              <Users className="w-6 h-6" />
-            </div>
-          </div>
-          <p className="text-[11px] text-cyan-400 mt-4 font-semibold">Registered staff directory</p>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Present Today */}
         <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(16,185,129,0.06)] border border-slate-700">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Present Today</p>
+              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Present Employees</p>
               <h3 className="text-3xl font-extrabold text-white mt-2 font-sans">{stats.present}</h3>
             </div>
             <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-emerald-400">
@@ -175,36 +176,45 @@ export default function DashboardPage() {
             </div>
           </div>
           <p className="text-[11px] text-emerald-400 mt-4 font-semibold">
-            {stats.performanceSummary?.attendanceRate ?? (stats.totalStaff > 0 ? Math.round((stats.present / stats.totalStaff) * 100) : 100)}% Attendance Rate
+            Active checked-in count ({stats.working ?? 0} currently working)
           </p>
-        </div>
-
-        {/* Late Today */}
-        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.06)] border border-slate-700">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Late Today</p>
-              <h3 className="text-3xl font-extrabold text-white mt-2 font-sans">{stats.late ?? 0}</h3>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-amber-400">
-              <Clock className="w-6 h-6" />
-            </div>
-          </div>
-          <p className="text-[11px] text-amber-400 mt-4 font-semibold">Arrived after grace time</p>
         </div>
 
         {/* Absent Today */}
         <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(244,63,94,0.06)] border border-slate-700">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Absent Today</p>
+              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Absent Employees</p>
               <h3 className="text-3xl font-extrabold text-white mt-2 font-sans">{stats.absent}</h3>
             </div>
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-rose-450">
+            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-rose-400">
               <UserX className="w-6 h-6" />
             </div>
           </div>
-          <p className="text-[11px] text-rose-400 mt-4 font-semibold">Unmarked roster staff</p>
+          <p className="text-[11px] text-rose-400 mt-4 font-semibold">
+            Unmarked or absent on shift roster ({stats.missedCheckout ?? 0} missed EOD checkout)
+          </p>
+        </div>
+
+        {/* Last Checkout Today */}
+        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.06)] border border-slate-700">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Last Checkout</p>
+              {stats.lastCheckout ? (
+                <>
+                  <h4 className="text-lg font-bold text-slate-200 mt-2 truncate max-w-[190px]">{stats.lastCheckout.full_name}</h4>
+                  <p className="text-xl font-extrabold text-amber-400 font-mono mt-0.5">{formatTo12Hour(stats.lastCheckout.check_out_time)}</p>
+                </>
+              ) : (
+                <h3 className="text-2xl font-bold text-slate-400 mt-3 italic font-sans">No checkouts yet</h3>
+              )}
+            </div>
+            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700 text-amber-450">
+              <Clock className="w-6 h-6" />
+            </div>
+          </div>
+          <p className="text-[11px] text-amber-400 mt-4 font-semibold">Latest EOD sync checkout</p>
         </div>
       </div>
 
@@ -318,9 +328,17 @@ export default function DashboardPage() {
                         <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                           log.status === 'PRESENT'
                             ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/20'
-                            : 'bg-amber-950/30 text-amber-400 border border-amber-500/20'
+                            : log.status === 'WORKING'
+                            ? 'bg-sky-950/30 text-sky-400 border border-sky-500/20'
+                            : log.status === 'LATE'
+                            ? 'bg-amber-950/30 text-amber-400 border border-amber-500/20'
+                            : 'bg-rose-950/30 text-rose-400 border border-rose-500/20'
                         }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${log.status === 'PRESENT' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            log.status === 'PRESENT' ? 'bg-emerald-400' :
+                            log.status === 'WORKING' ? 'bg-sky-450' :
+                            log.status === 'LATE' ? 'bg-amber-450' : 'bg-rose-550'
+                          }`} />
                           <span>{log.status}</span>
                         </span>
                       </td>

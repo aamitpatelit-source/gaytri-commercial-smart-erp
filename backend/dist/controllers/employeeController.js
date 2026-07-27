@@ -1,11 +1,45 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteEmployee = exports.updateEmployee = exports.createEmployee = exports.getEmployees = void 0;
-const db_1 = require("../config/db");
+exports.getEmployeeById = exports.deleteEmployee = exports.updateEmployee = exports.createEmployee = exports.getEmployees = void 0;
+const db_1 = __importStar(require("../config/db"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const managerScopeService_1 = require("../services/managerScopeService");
 // Get all employees
 const getEmployees = async (req, res) => {
     if (!req.user) {
@@ -45,14 +79,17 @@ const getEmployees = async (req, res) => {
 exports.getEmployees = getEmployees;
 // Create a new employee
 const createEmployee = async (req, res) => {
-    const { employee_id, full_name, department_id, designation_id, shift_id, mobile, joining_date, salary_type, password, is_active, } = req.body;
+    const { employee_id, full_name, department_id, designation_id, shift_id, mobile, joining_date, salary_type, password, is_active, manager_id, } = req.body;
     if (!employee_id || !full_name || !mobile) {
         return res.status(400).json({ success: false, message: 'Missing required information (employee_id, full_name, mobile)' });
     }
+    const client = await db_1.default.connect();
     try {
+        await client.query('BEGIN');
         // Check duplicate employee_id
-        const duplicateCheck = await (0, db_1.query)('SELECT id FROM employees WHERE employee_id = $1', [employee_id.trim()]);
+        const duplicateCheck = await client.query('SELECT id FROM employees WHERE employee_id = $1', [employee_id.trim()]);
         if (duplicateCheck.rows.length > 0) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ success: false, message: 'Employee ID already exists' });
         }
         const joiningDate = joining_date ? new Date(joining_date) : new Date();
@@ -75,18 +112,18 @@ const createEmployee = async (req, res) => {
         // Enforce shift_id resolution (by ID, by name string, or fallback to first shift)
         let resolvedShiftId = shift_id ? parseInt(shift_id, 10) : null;
         if ((!resolvedShiftId || isNaN(resolvedShiftId)) && req.body.shift) {
-            const shiftLookup = await (0, db_1.query)('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift]);
+            const shiftLookup = await client.query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift]);
             if (shiftLookup.rows.length > 0) {
                 resolvedShiftId = shiftLookup.rows[0].id;
             }
         }
         if (!resolvedShiftId || isNaN(resolvedShiftId)) {
-            const defaultShiftLookup = await (0, db_1.query)('SELECT id FROM shifts ORDER BY id ASC LIMIT 1');
+            const defaultShiftLookup = await client.query('SELECT id FROM shifts ORDER BY id ASC LIMIT 1');
             if (defaultShiftLookup.rows.length > 0) {
                 resolvedShiftId = defaultShiftLookup.rows[0].id;
             }
         }
-        const result = await (0, db_1.query)(`INSERT INTO employees (
+        const empResult = await client.query(`INSERT INTO employees (
         employee_id, full_name, department_id, designation_id, shift_id, mobile,
         joining_date, salary_type, role, password_hash, is_active, require_password_change
       )
@@ -104,23 +141,38 @@ const createEmployee = async (req, res) => {
             activeStatus,
             requireChange,
         ]);
+        const newEmployeeId = empResult.rows[0].id;
+        // Create manager-employee mapping if manager_id is specified
+        if (manager_id) {
+            const managerIds = Array.isArray(manager_id) ? manager_id : [manager_id];
+            for (const mId of managerIds) {
+                if (mId && mId.trim() !== '') {
+                    await client.query('INSERT INTO manager_employees (manager_id, employee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [mId.trim(), newEmployeeId]);
+                }
+            }
+        }
         // Create default leave balances for the new employee
-        await (0, db_1.query)(`INSERT INTO leave_balances (employee_id, casual_leave, sick_leave, paid_leave)
+        await client.query(`INSERT INTO leave_balances (employee_id, casual_leave, sick_leave, paid_leave)
        VALUES ($1, 12, 12, 12)
-       ON CONFLICT (employee_id) DO NOTHING`, [result.rows[0].id]);
+       ON CONFLICT (employee_id) DO NOTHING`, [newEmployeeId]);
         // Log the creation
-        await (0, db_1.query)(`INSERT INTO audit_logs (action, details, performed_by, performed_by_role)
+        await client.query(`INSERT INTO audit_logs (action, details, performed_by, performed_by_role)
        VALUES ('EMPLOYEE_CREATED', $1, $2, $3)`, [`Created employee ${employee_id.trim()} (${full_name.trim()})`, req.user?.id || null, req.user?.role || 'SYSTEM']);
-        console.log(`[Employee Info] Created employee: ${employee_id} - UUID: ${result.rows[0].id}`);
+        await client.query('COMMIT');
+        console.log(`[Employee Info] Created employee: ${employee_id} - UUID: ${newEmployeeId} under transactional scope.`);
         return res.status(201).json({
             success: true,
             message: 'Employee created successfully',
-            employee: result.rows[0],
+            employee: empResult.rows[0],
         });
     }
     catch (error) {
+        await client.query('ROLLBACK');
         console.error('[Employee Error] Create employee failed:', error);
         return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+    finally {
+        client.release();
     }
 };
 exports.createEmployee = createEmployee;
@@ -222,3 +274,56 @@ const deleteEmployee = async (req, res) => {
     }
 };
 exports.deleteEmployee = deleteEmployee;
+// Get employee by ID
+const getEmployeeById = async (req, res) => {
+    const { id } = req.params;
+    const loggedInUser = req.user;
+    try {
+        // If manager, check scope boundaries
+        if (loggedInUser?.role === 'MANAGER') {
+            const hasPermission = await (0, managerScopeService_1.canManageEmployee)(loggedInUser.id, id, 'MANAGER');
+            if (!hasPermission) {
+                return res.status(403).json({ success: false, message: 'Access denied. Employee outside manager scope.' });
+            }
+        }
+        const employeeRes = await (0, db_1.query)(`SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
+              e.profile_photo_url,
+              d.name as department, d.id as department_id,
+              dg.name as designation, dg.id as designation_id,
+              s.name as shift, s.id as shift_id,
+              (
+                SELECT adm.full_name FROM manager_employees me
+                JOIN admins adm ON me.manager_id = adm.id
+                WHERE me.employee_id = e.id
+                LIMIT 1
+              ) as manager_name,
+              (
+                SELECT a.date FROM attendance a
+                WHERE a.employee_id = e.id AND a.is_deleted = FALSE AND a.status != 'ABSENT'
+                ORDER BY a.date DESC
+                LIMIT 1
+              ) as last_attendance_date,
+              (
+                SELECT a.status FROM attendance a
+                WHERE a.employee_id = e.id AND a.date = CURRENT_DATE AND a.is_deleted = FALSE
+                LIMIT 1
+              ) as current_status
+       FROM employees e
+       LEFT JOIN departments d ON e.department_id = d.id
+       LEFT JOIN designations dg ON e.designation_id = dg.id
+       LEFT JOIN shifts s ON e.shift_id = s.id
+       WHERE e.id = $1`, [id]);
+        if (employeeRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Employee not found.' });
+        }
+        return res.status(200).json({
+            success: true,
+            employee: employeeRes.rows[0]
+        });
+    }
+    catch (error) {
+        console.error('[Employee Error] Get employee by id failed:', error);
+        return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+    }
+};
+exports.getEmployeeById = getEmployeeById;

@@ -29,10 +29,17 @@ interface ShiftOption {
   name: string;
 }
 
+interface ManagerOption {
+  id: string;
+  email: string;
+  full_name: string;
+}
+
 export default function EmployeesPage() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<ShiftOption[]>([]);
+  const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,6 +59,7 @@ export default function EmployeesPage() {
     shift: 'Morning Shift',
     mobile: '',
     is_active: true,
+    manager_id: '',
   });
 
   const [deletingEmp, setDeletingEmp] = useState<{ id: string; name: string } | null>(null);
@@ -82,6 +90,23 @@ export default function EmployeesPage() {
         { id: 1, name: 'Morning Shift' },
         { id: 2, name: 'Night Shift' }
       ]);
+    }
+  };
+
+  const fetchManagers = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+      const res = await fetch(`${API_URL}/auth/managers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.managers)) {
+        const activeManagers = data.managers.filter((m: any) => m.role === 'MANAGER' && m.is_active !== false);
+        setManagers(activeManagers);
+      }
+    } catch (e) {
+      console.error("Failed to fetch manager selection list:", e);
     }
   };
 
@@ -120,6 +145,7 @@ export default function EmployeesPage() {
   useEffect(() => {
     fetchEmployees();
     fetchShifts();
+    fetchManagers();
   }, []);
 
   const handleCreateEmployee = async (e: React.FormEvent) => {
@@ -140,6 +166,7 @@ export default function EmployeesPage() {
           shift: empForm.shift,
           mobile: empForm.mobile,
           is_active: empForm.is_active,
+          manager_id: empForm.manager_id || null,
         })
       });
 
@@ -160,6 +187,7 @@ export default function EmployeesPage() {
           shift: defaultShiftName,
           mobile: '',
           is_active: true,
+          manager_id: managers.length > 0 ? managers[0].id : '',
         });
         fetchEmployees();
       } else {
@@ -256,6 +284,7 @@ export default function EmployeesPage() {
       shift: emp.shift || (matchingShift ? matchingShift.name : 'Morning Shift'),
       mobile: emp.mobile,
       is_active: emp.is_active !== false,
+      manager_id: '',
     });
   };
 
@@ -304,6 +333,7 @@ export default function EmployeesPage() {
               shift: defaultShiftName,
               mobile: '',
               is_active: true,
+              manager_id: managers.length > 0 ? managers[0].id : '',
             });
             setShowAddModal(true);
           }}
@@ -469,6 +499,21 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Assign to Manager</label>
+                <select
+                  value={empForm.manager_id}
+                  onChange={(e) => setEmpForm({...empForm, manager_id: e.target.value})}
+                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-500 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
+                  required
+                >
+                  <option value="">-- Select Supervisor/Manager --</option>
+                  {managers.map(m => (
+                    <option key={m.id} value={m.id}>{m.full_name} ({m.email})</option>
+                  ))}
+                </select>
+              </div>
+
               <button
                 type="submit"
                 disabled={actionLoading}
@@ -499,7 +544,7 @@ export default function EmployeesPage() {
 
             <form onSubmit={handleUpdateEmployee} className="space-y-4">
               <div>
-                <label className="text-[10px] text-slate-350 font-extrabold uppercase tracking-wider block mb-1">Employee ID (Read-only)</label>
+                <label className="text-[10px] text-slate-355 font-extrabold uppercase tracking-wider block mb-1">Employee ID (Read-only)</label>
                 <input
                   type="text"
                   value={empForm.employee_id}
@@ -557,7 +602,7 @@ export default function EmployeesPage() {
                 <select
                   value={empForm.is_active ? "true" : "false"}
                   onChange={(e) => setEmpForm({...empForm, is_active: e.target.value === "true"})}
-                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-550 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
+                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-555 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
                 >
                   <option value="true">Active</option>
                   <option value="false">Suspended</option>
@@ -580,7 +625,7 @@ export default function EmployeesPage() {
       {deletingEmp && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="w-full max-w-sm glass-panel rounded-2xl border border-slate-800 shadow-[0_0_50px_rgba(0,0,0,0.6)] p-6 relative text-center">
-            <div className="w-12 h-12 rounded-full bg-rose-950/30 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto mb-4">
+            <div className="w-12 h-12 rounded-full bg-rose-950/30 border border-rose-500/30 flex items-center justify-center text-rose-455 mx-auto mb-4">
               <AlertTriangle className="w-6 h-6 text-rose-500 animate-pulse" />
             </div>
             <h3 className="font-extrabold text-base text-white mb-2">Delete Employee Profile</h3>
@@ -590,7 +635,7 @@ export default function EmployeesPage() {
             <div className="flex space-x-3">
               <button
                 onClick={() => setDeletingEmp(null)}
-                className="flex-1 py-2.5 rounded-lg bg-slate-900 border border-slate-750 text-slate-350 hover:text-white hover:bg-slate-850 text-xs font-bold transition-all cursor-pointer"
+                className="flex-1 py-2.5 rounded-lg bg-slate-900 border border-slate-750 text-slate-355 hover:text-white hover:bg-slate-850 text-xs font-bold transition-all cursor-pointer"
               >
                 Cancel
               </button>

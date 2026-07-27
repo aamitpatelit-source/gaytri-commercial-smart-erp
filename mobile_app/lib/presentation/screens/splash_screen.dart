@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/theme/app_theme.dart';
 import 'login_screen.dart';
 import 'manager_dashboard.dart';
+import 'employee_dashboard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -38,19 +39,18 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       
       Widget nextScreen = const LoginScreen();
       
-      if (token != null || userStr != null) {
-        bool isValidManager = false;
-        if (token != null && userStr != null) {
-          try {
-            final user = jsonDecode(userStr);
-            if (user['role'] == 'MANAGER') {
-              isValidManager = true;
-              nextScreen = const ManagerDashboard();
-            }
-          } catch (_) {}
-        }
-        
-        if (!isValidManager) {
+      if (token != null && userStr != null) {
+        try {
+          final user = jsonDecode(userStr);
+          if (user['role'] == 'MANAGER') {
+            nextScreen = const ManagerDashboard();
+          } else if (user['role'] == 'EMPLOYEE') {
+            nextScreen = const EmployeeDashboard();
+          } else {
+            await storage.deleteAll();
+            nextScreen = const LoginScreen();
+          }
+        } catch (_) {
           await storage.deleteAll();
           nextScreen = const LoginScreen();
         }

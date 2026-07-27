@@ -8,6 +8,7 @@ import '../../core/providers/language_provider.dart';
 import '../../core/config/api_config.dart';
 import '../../core/theme/app_theme.dart';
 import 'manager_dashboard.dart';
+import 'employee_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   final bool sessionExpired;
@@ -32,9 +33,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // Targets Repurposed Manager Login Endpoint
-  final String _apiUrl = '${ApiConfig.baseUrl}/auth/login';
-
   @override
   void dispose() {
     _emailController.dispose();
@@ -47,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      setState(() => _errorMessage = 'Manager email and password are required.');
+      setState(() => _errorMessage = 'Email/ID and password are required.');
       return;
     }
 
@@ -57,18 +55,23 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
+      final isEmail = email.contains('@');
+      final loginUrl = isEmail 
+          ? '${ApiConfig.baseUrl}/auth/login' 
+          : '${ApiConfig.baseUrl}/auth/employee/login';
+
       final response = await http.post(
-        Uri.parse(_apiUrl),
+        Uri.parse(loginUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'employee_id': email, // backend expects email inside 'employee_id' key for repurposed login
+          'employee_id': email,
           'password': password,
         }),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
         if (response.statusCode == 401) {
-          throw Exception('Invalid manager credentials.');
+          throw Exception(isEmail ? 'Invalid manager credentials.' : 'Invalid employee credentials.');
         }
         if (response.statusCode == 403) {
           try {
@@ -79,13 +82,13 @@ class _LoginScreenState extends State<LoginScreen> {
           } catch (e) {
             if (e.toString().contains('Your account has been disabled.')) rethrow;
           }
-          throw Exception('Access restricted. Manager privileges required.');
+          throw Exception(isEmail ? 'Access restricted. Manager privileges required.' : 'Access restricted.');
         }
         try {
           final errData = jsonDecode(response.body);
           throw Exception(errData['message'] ?? 'Authentication failed.');
         } catch (_) {
-          throw Exception('Server returned error status ${response.statusCode}. Please verify backend configuration.');
+          throw Exception('Server returned error status ${response.statusCode}.');
         }
       }
 
@@ -96,12 +99,11 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('Invalid response format from server.');
       }
 
-      // Login Response Validation
       final user = data['user'];
       final accessToken = data['access_token'];
-      final refreshToken = data['refresh_token'];
+      final refreshToken = data['refresh_token'] ?? accessToken;
       
-      if (user == null || accessToken == null || refreshToken == null) {
+      if (user == null || accessToken == null) {
         throw Exception('Invalid response format from server.');
       }
 
@@ -114,22 +116,26 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('Invalid response format from server.');
       }
 
-      if (userRole != 'MANAGER') {
-        throw Exception('Access restricted. Manager privileges required.');
+      if (userRole != 'MANAGER' && userRole != 'EMPLOYEE') {
+        throw Exception('Access restricted. Manager or Employee privileges required.');
       }
 
-      // Token Storage Cleanup: clear all old secure storage values before saving the new session
       await _storage.deleteAll();
 
-      // Store Auth Tokens in Secure Storage
       await _storage.write(key: 'access_token', value: accessToken);
       await _storage.write(key: 'refresh_token', value: refreshToken);
       await _storage.write(key: 'user', value: jsonEncode(user));
 
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const ManagerDashboard()),
-        );
+        if (userRole == 'MANAGER') {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const ManagerDashboard()),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const EmployeeDashboard()),
+          );
+        }
       }
     } catch (err) {
       setState(() {

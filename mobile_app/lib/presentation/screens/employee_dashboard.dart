@@ -136,6 +136,84 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     }
   }
 
+  Future<void> _handleCheckIn() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final token = await _storage.read(key: 'access_token');
+      if (token == null) throw Exception('Session expired. Please login again.');
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/check-in'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'gps_lat': null,
+          'gps_lng': null,
+          'device_name': 'Mobile App Client',
+          'network_type': 'WiFi',
+          'battery_percentage': 100,
+          'face_image_url': null,
+          'remarks': 'Checked in via Mobile App Dashboard',
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        final err = jsonDecode(response.body);
+        throw Exception(err['message'] ?? 'Check-in failed.');
+      }
+
+      await _loadDashboardData();
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceAll('Exception:', '').trim();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _handleCheckOut() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final token = await _storage.read(key: 'access_token');
+      if (token == null) throw Exception('Session expired. Please login again.');
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/attendance/check-out'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'gps_lat': null,
+          'gps_lng': null,
+          'remarks': 'Checked out via Mobile App Dashboard',
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        final err = jsonDecode(response.body);
+        throw Exception(err['message'] ?? 'Check-out failed.');
+      }
+
+      await _loadDashboardData();
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceAll('Exception:', '').trim();
+        _isLoading = false;
+      });
+    }
+  }
+
   Future<void> _loadDashboardData() async {
     if (!mounted) return;
     setState(() {
@@ -631,6 +709,66 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                       _buildAttendanceMetric('Working Hours', _workingHours, Icons.timer_outlined, AppTheme.neonCyan),
                     ],
                   ),
+                  const SizedBox(height: 20),
+                  if (_attendanceStatus == 'WORKING' || _attendanceStatus == 'Checked In' || _attendanceStatus.toLowerCase().contains('work'))
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.errorRed,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                        ),
+                        icon: const Icon(Icons.logout_rounded, size: 18),
+                        label: const Text(
+                          'CHECK OUT NOW',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        ),
+                        onPressed: _isLoading ? null : _handleCheckOut,
+                      ),
+                    )
+                  else if (_attendanceStatus == 'PRESENT' || _attendanceStatus == 'LATE' || _attendanceStatus.toLowerCase() == 'present' || _attendanceStatus.toLowerCase() == 'late')
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.successGreen.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.successGreen.withOpacity(0.2)),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
+                          SizedBox(width: 8),
+                          Text(
+                            'TODAY\'S SHIFT COMPLETED',
+                            style: TextStyle(color: AppTheme.successGreen, fontSize: 11.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.successGreen,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                        ),
+                        icon: const Icon(Icons.login_rounded, size: 18),
+                        label: const Text(
+                          'CHECK IN NOW',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        ),
+                        onPressed: _isLoading ? null : _handleCheckIn,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1592,39 +1730,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                 ],
               ),
             )
-          : IndexedStack(
-              index: _currentIndex,
-              children: [
-                _buildHomeTab(l10n),
-                _buildLeavesTab(l10n),
-                _buildSettingsTab(l10n),
-              ],
-            ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.home_outlined),
-            selectedIcon: const Icon(Icons.home_rounded, color: AppTheme.darkBg),
-            label: l10n?.dashboard ?? 'Home',
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.flight_takeoff_outlined),
-            selectedIcon: const Icon(Icons.flight_takeoff_rounded, color: AppTheme.darkBg),
-            label: l10n?.leaves ?? 'Leaves',
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.settings_outlined),
-            selectedIcon: const Icon(Icons.settings_rounded, color: AppTheme.darkBg),
-            label: l10n?.settings ?? 'Settings',
-          ),
-        ],
-      ),
+          : _buildHomeTab(l10n),
     );
   }
 }

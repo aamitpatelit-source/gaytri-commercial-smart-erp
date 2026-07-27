@@ -229,14 +229,52 @@ export const markAttendance = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Helper to calculate working hours dynamically (without storing in database)
+export const calculateWorkingHours = (checkIn: string | null, checkOut: string | null, status: string): string => {
+  if (status === 'WORKING') return 'Running';
+  if (status === 'ABSENT') return '00h';
+  if (!checkIn || !checkOut) return '00h';
+  
+  try {
+    const start = moment(checkIn, 'HH:mm:ss');
+    const end = moment(checkOut, 'HH:mm:ss');
+    if (!start.isValid() || !end.isValid()) return '00h';
+    
+    let diffMs = end.diff(start);
+    if (diffMs < 0) {
+      // Shift crosses midnight boundary
+      diffMs += 24 * 60 * 60 * 1000;
+    }
+    const duration = moment.duration(diffMs);
+    const hours = Math.floor(duration.asHours());
+    const minutes = duration.minutes();
+    return `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m`;
+  } catch (e) {
+    return '00h';
+  }
+};
+
 // Retrieve Attendance Dashboard Stats
 export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   const tz = await getCompanyTimezone();
   const today = moment().tz(tz).format('YYYY-MM-DD');
 
   try {
+    const isManager = req.user && req.user.role === 'MANAGER';
+    const managerId = req.user ? req.user.id : null;
+
     // Total staff count
-    const totalEmpRes = await query('SELECT COUNT(*) as count FROM employees WHERE is_active = TRUE');
+    let totalEmpRes;
+    if (isManager) {
+      totalEmpRes = await query(
+        `SELECT COUNT(*) as count FROM employees e
+         WHERE e.is_active = TRUE
+           AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $1)`,
+         [managerId]
+      );
+    } else {
+      totalEmpRes = await query('SELECT COUNT(*) as count FROM employees WHERE is_active = TRUE');
+    }
     const totalStaff = parseInt(totalEmpRes.rows[0].count, 10);
 
     // Total active managers count
@@ -244,13 +282,27 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     const totalManagers = parseInt(totalMgrRes.rows[0].count, 10);
 
     // Group counts by status
-    const attendanceRes = await query(
-      `SELECT status, COUNT(*) as count 
-       FROM attendance 
-       WHERE date = $1 AND is_deleted = FALSE
-       GROUP BY status`,
-      [today]
-    );
+    let attendanceRes;
+    if (isManager) {
+      attendanceRes = await query(
+        `SELECT a.status, COUNT(*) as count 
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE a.date = $1 
+           AND a.is_deleted = FALSE
+           AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $2)
+         GROUP BY a.status`,
+        [today, managerId]
+      );
+    } else {
+      attendanceRes = await query(
+        `SELECT status, COUNT(*) as count 
+         FROM attendance 
+         WHERE date = $1 AND is_deleted = FALSE
+         GROUP BY status`,
+        [today]
+      );
+    }
 
     let present = 0;
     let absent = 0;
@@ -259,6 +311,8 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
     let leave = 0;
     let wfh = 0;
     let onDuty = 0;
+    let working = 0;
+    let missedCheckout = 0;
 
     attendanceRes.rows.forEach((row) => {
       if (row.status === 'PRESENT') present += parseInt(row.count, 10);
@@ -268,27 +322,81 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       if (row.status === 'LEAVE') leave += parseInt(row.count, 10);
       if (row.status === 'WORK_FROM_HOME') wfh += parseInt(row.count, 10);
       if (row.status === 'ON_DUTY') onDuty += parseInt(row.count, 10);
+      if (row.status === 'WORKING') working += parseInt(row.count, 10);
+      if (row.status === 'MISSED_CHECKOUT') missedCheckout += parseInt(row.count, 10);
     });
 
-    const totalMarked = present + late + halfDay + absent + leave + wfh + onDuty;
+    // An employee is marked absent if they have no record today
+    const totalMarked = present + late + halfDay + absent + leave + wfh + onDuty + working + missedCheckout;
     const autoAbsent = Math.max(0, totalStaff - totalMarked);
     absent += autoAbsent;
 
-    const totalPresent = present + late + halfDay + wfh + onDuty;
+    // Redesigned Dashboard present count (checked in + checked out today)
+    const totalPresent = present + late + halfDay + wfh + onDuty + working;
     const attendanceRate = totalStaff > 0 ? Math.round((totalPresent / totalStaff) * 100) : 100;
-    const onTimeRate = totalPresent > 0 ? Math.round(((present + wfh + onDuty) / totalPresent) * 100) : 100;
+    const onTimeRate = totalPresent > 0 ? Math.round(((present + wfh + onDuty + working) / totalPresent) * 100) : 100;
+
+    // Fetch Last Checkout Today (Employee Name & Checkout Time)
+    let lastCheckoutRes;
+    if (isManager) {
+      lastCheckoutRes = await query(
+        `SELECT e.full_name, a.check_out_time
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE a.date = $1 AND a.check_out_time IS NOT NULL AND a.is_deleted = FALSE
+           AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $2)
+         ORDER BY a.check_out_time DESC
+         LIMIT 1`,
+        [today, managerId]
+      );
+    } else {
+      lastCheckoutRes = await query(
+        `SELECT e.full_name, a.check_out_time
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE a.date = $1 AND a.check_out_time IS NOT NULL AND a.is_deleted = FALSE
+         ORDER BY a.check_out_time DESC
+         LIMIT 1`,
+        [today]
+      );
+    }
+    const lastCheckout = lastCheckoutRes.rows.length > 0 ? {
+      full_name: lastCheckoutRes.rows[0].full_name,
+      check_out_time: lastCheckoutRes.rows[0].check_out_time
+    } : null;
 
     // Fetch recent logs feed
-    const feedRes = await query(
-      `SELECT a.date, a.time, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
-       FROM attendance a
-       JOIN employees e ON a.employee_id = e.id
-       LEFT JOIN departments d ON e.department_id = d.id
-       WHERE a.date = $1 AND a.is_deleted = FALSE
-       ORDER BY a.updated_at DESC
-       LIMIT 10`,
-      [today]
-    );
+    let feedRes;
+    if (isManager) {
+      feedRes = await query(
+        `SELECT a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         LEFT JOIN departments d ON e.department_id = d.id
+         WHERE a.date = $1 
+           AND a.is_deleted = FALSE
+           AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $2)
+         ORDER BY a.updated_at DESC
+         LIMIT 10`,
+        [today, managerId]
+      );
+    } else {
+      feedRes = await query(
+        `SELECT a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         LEFT JOIN departments d ON e.department_id = d.id
+         WHERE a.date = $1 AND a.is_deleted = FALSE
+         ORDER BY a.updated_at DESC
+         LIMIT 10`,
+        [today]
+      );
+    }
+
+    const feedMapped = feedRes.rows.map(row => ({
+      ...row,
+      working_hours: calculateWorkingHours(row.check_in_time, row.check_out, row.status)
+    }));
 
     return res.status(200).json({
       success: true,
@@ -298,6 +406,8 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
         totalManagers,
         present: totalPresent,
         absent,
+        working,
+        missedCheckout,
         late,
         halfDay,
         leave,
@@ -305,12 +415,13 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
         onDuty,
         todaysVisits: totalMarked,
         livePresentCount: totalPresent,
+        lastCheckout,
         performanceSummary: {
           attendanceRate,
           onTimeRate
         }
       },
-      feed: feedRes.rows,
+      feed: feedMapped,
     });
   } catch (error) {
     console.error('[Dashboard Stats Error] Aggregation failed:', error);
@@ -318,14 +429,21 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Retrieve Attendance History with advanced filtering
+// Retrieve Attendance History with advanced filtering and pagination
 export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
-  const { start_date, end_date, status, department_id, shift_id, search } = req.query;
+  const { start_date, end_date, status, department_id, shift_id, search, employee_id, reporting_manager } = req.query;
+
+  // Pagination parameters
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 50;
+  const offset = (page - 1) * limit;
 
   try {
     let selectFields = `
-      a.id, a.date, a.time, a.status, a.remarks, a.created_device, a.source, a.is_locked,
-      e.full_name, e.employee_id, d.name as department, s.name as shift
+      a.id, a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, 
+      a.gps_lat_in, a.gps_lng_in, a.gps_lat_out, a.gps_lng_out, a.device_name, a.network_type, a.battery_percentage, a.face_image_url,
+      a.created_device, a.source, a.is_locked,
+      e.id as employee_uuid, e.full_name, e.employee_id, e.mobile, d.name as department, s.name as shift
     `;
     let queryStr = `
       FROM attendance a
@@ -337,12 +455,32 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
     let params: any[] = [];
     let counter = 1;
 
+    // Apply strict filters based on role context
     if (req.user && req.user.role === 'EMPLOYEE') {
       queryStr += ` AND e.id = $${counter++}`;
       params.push(req.user.id);
     } else {
+      // If MANAGER, restrict to their assigned employees
+      if (req.user && req.user.role === 'MANAGER') {
+        queryStr += ` AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $${counter++})`;
+        params.push(req.user.id);
+      }
+      
+      // Admin/Manager filter by specific employee ID
+      if (employee_id) {
+        queryStr += ` AND e.id = $${counter++}`;
+        params.push(employee_id);
+      }
+
+      // Filter by reporting manager
+      if (reporting_manager) {
+        queryStr += ` AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $${counter++})`;
+        params.push(reporting_manager);
+      }
+
+      // Generic search filters
       if (search) {
-        queryStr += ` AND (e.full_name ILIKE $${counter} OR e.employee_id ILIKE $${counter})`;
+        queryStr += ` AND (e.full_name ILIKE $${counter} OR e.employee_id ILIKE $${counter} OR e.mobile ILIKE $${counter} OR d.name ILIKE $${counter})`;
         params.push(`%${search}%`);
         counter++;
       }
@@ -369,12 +507,30 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
       params.push(status);
     }
 
-    const finalQuery = `SELECT ${selectFields} ${queryStr} ORDER BY a.date DESC, a.time DESC`;
-    const result = await query(finalQuery, params);
+    // Get total count for pagination metadata
+    const countQuery = `SELECT COUNT(*) as count ${queryStr}`;
+    const countRes = await query(countQuery, params);
+    const totalCount = parseInt(countRes.rows[0].count, 10);
+
+    // Apply sorting, limit, and offset
+    const finalQuery = `SELECT ${selectFields} ${queryStr} ORDER BY a.date DESC, COALESCE(a.check_in_time, a.time) DESC LIMIT $${counter++} OFFSET $${counter++}`;
+    const result = await query(finalQuery, [...params, limit, offset]);
+
+    // Map rows to dynamically calculate working hours
+    const logs = result.rows.map(row => ({
+      ...row,
+      working_hours: calculateWorkingHours(row.check_in_time, row.check_out, row.status)
+    }));
 
     return res.status(200).json({
       success: true,
-      logs: result.rows,
+      logs,
+      pagination: {
+        totalCount,
+        page,
+        limit,
+        totalPages: Math.ceil(totalCount / limit)
+      }
     });
   } catch (error) {
     console.error('[Attendance History Error] Fetch failed:', error);
@@ -488,40 +644,60 @@ export const lockDailyAttendance = async () => {
   
   try {
     console.log(`[Auto Lock] Locking daily attendance for date: ${today}`);
-    await query(
+    
+    // 1. If status is WORKING (checked in but not checked out), transition to MISSED_CHECKOUT
+    const missedRes = await query(
       `UPDATE attendance 
-       SET is_locked = TRUE 
+       SET status = 'MISSED_CHECKOUT', is_locked = TRUE, updated_at = NOW() 
+       WHERE date = $1 AND status = 'WORKING' AND is_locked = FALSE`,
+      [today]
+    );
+
+    // 2. Lock all other unlocked records
+    const lockRes = await query(
+      `UPDATE attendance 
+       SET is_locked = TRUE, updated_at = NOW() 
        WHERE date = $1 AND is_locked = FALSE`,
       [today]
     );
-    console.log(`[Auto Lock] Daily attendance for ${today} locked successfully.`);
+    console.log(`[Auto Lock] Lock complete. Marked ${missedRes.rowCount} MISSED_CHECKOUT, locked ${lockRes.rowCount} other records.`);
   } catch (err) {
     console.error('[Auto Lock Error] Failed to lock records:', err);
   }
 };
 
-// Scheduler bootstrap
+// Scheduler bootstrap (configurable based on Office Settings)
 export const startAutoLockScheduler = () => {
   console.log('[Auto Lock Scheduler] Initializing EOD lock routines...');
   
   const scheduleNextRun = async () => {
-    const tz = await getCompanyTimezone();
-    const now = moment().tz(tz);
-    
-    // Set target EOD time to 6:00 PM (18:00:00)
-    const target = moment().tz(tz).set({ hour: 18, minute: 0, second: 0, millisecond: 0 });
-    
-    if (now.isAfter(target)) {
-      target.add(1, 'day');
+    try {
+      const tz = await getCompanyTimezone();
+      const settings = await query('SELECT business_hours_end FROM company_settings LIMIT 1');
+      const endTimeStr = settings.rows[0]?.business_hours_end || '18:00:00';
+      
+      const parts = endTimeStr.split(':');
+      const hour = parseInt(parts[0], 10) || 18;
+      const minute = parseInt(parts[1], 10) || 0;
+      
+      const now = moment().tz(tz);
+      const target = moment().tz(tz).set({ hour, minute, second: 0, millisecond: 0 });
+      
+      if (now.isAfter(target)) {
+        target.add(1, 'day');
+      }
+      
+      const delay = target.diff(now);
+      console.log(`[Auto Lock Scheduler] End-of-Day is configured at ${endTimeStr}. Next lock event in ${Math.round(delay / 1000 / 60)} minutes (at ${target.format()})`);
+      
+      setTimeout(async () => {
+        await lockDailyAttendance();
+        scheduleNextRun();
+      }, delay);
+    } catch (err) {
+      console.error('[Auto Lock Scheduler Error] Failed to schedule next run, retrying in 5 minutes...', err);
+      setTimeout(scheduleNextRun, 5 * 60 * 1000);
     }
-    
-    const delay = target.diff(now);
-    console.log(`[Auto Lock Scheduler] Next lock event in ${Math.round(delay / 1000 / 60)} minutes (at ${target.format()})`);
-    
-    setTimeout(async () => {
-      await lockDailyAttendance();
-      scheduleNextRun();
-    }, delay);
   };
 
   scheduleNextRun().catch(err => console.error('[Auto Lock Scheduler Boot Error] Failed:', err));
@@ -652,6 +828,524 @@ export const updateAttendanceSettings = async (req: AuthRequest, res: Response) 
   } catch (error) {
     console.error('[Attendance API] Update settings failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// POST /attendance/check-in (EMPLOYEE check-in)
+export const employeeCheckIn = async (req: AuthRequest, res: Response) => {
+  const employeeId = req.user?.id;
+  const { gps_lat, gps_lng, device_name, network_type, battery_percentage, face_image_url, remarks } = req.body;
+
+  if (!employeeId) {
+    return res.status(401).json({ success: false, message: 'Employee credentials not found.' });
+  }
+
+  const tz = await getCompanyTimezone();
+  const today = moment().tz(tz).format('YYYY-MM-DD');
+  const nowTime = moment().tz(tz).format('HH:mm:ss');
+
+  const client = await poolProxy.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Check duplicate check-in
+    const existing = await client.query(
+      'SELECT id, status, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
+      [employeeId, today]
+    );
+
+    if (existing.rows.length > 0 && existing.rows[0].status !== 'ABSENT') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: `Already checked in today with status ${existing.rows[0].status}.`
+      });
+    }
+
+    // 2. Fetch shift details to detect late arrivals
+    const shiftRes = await client.query(
+      `SELECT s.late_after FROM employees e 
+       LEFT JOIN shifts s ON e.shift_id = s.id 
+       WHERE e.id = $1`,
+      [employeeId]
+    );
+    let status = 'WORKING'; // Initially set status to WORKING since they checked in but have not checked out
+    const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
+    if (nowTime > lateAfter) {
+      status = 'LATE'; // Wait, let's keep status as WORKING for now so they can checkout, or LATE?
+      // Wait! The user says "Present: Employee checked in and checked out. Working: Employee checked in but not checked out."
+      // So if they checked in but did not check out, they are in WORKING status! Let's keep it as WORKING so we can calculate checkout.
+      // Wait, is a late arrival still in WORKING status while working? Yes! A late arrival is WORKING until they checkout, then they become LATE or PRESENT.
+      // Let's use WORKING as the status for all active shifts to make check-out tracking simple!
+      status = 'WORKING';
+    }
+
+    let attendanceId: string;
+
+    if (existing.rows.length > 0) {
+      // Update the ABSENT record to WORKING
+      attendanceId = existing.rows[0].id;
+      await client.query(
+        `UPDATE attendance 
+         SET time = $1, check_in_time = $1, status = $2, remarks = $3, source = 'MOBILE_APP',
+             gps_lat_in = $4, gps_lng_in = $5, device_name = $6, network_type = $7, battery_percentage = $8, face_image_url = $9,
+             created_device = $6, updated_at = NOW()
+         WHERE id = $10`,
+        [
+          nowTime, 
+          status, 
+          remarks || 'Mobile App Check-In', 
+          gps_lat ? parseFloat(gps_lat) : null,
+          gps_lng ? parseFloat(gps_lng) : null,
+          device_name || 'Mobile Device',
+          network_type || 'Unknown',
+          battery_percentage ? parseInt(battery_percentage, 10) : null,
+          face_image_url || null,
+          attendanceId
+        ]
+      );
+    } else {
+      // Insert new record
+      const insertRes = await client.query(
+        `INSERT INTO attendance 
+           (employee_id, date, time, check_in_time, status, remarks, source, 
+            gps_lat_in, gps_lng_in, device_name, network_type, battery_percentage, face_image_url, created_device)
+         VALUES ($1, $2, $3, $3, $4, $5, 'MOBILE_APP', $6, $7, $8, $9, $10, $11, $8)
+         RETURNING id`,
+        [
+          employeeId,
+          today,
+          nowTime,
+          status,
+          remarks || 'Mobile App Check-In',
+          gps_lat ? parseFloat(gps_lat) : null,
+          gps_lng ? parseFloat(gps_lng) : null,
+          device_name || 'Mobile Device',
+          network_type || 'Unknown',
+          battery_percentage ? parseInt(battery_percentage, 10) : null,
+          face_image_url || null
+        ]
+      );
+      attendanceId = insertRes.rows[0].id;
+    }
+
+    // 3. Write audit trail
+    await client.query(
+      `INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address, device_id)
+       VALUES ($1, NULL, NULL, $2, NULL, $3, 'Mobile App Check-In', $4, $5)`,
+      [attendanceId, status, remarks || 'Mobile App Check-In', req.ip || null, device_name || null]
+    );
+
+    await client.query('COMMIT');
+    console.log(`[Mobile App] Employee ${employeeId} checked in successfully at ${nowTime}.`);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Checked in successfully.',
+      attendance: {
+        id: attendanceId,
+        check_in_time: nowTime,
+        status
+      }
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('[Check-In Error] Failed to check in:', error);
+    return res.status(500).json({ success: false, message: 'Check-in failed. Please try again.' });
+  } finally {
+    client.release();
+  }
+};
+
+// POST /attendance/check-out (EMPLOYEE check-out)
+export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
+  const employeeId = req.user?.id;
+  const { gps_lat, gps_lng, remarks } = req.body;
+
+  if (!employeeId) {
+    return res.status(401).json({ success: false, message: 'Employee credentials not found.' });
+  }
+
+  const tz = await getCompanyTimezone();
+  const today = moment().tz(tz).format('YYYY-MM-DD');
+  const nowTime = moment().tz(tz).format('HH:mm:ss');
+
+  const client = await poolProxy.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Get current check-in record
+    const existing = await client.query(
+      'SELECT id, status, check_in_time, time, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
+      [employeeId, today]
+    );
+
+    if (existing.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'No check-in record found for today.' });
+    }
+
+    const record = existing.rows[0];
+
+    if (record.status === 'PRESENT') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Already checked out today.' });
+    }
+
+    if (record.status !== 'WORKING' && record.status !== 'LATE') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: `Cannot check out. Today's status is ${record.status}.` });
+    }
+
+    // 2. Fetch shift details to check if late arrival was present
+    const shiftRes = await client.query(
+      `SELECT s.late_after FROM employees e 
+       LEFT JOIN shifts s ON e.shift_id = s.id 
+       WHERE e.id = $1`,
+      [employeeId]
+    );
+    const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
+    const checkInTime = record.check_in_time || record.time;
+    
+    // Final status becomes LATE if check-in was after shift grace minutes, otherwise PRESENT
+    const finalStatus = checkInTime > lateAfter ? 'LATE' : 'PRESENT';
+
+    // 3. Update the record
+    await client.query(
+      `UPDATE attendance 
+       SET check_out_time = $1, status = $2, remarks = $3,
+           gps_lat_out = $4, gps_lng_out = $5, updated_at = NOW()
+       WHERE id = $6`,
+      [
+        nowTime, 
+        finalStatus, 
+        remarks || 'Mobile App Check-Out', 
+        gps_lat ? parseFloat(gps_lat) : null,
+        gps_lng ? parseFloat(gps_lng) : null,
+        record.id
+      ]
+    );
+
+    // 4. Write audit trail
+    await client.query(
+      `INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address)
+       VALUES ($1, NULL, $2, $3, NULL, $4, 'Mobile App Check-Out', $5)`,
+      [record.id, record.status, finalStatus, remarks || 'Mobile App Check-Out', req.ip || null]
+    );
+
+    await client.query('COMMIT');
+    console.log(`[Mobile App] Employee ${employeeId} checked out successfully at ${nowTime}.`);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Checked out successfully.',
+      attendance: {
+        id: record.id,
+        check_out_time: nowTime,
+        status: finalStatus
+      }
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('[Check-Out Error] Failed to check out:', error);
+    return res.status(500).json({ success: false, message: 'Check-out failed. Please try again.' });
+  } finally {
+    client.release();
+  }
+};
+
+// POST /attendance/correct (Admin correction workflow)
+export const correctAttendance = async (req: AuthRequest, res: Response) => {
+  const { employee_id, date, status, check_in_time, check_out_time, remarks, reason } = req.body;
+  const adminId = req.user?.id;
+
+  if (!employee_id || !date || !status || !reason || reason.trim() === '') {
+    return res.status(400).json({ success: false, message: 'Employee ID, date, status, and correction reason are required.' });
+  }
+
+  const client = await poolProxy.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Get existing record
+    const existing = await client.query(
+      'SELECT id, status, check_in_time, check_out_time, remarks FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
+      [employee_id, date]
+    );
+
+    const now = moment().format('HH:mm:ss');
+    const dbCheckIn = check_in_time || null;
+    const dbCheckOut = check_out_time || null;
+
+    let attendanceId: string;
+
+    if (existing.rows.length === 0) {
+      // Insert new corrected record
+      const insertRes = await client.query(
+        `INSERT INTO attendance 
+          (employee_id, date, time, check_in_time, check_out_time, status, remarks, source, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+         RETURNING id`,
+        [employee_id, date, dbCheckIn || now, dbCheckIn, dbCheckOut, status, remarks || 'Admin Corrected', 'ADMIN_CORRECTION', adminId]
+      );
+      attendanceId = insertRes.rows[0].id;
+
+      // Log audit trail
+      await client.query(
+        `INSERT INTO attendance_audit_logs 
+          (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason)
+         VALUES ($1, $2, 'ABSENT', $3, NULL, $4, $5)`,
+        [attendanceId, adminId, status, remarks || 'Admin Corrected', `Correction: ${reason.trim()}`]
+      );
+    } else {
+      const row = existing.rows[0];
+      attendanceId = row.id;
+
+      // Update record
+      await client.query(
+        `UPDATE attendance 
+         SET status = $1, check_in_time = $2, check_out_time = $3, remarks = $4, updated_by = $5, updated_at = NOW()
+         WHERE id = $6`,
+        [status, dbCheckIn, dbCheckOut, remarks || row.remarks, adminId, attendanceId]
+      );
+
+      // Log audit trail
+      await client.query(
+        `INSERT INTO attendance_audit_logs 
+          (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          attendanceId, 
+          adminId, 
+          row.status, 
+          status, 
+          `In: ${row.check_in_time || '--'}, Out: ${row.check_out_time || '--'}, Remarks: ${row.remarks || '--'}`,
+          `In: ${dbCheckIn || '--'}, Out: ${dbCheckOut || '--'}, Remarks: ${remarks || '--'}`,
+          `Correction: ${reason.trim()}`
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+    return res.status(200).json({ success: true, message: 'Attendance corrected successfully.' });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('[Correction Error] Failed to correct attendance:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Correction failed.' });
+  } finally {
+    client.release();
+  }
+};
+
+// GET /attendance/employee/:id/stats (Monthly stats and analytics)
+export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const monthParam = req.query.month as string; // YYYY-MM
+
+  if (!id) {
+    return res.status(400).json({ success: false, message: 'Employee ID is required.' });
+  }
+
+  // Enforce manager permission
+  if (req.user?.role === 'MANAGER') {
+    const hasPermission = await canManageEmployee(req.user.id, id, 'MANAGER');
+    if (!hasPermission) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+  }
+
+  try {
+    const tz = await getCompanyTimezone();
+    const targetMonth = monthParam || moment().tz(tz).format('YYYY-MM');
+
+    // Parse start and end of month in local time
+    const startOfMonth = moment(targetMonth, 'YYYY-MM').startOf('month');
+    const endOfMonth = moment(targetMonth, 'YYYY-MM').endOf('month');
+    
+    const startStr = startOfMonth.format('YYYY-MM-DD');
+    const endStr = endOfMonth.format('YYYY-MM-DD');
+
+    // 1. Fetch employee details
+    const empRes = await query(
+      `SELECT e.joining_date, s.checkin_start, s.late_after, s.checkout_time
+       FROM employees e
+       LEFT JOIN shifts s ON e.shift_id = s.id
+       WHERE e.id = $1`,
+      [id]
+    );
+    if (empRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+    const employeeInfo = empRes.rows[0];
+    const lateAfterTime = employeeInfo.late_after || '09:15:00';
+
+    // 2. Fetch all attendance logs of the month
+    const logsRes = await query(
+      `SELECT date, COALESCE(check_in_time, time) as check_in_time, check_out_time as check_out, status, remarks
+       FROM attendance
+       WHERE employee_id = $1 AND date >= $2 AND date <= $3 AND is_deleted = FALSE`,
+      [id, startStr, endStr]
+    );
+
+    // 3. Fetch all holidays of the month
+    const holidaysRes = await query(
+      'SELECT date FROM holiday_calendar WHERE date >= $1 AND date <= $2',
+      [startStr, endStr]
+    );
+    const holidayDates = new Set(holidaysRes.rows.map(h => moment(h.date).format('YYYY-MM-DD')));
+
+    // 4. Group logs by date
+    const logsByDate: Record<string, any> = {};
+    logsRes.rows.forEach(row => {
+      const formattedDate = moment(row.date).format('YYYY-MM-DD');
+      logsByDate[formattedDate] = row;
+    });
+
+    let presentDays = 0;
+    let absentDays = 0;
+    let workingDays = 0; // WORKING
+    let holidayDays = 0; // weekends + holidays
+    let lateArrivals = 0;
+    let missedCheckoutCount = 0;
+    let lastAttendanceDate = '';
+
+    const checkInTimesInMinutes: number[] = [];
+    const checkOutTimesInMinutes: number[] = [];
+    let totalWorkingMinutes = 0;
+
+    const workingHoursTrend: { date: string; hours: number }[] = [];
+    const checkInTrend: { date: string; time: string }[] = [];
+    const checkOutTrend: { date: string; time: string }[] = [];
+
+    // Loop through every day of the month
+    const daysInMonth = endOfMonth.date();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = startOfMonth.clone().date(day);
+      const dateStr = currentDate.format('YYYY-MM-DD');
+      const isWeekend = currentDate.day() === 0 || currentDate.day() === 6; // Sat or Sun
+      const isHoliday = holidayDates.has(dateStr);
+
+      const log = logsByDate[dateStr];
+
+      if (log) {
+        const checkIn = log.check_in_time;
+        const checkOut = log.check_out;
+
+        if (log.status === 'WORKING') {
+          workingDays++;
+          lastAttendanceDate = dateStr;
+        } else if (log.status === 'PRESENT' || log.status === 'LATE' || log.status === 'HALF_DAY' || log.status === 'WORK_FROM_HOME' || log.status === 'ON_DUTY') {
+          presentDays++;
+          lastAttendanceDate = dateStr;
+
+          if (checkIn) {
+            const checkInParts = checkIn.split(':');
+            const minutes = parseInt(checkInParts[0]) * 60 + parseInt(checkInParts[1]);
+            checkInTimesInMinutes.push(minutes);
+            checkInTrend.push({ date: dateStr, time: checkIn.substring(0, 5) });
+          }
+
+          if (checkOut) {
+            const checkOutParts = checkOut.split(':');
+            const minutes = parseInt(checkOutParts[0]) * 60 + parseInt(checkOutParts[1]);
+            checkOutTimesInMinutes.push(minutes);
+            checkOutTrend.push({ date: dateStr, time: checkOut.substring(0, 5) });
+          }
+
+          if (checkIn && checkOut) {
+            const start = moment(checkIn, 'HH:mm:ss');
+            const end = moment(checkOut, 'HH:mm:ss');
+            let diffMs = end.diff(start);
+            if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000;
+            const minutes = Math.floor(diffMs / 60000);
+            totalWorkingMinutes += minutes;
+            workingHoursTrend.push({ date: dateStr, hours: parseFloat((minutes / 60).toFixed(2)) });
+          }
+
+          if (checkIn && checkIn > lateAfterTime) {
+            lateArrivals++;
+          }
+        } else if (log.status === 'ABSENT') {
+          absentDays++;
+        } else if (log.status === 'MISSED_CHECKOUT') {
+          missedCheckoutCount++;
+          lastAttendanceDate = dateStr;
+        }
+      } else {
+        // No record exists
+        if (isWeekend || isHoliday) {
+          holidayDays++;
+        } else {
+          // If past today or joining date, it is absent
+          const todayMoment = moment().tz(tz).startOf('day');
+          const joinMoment = moment(employeeInfo.joining_date).startOf('day');
+
+          if (currentDate.isSameOrBefore(todayMoment) && currentDate.isSameOrAfter(joinMoment)) {
+            absentDays++;
+          } else {
+            // Future dates or pre-joining dates are holidays/weekend default
+            holidayDays++;
+          }
+        }
+      }
+    }
+
+    // Helper to format minutes from midnight back to HH:mm A
+    const formatMinutesTo12Hour = (totalMinutes: number): string => {
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = Math.round(totalMinutes % 60);
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const displayHours = hours % 12 || 12;
+      return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+    };
+
+    const avgCheckInMinutes = checkInTimesInMinutes.length > 0 
+      ? checkInTimesInMinutes.reduce((a, b) => a + b, 0) / checkInTimesInMinutes.length 
+      : null;
+    const avgCheckOutMinutes = checkOutTimesInMinutes.length > 0 
+      ? checkOutTimesInMinutes.reduce((a, b) => a + b, 0) / checkOutTimesInMinutes.length 
+      : null;
+
+    const avgCheckInTime = avgCheckInMinutes !== null ? formatMinutesTo12Hour(avgCheckInMinutes) : '--:--';
+    const avgCheckOutTime = avgCheckOutMinutes !== null ? formatMinutesTo12Hour(avgCheckOutMinutes) : '--:--';
+
+    const workingHours = Math.floor(totalWorkingMinutes / 60);
+    const workingMinutes = Math.round(totalWorkingMinutes % 60);
+    const totalWorkingHoursStr = `${workingHours.toString().padStart(2, '0')}h ${workingMinutes.toString().padStart(2, '0')}m`;
+
+    const totalActiveDays = presentDays + absentDays + workingDays + missedCheckoutCount;
+    const monthlyAttendancePercentage = totalActiveDays > 0 
+      ? Math.round(((presentDays + workingDays) / totalActiveDays) * 100) 
+      : 100;
+
+    // Analytics Sufficiency Guard: show analytics only when sufficient data (>= 3 present/working records) exists
+    const sufficientData = (presentDays + workingDays) >= 3;
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        presentDays,
+        absentDays,
+        workingDays,
+        holidays: holidayDays,
+        avgCheckInTime,
+        avgCheckOutTime,
+        totalWorkingHours: totalWorkingHoursStr,
+        lateArrivals,
+        missedCheckoutCount,
+        lastAttendanceDate: lastAttendanceDate ? moment(lastAttendanceDate).format('YYYY-MM-DD') : 'N/A'
+      },
+      analytics: {
+        sufficientData,
+        monthlyAttendancePercentage,
+        workingHoursTrend: sufficientData ? workingHoursTrend : [],
+        checkInTrend: sufficientData ? checkInTrend : [],
+        checkOutTrend: sufficientData ? checkOutTrend : []
+      }
+    });
+  } catch (error) {
+    console.error('[Employee Stats Error] Aggregation failed:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
 
