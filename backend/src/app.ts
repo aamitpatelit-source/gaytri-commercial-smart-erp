@@ -55,35 +55,6 @@ app.use('/api/v1/leaves', leaveRoutes);
 
 
 
-app.get('/api/v1/seed-superadmin', async (req, res) => {
-  try {
-    const bcrypt = require('bcryptjs');
-    const hash = bcrypt.hashSync('sunny7033', 10);
-    const result = await query(`
-      INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
-      VALUES (uuid_generate_v4(), 'gaytricommercial7033@gmail.com', $1, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON CONFLICT (email) DO UPDATE SET
-        password_hash = EXCLUDED.password_hash,
-        role = 'SUPER_ADMIN',
-        is_active = TRUE,
-        must_change_password = FALSE,
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING id, email, role, is_active
-    `, [hash]);
-
-    const allAdmins = await query('SELECT id, email, role, is_active FROM admins');
-
-    return res.status(200).json({
-      success: true,
-      message: 'Super admin seeded/verified on production DB.',
-      seeded: result.rows[0],
-      allAdmins: allAdmins.rows
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message, stack: err.stack });
-  }
-});
-
 app.get(['/api/v1', '/api/v1/health'], (req, res) => {
   res.status(200).json({
     success: true,
