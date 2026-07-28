@@ -118,7 +118,7 @@ export default function EmployeeAttendanceProfilePage() {
   const params = useParams();
   const id = params.id as string;
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'history' | 'summary' | 'analytics' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'history' | 'summary' | 'analytics' | 'reports'>('calendar');
   const [employee, setEmployee] = useState<EmployeeProfile | null>(null);
   const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
@@ -647,7 +647,7 @@ export default function EmployeeAttendanceProfilePage() {
 
       {/* Tabs Navigation */}
       <div className="flex border-b border-slate-800 space-x-6 no-print overflow-x-auto">
-        {(['overview', 'calendar', 'history', 'summary', 'analytics', 'reports'] as const).map((tab) => (
+        {(['calendar', 'history', 'summary', 'analytics', 'reports'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -669,58 +669,7 @@ export default function EmployeeAttendanceProfilePage() {
         </div>
       ) : (
         <div className="tab-contents">
-          {/* TAB 1: OVERVIEW */}
-          {activeTab === 'overview' && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-4">
-                  <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-2">Employment Information</h3>
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <span className="text-slate-500 block">Mobile Phone</span>
-                      <span className="font-semibold text-slate-200">{employee?.mobile || '--'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Joining Date</span>
-                      <span className="font-semibold text-slate-200">{formatDate(employee?.joining_date || '')}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Designation</span>
-                      <span className="font-semibold text-slate-200">{employee?.designation || 'Staff'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">System Role</span>
-                      <span className="font-semibold text-slate-200">{employee?.role || 'EMPLOYEE'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-4">
-                  <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-2">Shift & Management</h3>
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <span className="text-slate-500 block">Assigned Shift</span>
-                      <span className="font-semibold text-cyan-400">{employee?.shift || 'Morning Shift'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Reporting Manager</span>
-                      <span className="font-semibold text-slate-200">{employee?.manager_name || 'Not Assigned'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Current Status</span>
-                      <span className="font-semibold text-emerald-400">{employee?.current_status || 'PRESENT'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">Last Active Date</span>
-                      <span className="font-semibold text-slate-200">{formatDate(employee?.last_attendance_date || '')}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: ATTENDANCE CALENDAR */}
+          {/* TAB 1: ATTENDANCE CALENDAR */}
           {activeTab === 'calendar' && (
             <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-6">
               <div className="flex items-center justify-between">
