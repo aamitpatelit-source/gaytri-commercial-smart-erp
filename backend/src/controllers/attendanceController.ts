@@ -406,7 +406,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
         `SELECT a.date::text as date, COUNT(CASE WHEN a.status IN ('PRESENT', 'LATE', 'HALF_DAY', 'WORK_FROM_HOME', 'ON_DUTY', 'WORKING') THEN 1 END) as present_count
          FROM attendance a
          JOIN employees e ON a.employee_id = e.id
-         WHERE a.date = ANY($1) 
+         WHERE a.date::text = ANY($1) 
            AND a.is_deleted = FALSE
            AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $2)
          GROUP BY a.date`,
@@ -416,7 +416,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
       trendRes = await query(
         `SELECT date::text as date, COUNT(CASE WHEN status IN ('PRESENT', 'LATE', 'HALF_DAY', 'WORK_FROM_HOME', 'ON_DUTY', 'WORKING') THEN 1 END) as present_count
          FROM attendance 
-         WHERE date = ANY($1) AND is_deleted = FALSE
+         WHERE date::text = ANY($1) AND is_deleted = FALSE
          GROUP BY date`,
         [dates]
       );

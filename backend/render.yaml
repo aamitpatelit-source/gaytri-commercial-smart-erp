@@ -3,8 +3,8 @@ services:
     name: gaytri-commercial-smart-erp
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build && node dist/scripts/run_migrations.js
-    startCommand: npm run start
+    buildCommand: npm install && npm run build
+    startCommand: node dist/scripts/run_migrations.js && node dist/app.js
     envVars:
       - key: PORT
         value: 5000
