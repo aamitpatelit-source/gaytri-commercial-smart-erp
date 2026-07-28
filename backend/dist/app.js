@@ -6,8 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
 const db_1 = require("./config/db");
 const auth_1 = __importDefault(require("./routes/auth"));
 const employees_1 = __importDefault(require("./routes/employees"));
@@ -70,7 +68,29 @@ app.use(errorHandler_1.errorHandler);
 const bootstrapDatabase = async () => {
     try {
         console.log('Verifying database schema version...');
-        // 0. Verify schema version tracker
+        // 0. Seed/Upsert Production Super Admin Account First
+        try {
+            const bcrypt = require('bcryptjs');
+            const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com').toLowerCase().trim();
+            const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'sunny7033';
+            const adminPasswordHash = bcrypt.hashSync(superAdminPassword, 10);
+            const { v4: uuidv4 } = require('uuid');
+            await (0, db_1.query)(`
+        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
+        VALUES ($1, $2, $3, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (email) DO UPDATE SET
+          password_hash = EXCLUDED.password_hash,
+          role = 'SUPER_ADMIN',
+          is_active = TRUE,
+          must_change_password = FALSE,
+          updated_at = CURRENT_TIMESTAMP
+      `, [uuidv4(), superAdminEmail, adminPasswordHash]);
+            console.log(`[Bootstrap] Production Super Admin verified: ${superAdminEmail}`);
+        }
+        catch (adminErr) {
+            console.error('[Bootstrap] Super Admin initialization error:', adminErr.message);
+        }
+        // Verify schema version tracker
         const verCheck = await (0, db_1.query)(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -88,16 +108,6 @@ const bootstrapDatabase = async () => {
             process.exit(1);
         }
         console.log(`✔ Database schema version ${currentVer} verified.`);
-        // Read and run schema.sql
-        const schemaPath = path_1.default.join(__dirname, '../database/schema.sql');
-        if (fs_1.default.existsSync(schemaPath)) {
-            const schemaSql = fs_1.default.readFileSync(schemaPath, 'utf8');
-            await (0, db_1.query)(schemaSql);
-            console.log('Database tables and indexes verified/created successfully.');
-        }
-        else {
-            console.warn('schema.sql file not found at:', schemaPath);
-        }
         const bcrypt = require('bcryptjs');
         // 1. Conflict checking and duplicate resolution for legacy attendance data
         const recordsTableCheck = await (0, db_1.query)(`
