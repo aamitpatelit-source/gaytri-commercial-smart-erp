@@ -23,9 +23,7 @@ import {
   Briefcase,
   Edit,
   Trash2,
-  X,
-  Building,
-  UserCheck
+  X
 } from 'lucide-react';
 
 import { API_URL } from '../../../config';
@@ -41,11 +39,8 @@ interface EmployeeProfile {
   is_active: boolean;
   profile_photo_url: string | null;
   department: string | null;
-  department_id: number | null;
   designation: string | null;
-  designation_id: number | null;
   shift: string | null;
-  shift_id: number | null;
   manager_name: string | null;
   manager_id: string | null;
   last_attendance_date: string | null;
@@ -94,11 +89,29 @@ interface AttendanceLog {
   source: string;
 }
 
-interface MetaOption {
-  id: number | string;
-  name: string;
+interface ManagerOption {
+  id: string;
   full_name?: string;
+  name?: string;
 }
+
+const DESIGNATION_OPTIONS = [
+  'Helper',
+  'Machine Operator',
+  'Supervisor',
+  'Production Worker',
+  'Packing Staff',
+  'Loading Staff',
+  'Quality Checker',
+  'Store Keeper',
+  'Electrician',
+  'Technician'
+];
+
+const SHIFT_OPTIONS = [
+  'Morning Shift',
+  'Night Shift'
+];
 
 export default function EmployeeAttendanceProfilePage() {
   const router = useRouter();
@@ -121,19 +134,15 @@ export default function EmployeeAttendanceProfilePage() {
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
 
-  // Lookup options for edit modal
-  const [metaDepts, setMetaDepts] = useState<MetaOption[]>([]);
-  const [metaDesigs, setMetaDesigs] = useState<MetaOption[]>([]);
-  const [metaShifts, setMetaShifts] = useState<MetaOption[]>([]);
-  const [metaManagers, setMetaManagers] = useState<MetaOption[]>([]);
+  // Manager lookup for edit modal
+  const [metaManagers, setMetaManagers] = useState<ManagerOption[]>([]);
 
   // Edit form state
   const [editForm, setEditForm] = useState({
     full_name: '',
     mobile: '',
-    department_id: '',
-    designation_id: '',
-    shift_id: '',
+    designation: 'Machine Operator',
+    shift: 'Morning Shift',
     manager_id: '',
     joining_date: '',
     is_active: true
@@ -205,13 +214,10 @@ export default function EmployeeAttendanceProfilePage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setMetaDepts(data.departments || []);
-        setMetaDesigs(data.designations || []);
-        setMetaShifts(data.shifts || []);
         setMetaManagers(data.managers || []);
       }
     } catch (err) {
-      console.error('Failed to load lookup meta options', err);
+      console.error('Failed to load manager meta options', err);
     }
   };
 
@@ -242,9 +248,8 @@ export default function EmployeeAttendanceProfilePage() {
       setEditForm({
         full_name: empProfile.full_name || '',
         mobile: empProfile.mobile || '',
-        department_id: empProfile.department_id ? String(empProfile.department_id) : '',
-        designation_id: empProfile.designation_id ? String(empProfile.designation_id) : '',
-        shift_id: empProfile.shift_id ? String(empProfile.shift_id) : '',
+        designation: empProfile.designation || 'Machine Operator',
+        shift: empProfile.shift || 'Morning Shift',
         manager_id: empProfile.manager_id || '',
         joining_date: empProfile.joining_date ? empProfile.joining_date.split('T')[0] : '',
         is_active: empProfile.is_active
@@ -369,9 +374,8 @@ export default function EmployeeAttendanceProfilePage() {
         body: JSON.stringify({
           full_name: editForm.full_name.trim(),
           mobile: editForm.mobile.trim(),
-          department_id: editForm.department_id ? parseInt(editForm.department_id, 10) : null,
-          designation_id: editForm.designation_id ? parseInt(editForm.designation_id, 10) : null,
-          shift_id: editForm.shift_id ? parseInt(editForm.shift_id, 10) : null,
+          designation: editForm.designation,
+          shift: editForm.shift,
           manager_id: editForm.manager_id || null,
           joining_date: editForm.joining_date,
           is_active: editForm.is_active
@@ -560,7 +564,7 @@ export default function EmployeeAttendanceProfilePage() {
         </div>
       )}
 
-      {/* 2. Modern Profile Header Card */}
+      {/* Modern Profile Header Card (Without Department) */}
       {employee && (
         <div className="glass-panel p-6 rounded-xl border border-slate-750 shadow-xl relative overflow-hidden flex flex-col lg:flex-row justify-between gap-6 items-start">
           
@@ -589,11 +593,11 @@ export default function EmployeeAttendanceProfilePage() {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-xs text-slate-350 pt-1">
                 <div><span className="text-slate-500">Employee ID:</span> <strong className="text-cyan-400 font-mono">{employee.employee_id}</strong></div>
-                <div><span className="text-slate-500">Department:</span> <strong className="text-slate-200">{employee.department || 'General'}</strong></div>
                 <div><span className="text-slate-500">Designation:</span> <strong className="text-slate-200">{employee.designation || 'Staff'}</strong></div>
                 <div><span className="text-slate-500">Manager:</span> <strong className="text-slate-200">{employee.manager_name || 'Not Assigned'}</strong></div>
-                <div><span className="text-slate-500">Assigned Shift:</span> <strong className="text-slate-200">{employee.shift || 'Default Shift'}</strong></div>
+                <div><span className="text-slate-500">Assigned Shift:</span> <strong className="text-slate-200">{employee.shift || 'Morning Shift'}</strong></div>
                 <div><span className="text-slate-500">Joining Date:</span> <strong className="text-slate-200">{formatDate(employee.joining_date)}</strong></div>
+                <div><span className="text-slate-500">Status:</span> <strong className="text-emerald-400">{employee.current_status || 'PRESENT'}</strong></div>
               </div>
             </div>
           </div>
@@ -681,8 +685,8 @@ export default function EmployeeAttendanceProfilePage() {
                       <span className="font-semibold text-slate-200">{formatDate(employee?.joining_date || '')}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Salary Type</span>
-                      <span className="font-semibold text-slate-200">{employee?.salary_type || 'MONTHLY'}</span>
+                      <span className="text-slate-500 block">Designation</span>
+                      <span className="font-semibold text-slate-200">{employee?.designation || 'Staff'}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 block">System Role</span>
@@ -874,7 +878,9 @@ export default function EmployeeAttendanceProfilePage() {
                 </div>
               )}
 
+              {/* Balanced 2-Column Layout */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
                 {/* Employee ID (Disabled) */}
                 <div>
                   <label className="block text-slate-400 font-bold uppercase text-[10px] tracking-wider mb-1">
@@ -929,53 +935,34 @@ export default function EmployeeAttendanceProfilePage() {
                   />
                 </div>
 
-                {/* Department */}
-                <div>
-                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
-                    Department
-                  </label>
-                  <select
-                    value={editForm.department_id}
-                    onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
-                  >
-                    <option value="">Select Department</option>
-                    {metaDepts.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Designation */}
+                {/* Designation (Predefined Dropdown) */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Designation
                   </label>
                   <select
-                    value={editForm.designation_id}
-                    onChange={e => setEditForm({ ...editForm, designation_id: e.target.value })}
+                    value={editForm.designation}
+                    onChange={e => setEditForm({ ...editForm, designation: e.target.value })}
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
                   >
-                    <option value="">Select Designation</option>
-                    {metaDesigs.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
+                    {DESIGNATION_OPTIONS.map(d => (
+                      <option key={d} value={d}>{d}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Shift */}
+                {/* Shift (Predefined Dropdown) */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Assigned Shift
                   </label>
                   <select
-                    value={editForm.shift_id}
-                    onChange={e => setEditForm({ ...editForm, shift_id: e.target.value })}
+                    value={editForm.shift}
+                    onChange={e => setEditForm({ ...editForm, shift: e.target.value })}
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
                   >
-                    <option value="">Select Shift</option>
-                    {metaShifts.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+                    {SHIFT_OPTIONS.map(s => (
+                      <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
                 </div>
@@ -991,14 +978,18 @@ export default function EmployeeAttendanceProfilePage() {
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
                   >
                     <option value="">Select Manager</option>
-                    {metaManagers.map(m => (
-                      <option key={m.id} value={m.id}>{m.full_name || m.name}</option>
-                    ))}
+                    {metaManagers.length === 0 ? (
+                      <option value="" disabled>No Managers Available</option>
+                    ) : (
+                      metaManagers.map(m => (
+                        <option key={m.id} value={m.id}>{m.full_name || m.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
 
                 {/* Active Status */}
-                <div className="sm:col-span-2 pt-1">
+                <div className="flex items-center pt-5">
                   <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
                     <input
                       type="checkbox"

@@ -98,12 +98,38 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
       requireChange = true;
     }
 
-    // Enforce shift_id resolution (by ID, by name string, or fallback to first shift)
+    // Enforce designation_id resolution (by ID, by name string, or auto-insert)
+    let resolvedDesignationId = designation_id ? parseInt(designation_id, 10) : null;
+    if ((!resolvedDesignationId || isNaN(resolvedDesignationId)) && req.body.designation) {
+      const desigLookup = await client.query('SELECT id FROM designations WHERE name = $1 LIMIT 1', [req.body.designation.trim()]);
+      if (desigLookup.rows.length > 0) {
+        resolvedDesignationId = desigLookup.rows[0].id;
+      } else {
+        const desigIns = await client.query('INSERT INTO designations (name) VALUES ($1) RETURNING id', [req.body.designation.trim()]);
+        resolvedDesignationId = desigIns.rows[0].id;
+      }
+    }
+
+    // Enforce shift_id resolution (by ID, by name string, or fallback)
     let resolvedShiftId = shift_id ? parseInt(shift_id, 10) : null;
     if ((!resolvedShiftId || isNaN(resolvedShiftId)) && req.body.shift) {
-      const shiftLookup = await client.query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift]);
+      const shiftLookup = await client.query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift.trim()]);
       if (shiftLookup.rows.length > 0) {
         resolvedShiftId = shiftLookup.rows[0].id;
+      } else {
+        const isNight = req.body.shift.trim() === 'Night Shift';
+        const shiftIns = await client.query(
+          `INSERT INTO shifts (name, checkin_start, late_after, half_day_after, checkout_time) 
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [
+            req.body.shift.trim(),
+            isNight ? '20:00:00' : '09:00:00',
+            isNight ? '20:15:00' : '09:15:00',
+            isNight ? '00:00:00' : '13:00:00',
+            isNight ? '04:00:00' : '17:00:00'
+          ]
+        );
+        resolvedShiftId = shiftIns.rows[0].id;
       }
     }
     if (!resolvedShiftId || isNaN(resolvedShiftId)) {
@@ -124,7 +150,7 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
         employee_id.trim(),
         full_name.trim(),
         department_id || null,
-        designation_id || null,
+        resolvedDesignationId,
         resolvedShiftId,
         mobile.trim(),
         joiningDate,
@@ -210,11 +236,36 @@ export const updateEmployee = async (req: AuthRequest, res: Response) => {
     const employee = empCheck.rows[0];
     const activeStatus = is_active !== false;
 
+    let resolvedDesignationId = designation_id ? parseInt(designation_id, 10) : null;
+    if ((!resolvedDesignationId || isNaN(resolvedDesignationId)) && req.body.designation) {
+      const desigLookup = await query('SELECT id FROM designations WHERE name = $1 LIMIT 1', [req.body.designation.trim()]);
+      if (desigLookup.rows.length > 0) {
+        resolvedDesignationId = desigLookup.rows[0].id;
+      } else {
+        const desigIns = await query('INSERT INTO designations (name) VALUES ($1) RETURNING id', [req.body.designation.trim()]);
+        resolvedDesignationId = desigIns.rows[0].id;
+      }
+    }
+
     let resolvedShiftId = shift_id ? parseInt(shift_id, 10) : null;
     if ((!resolvedShiftId || isNaN(resolvedShiftId)) && req.body.shift) {
-      const shiftLookup = await query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift]);
+      const shiftLookup = await query('SELECT id FROM shifts WHERE name = $1 LIMIT 1', [req.body.shift.trim()]);
       if (shiftLookup.rows.length > 0) {
         resolvedShiftId = shiftLookup.rows[0].id;
+      } else {
+        const isNight = req.body.shift.trim() === 'Night Shift';
+        const shiftIns = await query(
+          `INSERT INTO shifts (name, checkin_start, late_after, half_day_after, checkout_time) 
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [
+            req.body.shift.trim(),
+            isNight ? '20:00:00' : '09:00:00',
+            isNight ? '20:15:00' : '09:15:00',
+            isNight ? '00:00:00' : '13:00:00',
+            isNight ? '04:00:00' : '17:00:00'
+          ]
+        );
+        resolvedShiftId = shiftIns.rows[0].id;
       }
     }
 
@@ -230,7 +281,7 @@ export const updateEmployee = async (req: AuthRequest, res: Response) => {
     let params: any[] = [
       full_name.trim(),
       department_id || null,
-      designation_id || null,
+      resolvedDesignationId,
       resolvedShiftId,
       mobile.trim(),
       activeStatus,

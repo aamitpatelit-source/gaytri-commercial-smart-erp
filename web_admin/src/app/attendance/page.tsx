@@ -8,17 +8,8 @@ import {
   ChevronRight, 
   RefreshCw, 
   UserPlus, 
-  UserCheck, 
-  UserX, 
-  Clock, 
   AlertCircle,
   X,
-  Briefcase,
-  Building,
-  User,
-  Calendar,
-  Phone,
-  ShieldCheck,
   CheckCircle
 } from 'lucide-react';
 
@@ -47,11 +38,29 @@ interface AttendanceStatus {
   date: string;
 }
 
-interface MetaOption {
-  id: number | string;
-  name: string;
+interface ManagerOption {
+  id: string;
   full_name?: string;
+  name?: string;
 }
+
+const DESIGNATION_OPTIONS = [
+  'Helper',
+  'Machine Operator',
+  'Supervisor',
+  'Production Worker',
+  'Packing Staff',
+  'Loading Staff',
+  'Quality Checker',
+  'Store Keeper',
+  'Electrician',
+  'Technician'
+];
+
+const SHIFT_OPTIONS = [
+  'Morning Shift',
+  'Night Shift'
+];
 
 export default function EmployeeAttendanceDirectoryPage() {
   const router = useRouter();
@@ -61,7 +70,6 @@ export default function EmployeeAttendanceDirectoryPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDept, setSelectedDept] = useState('All');
   const [selectedShift, setSelectedShift] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [error, setError] = useState('');
@@ -72,20 +80,16 @@ export default function EmployeeAttendanceDirectoryPage() {
   const [modalError, setModalError] = useState('');
   const [modalSuccess, setModalSuccess] = useState('');
 
-  // Dropdown Lookups
-  const [metaDepts, setMetaDepts] = useState<MetaOption[]>([]);
-  const [metaDesigs, setMetaDesigs] = useState<MetaOption[]>([]);
-  const [metaShifts, setMetaShifts] = useState<MetaOption[]>([]);
-  const [metaManagers, setMetaManagers] = useState<MetaOption[]>([]);
+  // Dynamic Manager Lookup
+  const [metaManagers, setMetaManagers] = useState<ManagerOption[]>([]);
 
   // Add Form State
   const [formData, setFormData] = useState({
     employee_id: '',
     full_name: '',
     mobile: '',
-    department_id: '',
-    designation_id: '',
-    shift_id: '',
+    designation: 'Machine Operator',
+    shift: 'Morning Shift',
     manager_id: '',
     joining_date: new Date().toISOString().split('T')[0]
   });
@@ -105,13 +109,10 @@ export default function EmployeeAttendanceDirectoryPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setMetaDepts(data.departments || []);
-        setMetaDesigs(data.designations || []);
-        setMetaShifts(data.shifts || []);
         setMetaManagers(data.managers || []);
       }
     } catch (err) {
-      console.error('Failed to load lookup meta options', err);
+      console.error('Failed to load manager meta options', err);
     }
   };
 
@@ -238,9 +239,8 @@ export default function EmployeeAttendanceDirectoryPage() {
           employee_id: formData.employee_id.trim(),
           full_name: formData.full_name.trim(),
           mobile: formData.mobile.trim(),
-          department_id: formData.department_id ? parseInt(formData.department_id, 10) : null,
-          designation_id: formData.designation_id ? parseInt(formData.designation_id, 10) : null,
-          shift_id: formData.shift_id ? parseInt(formData.shift_id, 10) : null,
+          designation: formData.designation,
+          shift: formData.shift,
           manager_id: formData.manager_id || null,
           joining_date: formData.joining_date
         })
@@ -259,9 +259,8 @@ export default function EmployeeAttendanceDirectoryPage() {
           employee_id: '',
           full_name: '',
           mobile: '',
-          department_id: '',
-          designation_id: '',
-          shift_id: '',
+          designation: 'Machine Operator',
+          shift: 'Morning Shift',
           manager_id: '',
           joining_date: new Date().toISOString().split('T')[0]
         });
@@ -273,10 +272,6 @@ export default function EmployeeAttendanceDirectoryPage() {
       setSubmitting(false);
     }
   };
-
-  // Unique departments and shifts from employee data
-  const departments = Array.from(new Set(employees.map(e => e.department).filter(Boolean)));
-  const shifts = Array.from(new Set(employees.map(e => e.shift).filter(Boolean)));
 
   const formatTime = (timeStr: string | null) => {
     if (!timeStr) return '--:--';
@@ -299,10 +294,8 @@ export default function EmployeeAttendanceDirectoryPage() {
     const matchesSearch = 
       emp.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       emp.employee_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (emp.department && emp.department.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (emp.designation && emp.designation.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const matchesDept = selectedDept === 'All' || emp.department === selectedDept;
     const matchesShift = selectedShift === 'All' || emp.shift === selectedShift;
 
     const todayLog = attendance[emp.id];
@@ -310,7 +303,7 @@ export default function EmployeeAttendanceDirectoryPage() {
       (selectedStatus === 'ABSENT' && !todayLog) ||
       (todayLog && todayLog.status === selectedStatus);
 
-    return matchesSearch && matchesDept && matchesShift && matchesStatus;
+    return matchesSearch && matchesShift && matchesStatus;
   });
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
@@ -369,31 +362,19 @@ export default function EmployeeAttendanceDirectoryPage() {
 
       {/* Filter Toolbar */}
       <div className="glass-panel p-4 rounded-xl border border-slate-800 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           
           {/* Search Box */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Search Name, ID, Dept..."
+              placeholder="Search Name, ID, Designation..."
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="w-full pl-9 pr-4 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition-colors"
             />
           </div>
-
-          {/* Department Filter */}
-          <select
-            value={selectedDept}
-            onChange={(e) => { setSelectedDept(e.target.value); setCurrentPage(1); }}
-            className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 transition-colors"
-          >
-            <option value="All">All Departments</option>
-            {departments.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
 
           {/* Shift Filter */}
           <select
@@ -402,9 +383,8 @@ export default function EmployeeAttendanceDirectoryPage() {
             className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 transition-colors"
           >
             <option value="All">All Shifts</option>
-            {shifts.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
+            <option value="Morning Shift">Morning Shift</option>
+            <option value="Night Shift">Night Shift</option>
           </select>
 
           {/* Status Filter */}
@@ -430,7 +410,7 @@ export default function EmployeeAttendanceDirectoryPage() {
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/40">
                 <th className="px-4 py-3.5">Employee Info</th>
-                <th className="px-4 py-3.5">Department & Shift</th>
+                <th className="px-4 py-3.5">Designation & Shift</th>
                 <th className="px-4 py-3.5">Reporting Manager</th>
                 <th className="px-4 py-3.5">Today Status</th>
                 <th className="px-4 py-3.5">Check-In</th>
@@ -487,10 +467,10 @@ export default function EmployeeAttendanceDirectoryPage() {
                         </div>
                       </td>
 
-                      {/* Department & Shift */}
+                      {/* Designation & Shift */}
                       <td className="px-4 py-3">
-                        <span className="font-semibold text-slate-200 block">{emp.department || 'General'}</span>
-                        <span className="text-[10px] text-slate-450 block">{emp.designation || 'Staff'} • {emp.shift || 'Default'}</span>
+                        <span className="font-semibold text-slate-200 block">{emp.designation || 'Staff'}</span>
+                        <span className="text-[10px] text-slate-450 block">{emp.shift || 'Morning Shift'}</span>
                       </td>
 
                       {/* Reporting Manager */}
@@ -608,8 +588,10 @@ export default function EmployeeAttendanceDirectoryPage() {
                 </div>
               )}
 
+              {/* Balanced 2-Column Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Employee ID */}
+                
+                {/* Row 1: Employee ID */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Employee ID <span className="text-rose-400">*</span>
@@ -624,7 +606,7 @@ export default function EmployeeAttendanceDirectoryPage() {
                   />
                 </div>
 
-                {/* Employee Name */}
+                {/* Row 1: Employee Name */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Full Name <span className="text-rose-400">*</span>
@@ -639,7 +621,7 @@ export default function EmployeeAttendanceDirectoryPage() {
                   />
                 </div>
 
-                {/* Mobile Number */}
+                {/* Row 2: Mobile Number */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Mobile Number <span className="text-rose-400">*</span>
@@ -654,7 +636,7 @@ export default function EmployeeAttendanceDirectoryPage() {
                   />
                 </div>
 
-                {/* Joining Date */}
+                {/* Row 2: Joining Date */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Joining Date
@@ -667,59 +649,40 @@ export default function EmployeeAttendanceDirectoryPage() {
                   />
                 </div>
 
-                {/* Department */}
-                <div>
-                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
-                    Department
-                  </label>
-                  <select
-                    value={formData.department_id}
-                    onChange={e => setFormData({ ...formData, department_id: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
-                  >
-                    <option value="">Select Department</option>
-                    {metaDepts.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Designation */}
+                {/* Row 3: Designation (Predefined Dropdown) */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Designation
                   </label>
                   <select
-                    value={formData.designation_id}
-                    onChange={e => setFormData({ ...formData, designation_id: e.target.value })}
+                    value={formData.designation}
+                    onChange={e => setFormData({ ...formData, designation: e.target.value })}
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
                   >
-                    <option value="">Select Designation</option>
-                    {metaDesigs.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
+                    {DESIGNATION_OPTIONS.map(d => (
+                      <option key={d} value={d}>{d}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Shift */}
+                {/* Row 3: Assigned Shift (Predefined Dropdown) */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Assigned Shift
                   </label>
                   <select
-                    value={formData.shift_id}
-                    onChange={e => setFormData({ ...formData, shift_id: e.target.value })}
+                    value={formData.shift}
+                    onChange={e => setFormData({ ...formData, shift: e.target.value })}
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
                   >
-                    <option value="">Select Shift</option>
-                    {metaShifts.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+                    {SHIFT_OPTIONS.map(s => (
+                      <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Reporting Manager */}
-                <div>
+                {/* Row 4: Reporting Manager (Full Width) */}
+                <div className="sm:col-span-2">
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Reporting Manager
                   </label>
@@ -729,11 +692,16 @@ export default function EmployeeAttendanceDirectoryPage() {
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
                   >
                     <option value="">Select Manager</option>
-                    {metaManagers.map(m => (
-                      <option key={m.id} value={m.id}>{m.full_name || m.name}</option>
-                    ))}
+                    {metaManagers.length === 0 ? (
+                      <option value="" disabled>No Managers Available</option>
+                    ) : (
+                      metaManagers.map(m => (
+                        <option key={m.id} value={m.id}>{m.full_name || m.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
+
               </div>
 
               {/* Form Buttons */}
