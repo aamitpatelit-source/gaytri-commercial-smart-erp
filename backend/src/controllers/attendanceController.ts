@@ -1130,7 +1130,7 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
       `SELECT e.joining_date, s.checkin_start, s.late_after, s.checkout_time
        FROM employees e
        LEFT JOIN shifts s ON e.shift_id = s.id
-       WHERE e.id = $1`,
+       WHERE e.id::text = $1 OR e.employee_id = $1`,
       [id]
     );
     if (empRes.rows.length === 0) {
@@ -1139,13 +1139,14 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
     const employeeInfo = empRes.rows[0];
     const lateAfterTime = employeeInfo.late_after || '09:15:00';
 
-    // 2. Fetch all attendance logs of the month
+    // 2. Fetch all attendance logs of the month (mirrors getAttendanceHistory dataset)
     const logsRes = await query(
-      `SELECT date, COALESCE(check_in_time, time) as check_in_time, check_out_time as check_out, status, remarks
-       FROM attendance
-       WHERE (employee_id = $1 OR employee_id IN (SELECT employee_id FROM employees WHERE id::text = $1 OR employee_id = $1))
-         AND date >= $2 AND date <= $3 
-         AND (is_deleted = FALSE OR is_deleted IS NULL)`,
+      `SELECT a.id, a.date, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks
+       FROM attendance a
+       JOIN employees e ON (a.employee_id = e.id::text OR a.employee_id = e.employee_id)
+       WHERE (e.id::text = $1 OR e.employee_id = $1)
+         AND a.date >= $2 AND a.date <= $3 
+         AND (a.is_deleted = FALSE OR a.is_deleted IS NULL)`,
       [id, startStr, endStr]
     );
 
@@ -1156,10 +1157,12 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
     );
     const holidayDates = new Set(holidaysRes.rows.map(h => moment(h.date).format('YYYY-MM-DD')));
 
-    // 4. Group logs by date
+    // 4. Group logs by date safely without UTC timezone shift
     const logsByDate: Record<string, any> = {};
     logsRes.rows.forEach(row => {
-      const formattedDate = moment(row.date).format('YYYY-MM-DD');
+      const formattedDate = typeof row.date === 'string'
+        ? row.date.split('T')[0]
+        : moment(row.date).format('YYYY-MM-DD');
       logsByDate[formattedDate] = row;
     });
 
@@ -1297,6 +1300,19 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
       missedCheckoutCount,
       lastAttendanceDate: lastAttendanceDate ? moment(lastAttendanceDate).format('YYYY-MM-DD') : 'N/A'
     };
+
+    // Diagnostics Logging (Retained for Verification)
+    console.log("Employee:", id);
+    console.log("Selected Month:", targetMonth);
+    console.log("Attendance Records Fetched Count:", logsRes.rows.length);
+    console.log("Attendance Records:", logsRes.rows);
+    console.log("Summary Calculation Result:", {
+      presentDays,
+      absentDays,
+      workingDays,
+      totalWorkingHours: totalWorkingHoursStr
+    });
+    console.log("Final Stats Payload:", summaryPayload);
 
     return res.status(200).json({
       success: true,

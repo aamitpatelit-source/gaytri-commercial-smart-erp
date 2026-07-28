@@ -965,25 +965,28 @@ const getEmployeeStats = async (req, res) => {
         const empRes = await (0, db_1.query)(`SELECT e.joining_date, s.checkin_start, s.late_after, s.checkout_time
        FROM employees e
        LEFT JOIN shifts s ON e.shift_id = s.id
-       WHERE e.id = $1`, [id]);
+       WHERE e.id::text = $1 OR e.employee_id = $1`, [id]);
         if (empRes.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Employee not found.' });
         }
         const employeeInfo = empRes.rows[0];
         const lateAfterTime = employeeInfo.late_after || '09:15:00';
-        // 2. Fetch all attendance logs of the month
-        const logsRes = await (0, db_1.query)(`SELECT date, COALESCE(check_in_time, time) as check_in_time, check_out_time as check_out, status, remarks
-       FROM attendance
-       WHERE (employee_id = $1 OR employee_id IN (SELECT employee_id FROM employees WHERE id::text = $1 OR employee_id = $1))
-         AND date >= $2 AND date <= $3 
-         AND (is_deleted = FALSE OR is_deleted IS NULL)`, [id, startStr, endStr]);
+        // 2. Fetch all attendance logs of the month (mirrors getAttendanceHistory dataset)
+        const logsRes = await (0, db_1.query)(`SELECT a.id, a.date, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks
+       FROM attendance a
+       JOIN employees e ON (a.employee_id = e.id::text OR a.employee_id = e.employee_id)
+       WHERE (e.id::text = $1 OR e.employee_id = $1)
+         AND a.date >= $2 AND a.date <= $3 
+         AND (a.is_deleted = FALSE OR a.is_deleted IS NULL)`, [id, startStr, endStr]);
         // 3. Fetch all holidays of the month
         const holidaysRes = await (0, db_1.query)('SELECT date FROM holiday_calendar WHERE date >= $1 AND date <= $2', [startStr, endStr]);
         const holidayDates = new Set(holidaysRes.rows.map(h => (0, moment_timezone_1.default)(h.date).format('YYYY-MM-DD')));
-        // 4. Group logs by date
+        // 4. Group logs by date safely without UTC timezone shift
         const logsByDate = {};
         logsRes.rows.forEach(row => {
-            const formattedDate = (0, moment_timezone_1.default)(row.date).format('YYYY-MM-DD');
+            const formattedDate = typeof row.date === 'string'
+                ? row.date.split('T')[0]
+                : (0, moment_timezone_1.default)(row.date).format('YYYY-MM-DD');
             logsByDate[formattedDate] = row;
         });
         let presentDays = 0;
@@ -1108,6 +1111,18 @@ const getEmployeeStats = async (req, res) => {
             missedCheckoutCount,
             lastAttendanceDate: lastAttendanceDate ? (0, moment_timezone_1.default)(lastAttendanceDate).format('YYYY-MM-DD') : 'N/A'
         };
+        // Diagnostics Logging (Retained for Verification)
+        console.log("Employee:", id);
+        console.log("Selected Month:", targetMonth);
+        console.log("Attendance Records Fetched Count:", logsRes.rows.length);
+        console.log("Attendance Records:", logsRes.rows);
+        console.log("Summary Calculation Result:", {
+            presentDays,
+            absentDays,
+            workingDays,
+            totalWorkingHours: totalWorkingHoursStr
+        });
+        console.log("Final Stats Payload:", summaryPayload);
         return res.status(200).json({
             success: true,
             summary: summaryPayload,
