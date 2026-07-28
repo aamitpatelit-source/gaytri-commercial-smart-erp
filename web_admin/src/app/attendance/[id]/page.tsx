@@ -46,19 +46,6 @@ interface EmployeeProfile {
   todays_check_out: string | null;
 }
 
-interface MonthlySummary {
-  presentDays: number;
-  absentDays: number;
-  workingDays: number;
-  holidays: number;
-  avgCheckInTime: string;
-  avgCheckOutTime: string;
-  totalWorkingHours: string;
-  lateArrivals: number;
-  missedCheckoutCount: number;
-  lastAttendanceDate: string;
-}
-
 interface AttendanceLog {
   id: string;
   date: string;
@@ -107,9 +94,8 @@ export default function EmployeeAttendanceProfilePage() {
   const params = useParams();
   const id = params.id as string;
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'history' | 'summary'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'history'>('calendar');
   const [employee, setEmployee] = useState<EmployeeProfile | null>(null);
-  const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -247,14 +233,7 @@ export default function EmployeeAttendanceProfilePage() {
         is_active: empProfile.is_active
       });
 
-      // 2. Fetch Monthly Summary & Analytics
-      const summaryRes = await fetch(`${API_URL}/attendance/employee/${id}/stats?month=${targetMonth}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (summaryRes.ok) {
-        const statsData = await summaryRes.json();
-        setSummary(statsData.summary || statsData.monthlySummary || null);
-      }
+
 
       // 3. Fetch Attendance History Logs
       const [year, month] = targetMonth.split('-');
@@ -714,7 +693,7 @@ export default function EmployeeAttendanceProfilePage() {
 
       {/* Tabs Navigation */}
       <div className="flex border-b border-slate-800 space-x-6 no-print overflow-x-auto">
-        {(['calendar', 'history', 'summary'] as const).map((tab) => (
+        {(['calendar', 'history'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -859,23 +838,7 @@ export default function EmployeeAttendanceProfilePage() {
             </div>
           )}
 
-          {/* TAB 4: MONTHLY SUMMARY */}
-          {activeTab === 'summary' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="glass-panel p-6 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Present Days</span>
-                <h4 className="text-3xl font-extrabold text-emerald-400 mt-2 font-mono">{summary?.presentDays || 0}</h4>
-              </div>
-              <div className="glass-panel p-6 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Absent Days</span>
-                <h4 className="text-3xl font-extrabold text-rose-400 mt-2 font-mono">{summary?.absentDays || 0}</h4>
-              </div>
-              <div className="glass-panel p-6 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Total Working Hours</span>
-                <h4 className="text-3xl font-extrabold text-cyan-400 mt-2 font-mono">{summary?.totalWorkingHours || '0h'}</h4>
-              </div>
-            </div>
-          )}
+
 
 
 
