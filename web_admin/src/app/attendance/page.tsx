@@ -90,6 +90,7 @@ export default function EmployeeAttendanceDirectoryPage() {
     mobile: '',
     designation: 'Machine Operator',
     shift: 'Morning Shift',
+    monthly_salary: '',
     manager_id: '',
     joining_date: new Date().toISOString().split('T')[0]
   });
@@ -241,6 +242,7 @@ export default function EmployeeAttendanceDirectoryPage() {
           mobile: formData.mobile.trim(),
           designation: formData.designation,
           shift: formData.shift,
+          monthly_salary: formData.monthly_salary,
           manager_id: formData.manager_id || null,
           joining_date: formData.joining_date
         })
@@ -261,6 +263,7 @@ export default function EmployeeAttendanceDirectoryPage() {
           mobile: '',
           designation: 'Machine Operator',
           shift: 'Morning Shift',
+          monthly_salary: '',
           manager_id: '',
           joining_date: new Date().toISOString().split('T')[0]
         });
@@ -681,7 +684,24 @@ export default function EmployeeAttendanceDirectoryPage() {
                   </select>
                 </div>
 
-                {/* Row 4: Reporting Manager (Full Width) */}
+                {/* Row 4: Monthly Salary (₹) (Full Width) */}
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Monthly Salary (₹) <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 12000, 15000, 18000"
+                    required
+                    value={formData.monthly_salary}
+                    onChange={e => setFormData({ ...formData, monthly_salary: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-mono"
+                  />
+                </div>
+
+                {/* Row 5: Reporting Manager (Full Width) */}
                 <div className="sm:col-span-2">
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
                     Reporting Manager
