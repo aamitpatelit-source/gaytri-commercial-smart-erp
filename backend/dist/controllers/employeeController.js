@@ -48,6 +48,7 @@ const getEmployees = async (req, res) => {
     try {
         let queryStr = `
        SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
+              COALESCE(e.profile_image_url, e.profile_photo_url) as profile_image_url, COALESCE(e.profile_photo_url, e.profile_image_url) as profile_photo_url,
               e.require_password_change, e.created_at, e.updated_at,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,
@@ -83,7 +84,8 @@ const getEmployees = async (req, res) => {
 exports.getEmployees = getEmployees;
 // Create a new employee
 const createEmployee = async (req, res) => {
-    const { employee_id, full_name, department_id, designation_id, shift_id, mobile, joining_date, salary_type, monthly_salary, password, is_active, manager_id, } = req.body;
+    const { employee_id, full_name, department_id, designation_id, shift_id, mobile, joining_date, salary_type, monthly_salary, profile_photo_url, profile_image_url, password, is_active, manager_id, } = req.body;
+    const imageUrl = profile_image_url || profile_photo_url || null;
     if (!employee_id || !full_name || !mobile) {
         return res.status(400).json({ success: false, message: 'Missing required information (employee_id, full_name, mobile)' });
     }
@@ -154,10 +156,10 @@ const createEmployee = async (req, res) => {
         }
         const empResult = await client.query(`INSERT INTO employees (
         employee_id, full_name, department_id, designation_id, shift_id, mobile,
-        joining_date, salary_type, monthly_salary, role, password_hash, is_active, require_password_change
+        joining_date, salary_type, monthly_salary, profile_photo_url, profile_image_url, role, password_hash, is_active, require_password_change
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'EMPLOYEE', $10, $11, $12)
-       RETURNING id, employee_id, full_name, is_active, monthly_salary`, [
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'EMPLOYEE', $12, $13, $14)
+       RETURNING id, employee_id, full_name, is_active, monthly_salary, profile_photo_url, profile_image_url`, [
             employee_id.trim(),
             full_name.trim(),
             department_id || null,
@@ -167,6 +169,8 @@ const createEmployee = async (req, res) => {
             joiningDate,
             salaryType,
             monthlySalary,
+            imageUrl,
+            imageUrl,
             finalHash,
             activeStatus,
             requireChange,
@@ -280,6 +284,13 @@ const updateEmployee = async (req, res) => {
             updateFields.push(`monthly_salary = $${count++}`);
             params.push(parseFloat(req.body.monthly_salary) || 0.00);
         }
+        if (req.body.profile_photo_url !== undefined || req.body.profile_image_url !== undefined) {
+            const imgVal = req.body.profile_image_url !== undefined ? req.body.profile_image_url : req.body.profile_photo_url;
+            updateFields.push(`profile_photo_url = $${count++}`);
+            params.push(imgVal || null);
+            updateFields.push(`profile_image_url = $${count++}`);
+            params.push(imgVal || null);
+        }
         if (password && password.trim() !== '') {
             const hash = await bcryptjs_1.default.hash(password, 10);
             updateFields.push(`password_hash = $${count++}`);
@@ -354,7 +365,8 @@ const getEmployeeById = async (req, res) => {
             }
         }
         const employeeRes = await (0, db_1.query)(`SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
-              e.profile_photo_url,
+              COALESCE(e.profile_image_url, e.profile_photo_url) as profile_image_url,
+              COALESCE(e.profile_photo_url, e.profile_image_url) as profile_photo_url,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,
               s.name as shift, s.id as shift_id,

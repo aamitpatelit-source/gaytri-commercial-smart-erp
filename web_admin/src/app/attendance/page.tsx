@@ -10,7 +10,10 @@ import {
   UserPlus, 
   AlertCircle,
   X,
-  CheckCircle
+  CheckCircle,
+  Camera,
+  User,
+  Trash2
 } from 'lucide-react';
 
 import { API_URL } from '../../config';
@@ -26,7 +29,9 @@ interface Employee {
   designation: string;
   shift: string;
   reporting_manager: string | null;
+  monthly_salary?: string | number;
   profile_photo_url: string | null;
+  profile_image_url?: string | null;
 }
 
 interface AttendanceStatus {
@@ -91,9 +96,41 @@ export default function EmployeeAttendanceDirectoryPage() {
     designation: 'Machine Operator',
     shift: 'Morning Shift',
     monthly_salary: '',
+    profile_photo_url: '',
+    profile_image_url: '',
     manager_id: '',
     joining_date: new Date().toISOString().split('T')[0]
   });
+
+  const validateAndReadImageFile = (
+    file: File,
+    onSuccess: (dataUrl: string) => void,
+    onError: (msg: string) => void
+  ) => {
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
+    const fileName = file.name.toLowerCase();
+    const hasValidExt = validExts.some(ext => fileName.endsWith(ext));
+
+    if (!validTypes.includes(file.type) && !hasValidExt) {
+      onError('Invalid file format. Only JPG, PNG, and WEBP images are allowed.');
+      return;
+    }
+
+    const maxSize = 2 * 1024 * 1024; // 2 MB
+    if (file.size > maxSize) {
+      onError('File size exceeds 2 MB limit. Please select a smaller file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        onSuccess(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -243,6 +280,8 @@ export default function EmployeeAttendanceDirectoryPage() {
           designation: formData.designation,
           shift: formData.shift,
           monthly_salary: formData.monthly_salary,
+          profile_photo_url: formData.profile_photo_url || formData.profile_image_url || null,
+          profile_image_url: formData.profile_image_url || formData.profile_photo_url || null,
           manager_id: formData.manager_id || null,
           joining_date: formData.joining_date
         })
@@ -264,6 +303,8 @@ export default function EmployeeAttendanceDirectoryPage() {
           designation: 'Machine Operator',
           shift: 'Morning Shift',
           monthly_salary: '',
+          profile_photo_url: '',
+          profile_image_url: '',
           manager_id: '',
           joining_date: new Date().toISOString().split('T')[0]
         });
@@ -447,9 +488,9 @@ export default function EmployeeAttendanceDirectoryPage() {
                       {/* Employee Photo & Name (Clickable Name) */}
                       <td className="px-4 py-3 font-medium">
                         <div className="flex items-center space-x-3">
-                          {emp.profile_photo_url ? (
+                          {emp.profile_photo_url || emp.profile_image_url ? (
                             <img 
-                              src={emp.profile_photo_url} 
+                              src={emp.profile_photo_url || emp.profile_image_url!} 
                               alt={emp.full_name} 
                               className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0" 
                             />
@@ -590,6 +631,59 @@ export default function EmployeeAttendanceDirectoryPage() {
                   <span>{modalSuccess}</span>
                 </div>
               )}
+
+              {/* Profile Picture Uploader */}
+              <div className="flex items-center space-x-4 p-3 bg-slate-950/60 border border-slate-800 rounded-xl mb-4">
+                <div className="relative shrink-0">
+                  {formData.profile_photo_url || formData.profile_image_url ? (
+                    <img
+                      src={formData.profile_photo_url || formData.profile_image_url}
+                      alt="Preview"
+                      className="w-14 h-14 rounded-full object-cover border-2 border-cyan-500/50 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-slate-900 border-2 border-slate-700 flex items-center justify-center text-cyan-400 font-bold text-lg shadow-inner">
+                      {formData.full_name ? formData.full_name.charAt(0).toUpperCase() : <User className="w-7 h-7 text-slate-400" />}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 flex-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Profile Picture (JPG, PNG, WEBP max 2MB)</span>
+                  <div className="flex items-center space-x-2">
+                    <label className="px-3 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 hover:bg-cyan-900/40 text-cyan-300 font-bold text-[11px] cursor-pointer transition-colors inline-flex items-center space-x-1">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{formData.profile_photo_url || formData.profile_image_url ? 'Change Photo' : 'Upload Photo'}</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            validateAndReadImageFile(
+                              file,
+                              (url) => setFormData(prev => ({ ...prev, profile_photo_url: url, profile_image_url: url })),
+                              (err) => setModalError(err)
+                            );
+                          }
+                        }}
+                      />
+                    </label>
+
+                    {(formData.profile_photo_url || formData.profile_image_url) && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, profile_photo_url: '', profile_image_url: '' }))}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-950/40 border border-rose-500/30 hover:bg-rose-900/40 text-rose-400 font-semibold text-[11px] transition-colors flex items-center space-x-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {/* Balanced 2-Column Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

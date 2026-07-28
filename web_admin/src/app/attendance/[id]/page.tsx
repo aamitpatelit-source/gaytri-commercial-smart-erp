@@ -35,6 +35,7 @@ interface EmployeeProfile {
   role: string;
   is_active: boolean;
   profile_photo_url: string | null;
+  profile_image_url?: string | null;
   department: string | null;
   designation: string | null;
   shift: string | null;
@@ -615,9 +616,9 @@ export default function EmployeeAttendanceProfilePage() {
         <div className="glass-panel p-6 rounded-xl border border-slate-750 shadow-xl relative overflow-hidden flex flex-col lg:flex-row justify-between gap-6 items-start">
           
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 w-full lg:w-auto">
-            {employee.profile_photo_url ? (
+            {employee.profile_photo_url || employee.profile_image_url ? (
               <img 
-                src={employee.profile_photo_url} 
+                src={employee.profile_photo_url || employee.profile_image_url!} 
                 alt={employee.full_name} 
                 className="w-24 h-24 rounded-2xl border-2 border-slate-700 object-cover shadow-lg shrink-0"
               />

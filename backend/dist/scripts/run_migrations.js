@@ -136,6 +136,25 @@ async function runMigrations() {
             await client.query('COMMIT');
             console.log('[Migration Runner] Migration v4 committed successfully.');
         }
+        // --- MIGRATION V5: Employee Profile Picture URL Alignment ---
+        if (currentVer < 5) {
+            console.log('[Migration Runner] Starting Migration v5: Employee Profile Picture Columns...');
+            await client.query('BEGIN');
+            await client.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'profile_photo_url') THEN
+            ALTER TABLE employees ADD COLUMN profile_photo_url TEXT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'profile_image_url') THEN
+            ALTER TABLE employees ADD COLUMN profile_image_url TEXT;
+          END IF;
+        END $$;
+      `);
+            await client.query('INSERT INTO schema_migrations (version) VALUES (5);');
+            await client.query('COMMIT');
+            console.log('[Migration Runner] Migration v5 committed successfully.');
+        }
         console.log('[Migration Runner] All database migrations completed cleanly.');
     }
     catch (err) {

@@ -10,7 +10,9 @@ import {
   X, 
   AlertTriangle,
   CheckCircle,
-  RefreshCw
+  RefreshCw,
+  Camera,
+  User
 } from 'lucide-react';
 import { API_URL } from '../../config';
 
@@ -22,6 +24,8 @@ interface Employee {
   shift_id?: number | string;
   mobile: string;
   monthly_salary?: number | string;
+  profile_photo_url?: string | null;
+  profile_image_url?: string | null;
   is_active: boolean;
 }
 
@@ -60,9 +64,41 @@ export default function EmployeesPage() {
     shift: 'Morning Shift',
     mobile: '',
     monthly_salary: '',
+    profile_photo_url: '',
+    profile_image_url: '',
     is_active: true,
     manager_id: '',
   });
+
+  const validateAndReadImageFile = (
+    file: File,
+    onSuccess: (dataUrl: string) => void,
+    onError: (msg: string) => void
+  ) => {
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
+    const fileName = file.name.toLowerCase();
+    const hasValidExt = validExts.some(ext => fileName.endsWith(ext));
+
+    if (!validTypes.includes(file.type) && !hasValidExt) {
+      onError('Invalid file format. Only JPG, PNG, and WEBP images are allowed.');
+      return;
+    }
+
+    const maxSize = 2 * 1024 * 1024; // 2 MB
+    if (file.size > maxSize) {
+      onError('File size exceeds 2 MB limit. Please select a smaller file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        onSuccess(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const [deletingEmp, setDeletingEmp] = useState<{ id: string; name: string } | null>(null);
 
@@ -168,6 +204,8 @@ export default function EmployeesPage() {
           shift: empForm.shift,
           mobile: empForm.mobile,
           monthly_salary: empForm.monthly_salary,
+          profile_photo_url: empForm.profile_photo_url || empForm.profile_image_url || null,
+          profile_image_url: empForm.profile_image_url || empForm.profile_photo_url || null,
           is_active: empForm.is_active,
           manager_id: empForm.manager_id || null,
         })
@@ -190,6 +228,8 @@ export default function EmployeesPage() {
           shift: defaultShiftName,
           mobile: '',
           monthly_salary: '',
+          profile_photo_url: '',
+          profile_image_url: '',
           is_active: true,
           manager_id: managers.length > 0 ? managers[0].id : '',
         });
@@ -226,6 +266,8 @@ export default function EmployeesPage() {
           shift: empForm.shift,
           mobile: empForm.mobile,
           monthly_salary: empForm.monthly_salary,
+          profile_photo_url: empForm.profile_photo_url || empForm.profile_image_url || null,
+          profile_image_url: empForm.profile_image_url || empForm.profile_photo_url || null,
           is_active: empForm.is_active,
         })
       });
@@ -289,6 +331,8 @@ export default function EmployeesPage() {
       shift: emp.shift || (matchingShift ? matchingShift.name : 'Morning Shift'),
       mobile: emp.mobile,
       monthly_salary: emp.monthly_salary !== undefined && emp.monthly_salary !== null ? String(emp.monthly_salary) : '',
+      profile_photo_url: emp.profile_photo_url || emp.profile_image_url || '',
+      profile_image_url: emp.profile_image_url || emp.profile_photo_url || '',
       is_active: emp.is_active !== false,
       manager_id: '',
     });
@@ -339,6 +383,8 @@ export default function EmployeesPage() {
               shift: defaultShiftName,
               mobile: '',
               monthly_salary: '',
+              profile_photo_url: '',
+              profile_image_url: '',
               is_active: true,
               manager_id: managers.length > 0 ? managers[0].id : '',
             });
@@ -392,7 +438,22 @@ export default function EmployeesPage() {
                 {filteredEmployees.map((emp) => (
                   <tr key={emp.id} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
                     <td className="py-4 pl-6 font-mono text-cyan-400 font-extrabold">{emp.employee_id}</td>
-                    <td className="py-4 font-bold text-white text-sm">{emp.full_name}</td>
+                    <td className="py-4 font-bold text-white text-sm">
+                      <div className="flex items-center space-x-3">
+                        {emp.profile_photo_url || emp.profile_image_url ? (
+                          <img 
+                            src={emp.profile_photo_url || emp.profile_image_url!} 
+                            alt={emp.full_name} 
+                            className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0" 
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-slate-850 border border-slate-750 flex items-center justify-center font-bold text-cyan-400 text-xs shrink-0">
+                            {emp.full_name.charAt(0)}
+                          </div>
+                        )}
+                        <span>{emp.full_name}</span>
+                      </div>
+                    </td>
                     <td className="py-4 font-medium text-slate-200">{emp.shift || 'Morning Shift'}</td>
                     <td className="py-4 font-mono text-slate-200">{emp.mobile}</td>
                     <td className="py-4 font-mono font-bold text-emerald-400">
@@ -452,6 +513,59 @@ export default function EmployeesPage() {
             </div>
 
             <form onSubmit={handleCreateEmployee} className="space-y-4">
+              {/* Profile Picture Uploader */}
+              <div className="flex items-center space-x-4 p-3 bg-slate-950/60 border border-slate-800 rounded-xl">
+                <div className="relative shrink-0">
+                  {empForm.profile_photo_url || empForm.profile_image_url ? (
+                    <img
+                      src={empForm.profile_photo_url || empForm.profile_image_url}
+                      alt="Preview"
+                      className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/50 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-slate-900 border-2 border-slate-700 flex items-center justify-center text-cyan-400 font-bold text-sm shadow-inner">
+                      {empForm.full_name ? empForm.full_name.charAt(0).toUpperCase() : <User className="w-6 h-6 text-slate-400" />}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1 flex-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Profile Picture (JPG, PNG, WEBP max 2MB)</span>
+                  <div className="flex items-center space-x-2">
+                    <label className="px-2.5 py-1 rounded bg-cyan-950/40 border border-cyan-500/30 hover:bg-cyan-900/40 text-cyan-300 font-bold text-[10px] cursor-pointer transition-colors inline-flex items-center space-x-1">
+                      <Camera className="w-3 h-3" />
+                      <span>{empForm.profile_photo_url || empForm.profile_image_url ? 'Change' : 'Upload'}</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            validateAndReadImageFile(
+                              file,
+                              (url) => setEmpForm(prev => ({ ...prev, profile_photo_url: url, profile_image_url: url })),
+                              (err) => showToastMsg('error', err)
+                            );
+                          }
+                        }}
+                      />
+                    </label>
+
+                    {(empForm.profile_photo_url || empForm.profile_image_url) && (
+                      <button
+                        type="button"
+                        onClick={() => setEmpForm(prev => ({ ...prev, profile_photo_url: '', profile_image_url: '' }))}
+                        className="px-2 py-1 rounded bg-rose-950/40 border border-rose-500/30 hover:bg-rose-900/40 text-rose-400 font-semibold text-[10px] transition-colors flex items-center space-x-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Employee ID</label>
                 <input
@@ -568,6 +682,59 @@ export default function EmployeesPage() {
             </div>
 
             <form onSubmit={handleUpdateEmployee} className="space-y-4">
+              {/* Profile Picture Uploader */}
+              <div className="flex items-center space-x-4 p-3 bg-slate-950/60 border border-slate-800 rounded-xl">
+                <div className="relative shrink-0">
+                  {empForm.profile_photo_url || empForm.profile_image_url ? (
+                    <img
+                      src={empForm.profile_photo_url || empForm.profile_image_url}
+                      alt="Preview"
+                      className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/50 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-slate-900 border-2 border-slate-700 flex items-center justify-center text-cyan-400 font-bold text-sm shadow-inner">
+                      {empForm.full_name ? empForm.full_name.charAt(0).toUpperCase() : <User className="w-6 h-6 text-slate-400" />}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1 flex-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Profile Picture (JPG, PNG, WEBP max 2MB)</span>
+                  <div className="flex items-center space-x-2">
+                    <label className="px-2.5 py-1 rounded bg-cyan-950/40 border border-cyan-500/30 hover:bg-cyan-900/40 text-cyan-300 font-bold text-[10px] cursor-pointer transition-colors inline-flex items-center space-x-1">
+                      <Camera className="w-3 h-3" />
+                      <span>{empForm.profile_photo_url || empForm.profile_image_url ? 'Change' : 'Upload'}</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            validateAndReadImageFile(
+                              file,
+                              (url) => setEmpForm(prev => ({ ...prev, profile_photo_url: url, profile_image_url: url })),
+                              (err) => showToastMsg('error', err)
+                            );
+                          }
+                        }}
+                      />
+                    </label>
+
+                    {(empForm.profile_photo_url || empForm.profile_image_url) && (
+                      <button
+                        type="button"
+                        onClick={() => setEmpForm(prev => ({ ...prev, profile_photo_url: '', profile_image_url: '' }))}
+                        className="px-2 py-1 rounded bg-rose-950/40 border border-rose-500/30 hover:bg-rose-900/40 text-rose-400 font-semibold text-[10px] transition-colors flex items-center space-x-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="text-[10px] text-slate-355 font-extrabold uppercase tracking-wider block mb-1">Employee ID (Read-only)</label>
                 <input
