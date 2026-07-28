@@ -1309,4 +1309,24 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// DELETE /attendance/:id (Delete attendance record by ID - ADMIN/SUPER_ADMIN only)
+export const deleteAttendanceRecord = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+
+  if (req.user?.role !== 'ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ success: false, message: 'Access denied. Administrator privileges required to delete records.' });
+  }
+
+  try {
+    const result = await query('DELETE FROM attendance WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Attendance record not found.' });
+    }
+    return res.status(200).json({ success: true, message: 'Attendance record deleted successfully.' });
+  } catch (error: any) {
+    console.error('[Attendance API] Delete record failed:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete attendance record.' });
+  }
+};
+
 

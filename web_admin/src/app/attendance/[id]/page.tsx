@@ -125,10 +125,14 @@ export default function EmployeeAttendanceProfilePage() {
   const [error, setError] = useState('');
 
   // Modals state
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleteRecordModalOpen, setIsDeleteRecordModalOpen] = useState(false);
+  const [recordToDelete, setRecordToDelete] = useState<AttendanceLog | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletingRecord, setDeletingRecord] = useState(false);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
 
@@ -319,6 +323,14 @@ export default function EmployeeAttendanceProfilePage() {
   useEffect(() => {
     fetchProfileData(currentMonth, page);
     fetchMetaOptions();
+
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        setUserRole(u.role);
+      } catch (e) {}
+    }
   }, [id, currentMonth, page]);
 
   useEffect(() => {
@@ -418,6 +430,43 @@ export default function EmployeeAttendanceProfilePage() {
     } catch (err: any) {
       setActionError(err.message || 'Error deleting employee');
       setDeleting(false);
+    }
+  };
+
+  // Handle Delete Attendance Record
+  const handleConfirmDeleteRecord = async () => {
+    if (!recordToDelete) return;
+    setActionError('');
+    setActionSuccess('');
+    setDeletingRecord(true);
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${API_URL}/attendance/${recordToDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to delete attendance record');
+      }
+
+      setActionSuccess('Attendance record deleted successfully.');
+      setIsDeleteRecordModalOpen(false);
+      setRecordToDelete(null);
+
+      setTimeout(() => {
+        setActionSuccess('');
+      }, 3000);
+
+      // Refresh all affected views: profile stats, history table, summary, analytics, and calendar
+      fetchProfileData();
+      fetchCalendarLogs();
+    } catch (err: any) {
+      setActionError(err.message || 'Error deleting attendance record');
+    } finally {
+      setDeletingRecord(false);
     }
   };
 
@@ -784,7 +833,7 @@ export default function EmployeeAttendanceProfilePage() {
                       <th className="px-4 py-3">Check-Out</th>
                       <th className="px-4 py-3">Working Hours</th>
                       <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Source</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-850/50">
@@ -800,7 +849,18 @@ export default function EmployeeAttendanceProfilePage() {
                           <td className="px-4 py-3 font-mono">{formatTo12Hour(log.check_out)}</td>
                           <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.working_hours || '--'}</td>
                           <td className="px-4 py-3 font-bold text-emerald-400">{log.status}</td>
-                          <td className="px-4 py-3 text-slate-450">{log.source}</td>
+                          <td className="px-4 py-3 text-right">
+                            {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
+                              <button
+                                onClick={() => { setRecordToDelete(log); setIsDeleteRecordModalOpen(true); }}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-rose-950/40 border border-rose-800/40 hover:bg-rose-900/40 text-rose-400 text-xs font-bold transition-all cursor-pointer"
+                                title="Delete attendance record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1069,6 +1129,62 @@ export default function EmployeeAttendanceProfilePage() {
                   className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-600/20 transition-all disabled:opacity-50"
                 >
                   {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Delete Attendance Record Confirmation Modal */}
+      {isDeleteRecordModalOpen && recordToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in no-print">
+          <div className="glass-panel border border-rose-900/60 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            
+            <div className="p-5 border-b border-rose-900/40 bg-rose-950/20 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-rose-400">
+                <Trash2 className="w-5 h-5" />
+                <h3 className="font-bold text-white text-base">Delete Attendance Record</h3>
+              </div>
+              <button 
+                onClick={() => { setIsDeleteRecordModalOpen(false); setRecordToDelete(null); }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-850 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              {actionError && (
+                <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-500/40 text-rose-300 font-semibold flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{actionError}</span>
+                </div>
+              )}
+
+              <p className="text-slate-300 text-sm font-semibold">
+                Delete this attendance record?
+              </p>
+              <p className="text-rose-400/90 text-xs bg-rose-950/30 p-3 rounded-lg border border-rose-900/30 font-bold">
+                This action cannot be undone.
+              </p>
+
+              <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => { setIsDeleteRecordModalOpen(false); setRecordToDelete(null); }}
+                  className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-750 text-slate-300 font-semibold hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteRecord}
+                  disabled={deletingRecord}
+                  className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-600/20 transition-all disabled:opacity-50"
+                >
+                  {deletingRecord ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
             </div>

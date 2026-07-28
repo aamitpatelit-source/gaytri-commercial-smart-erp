@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getEmployeeStats = exports.correctAttendance = exports.employeeCheckOut = exports.employeeCheckIn = exports.startAutoLockScheduler = exports.lockDailyAttendance = exports.getEmployeeSummary = exports.getAuditLogs = exports.getAttendanceHistory = exports.getDashboardStats = exports.calculateWorkingHours = exports.markAttendance = exports.voidAttendance = exports.getCompanyTimezone = exports.ManagerManualProvider = void 0;
+exports.deleteAttendanceRecord = exports.getEmployeeStats = exports.correctAttendance = exports.employeeCheckOut = exports.employeeCheckIn = exports.startAutoLockScheduler = exports.lockDailyAttendance = exports.getEmployeeSummary = exports.getAuditLogs = exports.getAttendanceHistory = exports.getDashboardStats = exports.calculateWorkingHours = exports.markAttendance = exports.voidAttendance = exports.getCompanyTimezone = exports.ManagerManualProvider = void 0;
 const db_1 = __importStar(require("../config/db"));
 const moment_timezone_1 = __importDefault(require("moment-timezone"));
 const managerScopeService_1 = require("../services/managerScopeService");
@@ -1122,3 +1122,22 @@ const getEmployeeStats = async (req, res) => {
     }
 };
 exports.getEmployeeStats = getEmployeeStats;
+// DELETE /attendance/:id (Delete attendance record by ID - ADMIN/SUPER_ADMIN only)
+const deleteAttendanceRecord = async (req, res) => {
+    const { id } = req.params;
+    if (req.user?.role !== 'ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
+        return res.status(403).json({ success: false, message: 'Access denied. Administrator privileges required to delete records.' });
+    }
+    try {
+        const result = await (0, db_1.query)('DELETE FROM attendance WHERE id = $1 RETURNING id', [id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Attendance record not found.' });
+        }
+        return res.status(200).json({ success: true, message: 'Attendance record deleted successfully.' });
+    }
+    catch (error) {
+        console.error('[Attendance API] Delete record failed:', error);
+        return res.status(500).json({ success: false, message: 'Failed to delete attendance record.' });
+    }
+};
+exports.deleteAttendanceRecord = deleteAttendanceRecord;

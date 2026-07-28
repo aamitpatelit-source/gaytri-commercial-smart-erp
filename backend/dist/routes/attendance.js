@@ -17,4 +17,5 @@ router.get('/dashboard', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAG
 router.get('/history', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getAttendanceHistory));
 router.get('/audit-logs', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getAuditLogs));
 router.get('/employee-summary', (0, auth_1.requireRole)(['EMPLOYEE']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getEmployeeSummary));
+router.delete('/:id', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(attendanceController_1.deleteAttendanceRecord));
 exports.default = router;
