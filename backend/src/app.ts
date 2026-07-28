@@ -77,8 +77,29 @@ app.use(errorHandler as any);
 // Bootstrap database schema and reconcile legacy biometric columns
 const bootstrapDatabase = async () => {
   try {
-    console.log('Bootstrapping database schema...');
-    
+    console.log('Verifying database schema version...');
+
+    // 0. Verify schema version tracker
+    const verCheck = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'schema_migrations'
+      );
+    `);
+
+    let currentVer = 0;
+    if (verCheck.rows[0].exists) {
+      const verRes = await query('SELECT MAX(version) as max_ver FROM schema_migrations');
+      currentVer = verRes.rows[0].max_ver || 0;
+    }
+
+    if (currentVer < 2) {
+      console.error(`[FATAL ERROR] Database schema is outdated (current version: ${currentVer}, required version: 2).`);
+      console.error('[FATAL ERROR] Automatic table alterations are disabled. Run "npm run db:migrate" to apply versioned migrations.');
+      process.exit(1);
+    }
+    console.log(`✔ Database schema version ${currentVer} verified.`);
+
     // Read and run schema.sql
     const schemaPath = path.join(__dirname, '../database/schema.sql');
     if (fs.existsSync(schemaPath)) {

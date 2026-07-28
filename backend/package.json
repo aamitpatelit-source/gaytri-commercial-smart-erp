@@ -7,8 +7,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "db:migrate": "knex migrate:latest",
-    "db:seed": "knex seed:run"
+    "db:migrate": "ts-node src/scripts/run_migrations.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

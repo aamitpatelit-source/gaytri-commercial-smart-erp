@@ -313,6 +313,29 @@ const getDashboardStats = async (req, res) => {
         const totalPresent = present + late + halfDay + wfh + onDuty + working;
         const attendanceRate = totalStaff > 0 ? Math.round((totalPresent / totalStaff) * 100) : 100;
         const onTimeRate = totalPresent > 0 ? Math.round(((present + wfh + onDuty + working) / totalPresent) * 100) : 100;
+        // Fetch First Check-In Today
+        let firstCheckInRes;
+        if (isManager) {
+            firstCheckInRes = await (0, db_1.query)(`SELECT e.full_name, COALESCE(a.check_in_time, a.time) as check_in_time
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE a.date = $1 AND a.is_deleted = FALSE
+           AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $2)
+         ORDER BY COALESCE(a.check_in_time, a.time) ASC
+         LIMIT 1`, [today, managerId]);
+        }
+        else {
+            firstCheckInRes = await (0, db_1.query)(`SELECT e.full_name, COALESCE(a.check_in_time, a.time) as check_in_time
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE a.date = $1 AND a.is_deleted = FALSE
+         ORDER BY COALESCE(a.check_in_time, a.time) ASC
+         LIMIT 1`, [today]);
+        }
+        const firstCheckIn = firstCheckInRes.rows.length > 0 ? {
+            full_name: firstCheckInRes.rows[0].full_name,
+            check_in_time: firstCheckInRes.rows[0].check_in_time
+        } : null;
         // Fetch Last Checkout Today (Employee Name & Checkout Time)
         let lastCheckoutRes;
         if (isManager) {
@@ -336,10 +359,45 @@ const getDashboardStats = async (req, res) => {
             full_name: lastCheckoutRes.rows[0].full_name,
             check_out_time: lastCheckoutRes.rows[0].check_out_time
         } : null;
-        // Fetch recent logs feed
+        // Weekly Trend Computation (Last 7 Days)
+        const dates = [];
+        for (let i = 6; i >= 0; i--) {
+            dates.push((0, moment_timezone_1.default)().tz(tz).subtract(i, 'days').format('YYYY-MM-DD'));
+        }
+        let trendRes;
+        if (isManager) {
+            trendRes = await (0, db_1.query)(`SELECT a.date::text as date, COUNT(CASE WHEN a.status IN ('PRESENT', 'LATE', 'HALF_DAY', 'WORK_FROM_HOME', 'ON_DUTY', 'WORKING') THEN 1 END) as present_count
+         FROM attendance a
+         JOIN employees e ON a.employee_id = e.id
+         WHERE a.date = ANY($1) 
+           AND a.is_deleted = FALSE
+           AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $2)
+         GROUP BY a.date`, [dates, managerId]);
+        }
+        else {
+            trendRes = await (0, db_1.query)(`SELECT date::text as date, COUNT(CASE WHEN status IN ('PRESENT', 'LATE', 'HALF_DAY', 'WORK_FROM_HOME', 'ON_DUTY', 'WORKING') THEN 1 END) as present_count
+         FROM attendance 
+         WHERE date = ANY($1) AND is_deleted = FALSE
+         GROUP BY date`, [dates]);
+        }
+        const trendMap = new Map();
+        trendRes.rows.forEach((row) => {
+            const dStr = (0, moment_timezone_1.default)(row.date).format('YYYY-MM-DD');
+            trendMap.set(dStr, parseInt(row.present_count, 10));
+        });
+        const weeklyTrend = dates.map(d => {
+            const pCount = trendMap.get(d) || 0;
+            const aCount = Math.max(0, totalStaff - pCount);
+            return {
+                date: d,
+                present: pCount,
+                absent: aCount
+            };
+        });
+        // Fetch recent logs feed with employee_uuid and profile_photo_url
         let feedRes;
         if (isManager) {
-            feedRes = await (0, db_1.query)(`SELECT a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
+            feedRes = await (0, db_1.query)(`SELECT a.id as log_id, a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, e.id as employee_uuid, e.full_name, e.employee_id, e.profile_photo_url, d.name as department
          FROM attendance a
          JOIN employees e ON a.employee_id = e.id
          LEFT JOIN departments d ON e.department_id = d.id
@@ -350,7 +408,7 @@ const getDashboardStats = async (req, res) => {
          LIMIT 10`, [today, managerId]);
         }
         else {
-            feedRes = await (0, db_1.query)(`SELECT a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, e.full_name, e.employee_id, d.name as department
+            feedRes = await (0, db_1.query)(`SELECT a.id as log_id, a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, e.id as employee_uuid, e.full_name, e.employee_id, e.profile_photo_url, d.name as department
          FROM attendance a
          JOIN employees e ON a.employee_id = e.id
          LEFT JOIN departments d ON e.department_id = d.id
@@ -380,9 +438,22 @@ const getDashboardStats = async (req, res) => {
                 todaysVisits: totalMarked,
                 livePresentCount: totalPresent,
                 lastCheckout,
-                performanceSummary: {
+                firstCheckIn,
+                attendanceRate,
+                onTimeRate,
+                weeklyTrend,
+                distribution: {
+                    present: totalPresent,
+                    absent,
+                    working,
+                    missedCheckout
+                },
+                operationalInsights: {
+                    firstCheckIn,
+                    lastCheckOut: lastCheckout,
+                    currentlyWorking: working,
                     attendanceRate,
-                    onTimeRate
+                    missedCheckoutCount: missedCheckout
                 }
             },
             feed: feedMapped,
