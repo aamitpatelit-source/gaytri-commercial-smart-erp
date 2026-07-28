@@ -514,6 +514,8 @@ export default function EmployeesPage() {
                 <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Monthly Salary (₹)</label>
                 <input
                   type="number"
+                  min="0"
+                  step="0.01"
                   value={empForm.monthly_salary}
                   onChange={(e) => setEmpForm({...empForm, monthly_salary: e.target.value})}
                   placeholder="e.g. 12000, 15000, 18000"
@@ -624,6 +626,8 @@ export default function EmployeesPage() {
                 <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Monthly Salary (₹)</label>
                 <input
                   type="number"
+                  min="0"
+                  step="0.01"
                   value={empForm.monthly_salary}
                   onChange={(e) => setEmpForm({...empForm, monthly_salary: e.target.value})}
                   placeholder="e.g. 12000, 15000, 18000"
