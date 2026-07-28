@@ -110,6 +110,28 @@ async function runMigrations() {
       console.log('[Migration Runner] Migration v2 committed successfully.');
     }
 
+    // --- MIGRATION V3: Employee Soft Delete Schema Alignment ---
+    if (currentVer < 3) {
+      console.log('[Migration Runner] Starting Migration v3: Employee Soft-Delete Columns...');
+      await client.query('BEGIN');
+
+      await client.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'is_deleted') THEN
+            ALTER TABLE employees ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'deleted_at') THEN
+            ALTER TABLE employees ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE;
+          END IF;
+        END $$;
+      `);
+
+      await client.query('INSERT INTO schema_migrations (version) VALUES (3);');
+      await client.query('COMMIT');
+      console.log('[Migration Runner] Migration v3 committed successfully.');
+    }
+
     console.log('[Migration Runner] All database migrations completed cleanly.');
   } catch (err: any) {
     await client.query('ROLLBACK');

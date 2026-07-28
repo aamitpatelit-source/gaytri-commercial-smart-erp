@@ -8,6 +8,7 @@ const router = (0, express_1.Router)();
 // Apply auth check
 router.use(auth_1.authenticateToken);
 router.get('/', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(employeeController_1.getEmployees));
+router.get('/meta/options', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(employeeController_1.getEmployeeMetaData));
 router.get('/:id', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(employeeController_1.getEmployeeById));
 router.post('/', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(employeeController_1.createEmployee));
 router.put('/:id', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(employeeController_1.updateEmployee));

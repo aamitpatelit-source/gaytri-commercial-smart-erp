@@ -93,8 +93,8 @@ const bootstrapDatabase = async () => {
       currentVer = verRes.rows[0].max_ver || 0;
     }
 
-    if (currentVer < 2) {
-      console.error(`[FATAL ERROR] Database schema is outdated (current version: ${currentVer}, required version: 2).`);
+    if (currentVer < 3) {
+      console.error(`[FATAL ERROR] Database schema is outdated (current version: ${currentVer}, required version: 3).`);
       console.error('[FATAL ERROR] Automatic table alterations are disabled. Run "npm run db:migrate" to apply versioned migrations.');
       process.exit(1);
     }

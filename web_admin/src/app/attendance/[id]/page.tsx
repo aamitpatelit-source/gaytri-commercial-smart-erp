@@ -21,7 +21,11 @@ import {
   User,
   Shield,
   Briefcase,
-  X
+  Edit,
+  Trash2,
+  X,
+  Building,
+  UserCheck
 } from 'lucide-react';
 
 import { API_URL } from '../../../config';
@@ -37,11 +41,17 @@ interface EmployeeProfile {
   is_active: boolean;
   profile_photo_url: string | null;
   department: string | null;
+  department_id: number | null;
   designation: string | null;
+  designation_id: number | null;
   shift: string | null;
+  shift_id: number | null;
   manager_name: string | null;
+  manager_id: string | null;
   last_attendance_date: string | null;
   current_status: string | null;
+  todays_check_in: string | null;
+  todays_check_out: string | null;
 }
 
 interface MonthlySummary {
@@ -84,6 +94,12 @@ interface AttendanceLog {
   source: string;
 }
 
+interface MetaOption {
+  id: number | string;
+  name: string;
+  full_name?: string;
+}
+
 export default function EmployeeAttendanceProfilePage() {
   const router = useRouter();
   const params = useParams();
@@ -96,6 +112,32 @@ export default function EmployeeAttendanceProfilePage() {
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Modals state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [actionSuccess, setActionSuccess] = useState('');
+
+  // Lookup options for edit modal
+  const [metaDepts, setMetaDepts] = useState<MetaOption[]>([]);
+  const [metaDesigs, setMetaDesigs] = useState<MetaOption[]>([]);
+  const [metaShifts, setMetaShifts] = useState<MetaOption[]>([]);
+  const [metaManagers, setMetaManagers] = useState<MetaOption[]>([]);
+
+  // Edit form state
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    mobile: '',
+    department_id: '',
+    designation_id: '',
+    shift_id: '',
+    manager_id: '',
+    joining_date: '',
+    is_active: true
+  });
 
   // Selected Month State (YYYY-MM)
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -129,9 +171,17 @@ export default function EmployeeAttendanceProfilePage() {
     }
   };
 
-  const formatTo12Hour = (timeStr: string) => {
+  const formatTo12Hour = (timeStr: string | null) => {
     if (!timeStr) return '--:--';
     try {
+      if (timeStr.includes('T') || timeStr.includes('-')) {
+        const date = new Date(timeStr);
+        return date.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
       const parts = timeStr.split(':');
       if (parts.length < 2) return timeStr;
       let hours = parseInt(parts[0], 10);
@@ -146,6 +196,25 @@ export default function EmployeeAttendanceProfilePage() {
     }
   };
 
+  const fetchMetaOptions = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+      const res = await fetch(`${API_URL}/employees/meta/options`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMetaDepts(data.departments || []);
+        setMetaDesigs(data.designations || []);
+        setMetaShifts(data.shifts || []);
+        setMetaManagers(data.managers || []);
+      }
+    } catch (err) {
+      console.error('Failed to load lookup meta options', err);
+    }
+  };
+
   const fetchProfileData = async (targetMonth = currentMonth, pageNum = page) => {
     try {
       const token = localStorage.getItem('access_token');
@@ -156,53 +225,59 @@ export default function EmployeeAttendanceProfilePage() {
       setLoading(true);
       setError('');
 
-      // 1. Fetch employee metadata
+      // 1. Fetch Employee Profile
       const empRes = await fetch(`${API_URL}/employees/${id}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+
       if (!empRes.ok) {
-        throw new Error('Employee profile could not be found.');
-      }
-      const empData = await empRes.json();
-      if (empData.success) {
-        setEmployee(empData.employee);
+        throw new Error('Employee not found or access denied');
       }
 
-      // 2. Fetch employee attendance stats/analytics for selected month
-      const statsRes = await fetch(`${API_URL}/attendance/employee/${id}/stats?month=${targetMonth}`, {
+      const empData = await empRes.json();
+      const empProfile: EmployeeProfile = empData.employee;
+      setEmployee(empProfile);
+
+      // Pre-fill edit form
+      setEditForm({
+        full_name: empProfile.full_name || '',
+        mobile: empProfile.mobile || '',
+        department_id: empProfile.department_id ? String(empProfile.department_id) : '',
+        designation_id: empProfile.designation_id ? String(empProfile.designation_id) : '',
+        shift_id: empProfile.shift_id ? String(empProfile.shift_id) : '',
+        manager_id: empProfile.manager_id || '',
+        joining_date: empProfile.joining_date ? empProfile.joining_date.split('T')[0] : '',
+        is_active: empProfile.is_active
+      });
+
+      // 2. Fetch Monthly Summary & Analytics
+      const summaryRes = await fetch(`${API_URL}/attendance/employee/${id}/stats?month=${targetMonth}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        if (statsData.success) {
-          setSummary(statsData.summary);
-          setAnalytics(statsData.analytics);
-        }
+      if (summaryRes.ok) {
+        const statsData = await summaryRes.json();
+        setSummary(statsData.monthlySummary || null);
+        setAnalytics(statsData.analytics || null);
       }
 
-      // 3. Fetch paginated logs for selected month
-      const parts = targetMonth.split('-');
-      const year = parseInt(parts[0]);
-      const month = parseInt(parts[1]) - 1;
-      const startStr = `${targetMonth}-01`;
-      const endStr = new Date(year, month + 1, 0).toISOString().split('T')[0];
+      // 3. Fetch Attendance History Logs
+      const [year, month] = targetMonth.split('-');
+      const firstDay = `${year}-${month}-01`;
+      const lastDayNum = new Date(parseInt(year), parseInt(month), 0).getDate();
+      const lastDay = `${year}-${month}-${String(lastDayNum).padStart(2, '0')}`;
 
-      const logsRes = await fetch(
-        `${API_URL}/attendance/history?employee_id=${id}&start_date=${startStr}&end_date=${endStr}&page=${pageNum}&limit=${limit}`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
+      const logsRes = await fetch(`${API_URL}/attendance/history?employee_id=${id}&start_date=${firstDay}&end_date=${lastDay}&page=${pageNum}&limit=${limit}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
       if (logsRes.ok) {
         const logsData = await logsRes.json();
-        if (logsData.success) {
-          setLogs(logsData.logs || []);
-          if (logsData.pagination) {
-            setTotalCount(logsData.pagination.totalCount);
-            setTotalPages(logsData.pagination.totalPages);
-          }
-        }
+        setLogs(logsData.logs || []);
+        setTotalCount(logsData.pagination?.total || 0);
+        setTotalPages(logsData.pagination?.totalPages || 1);
       }
     } catch (err: any) {
-      setError(err.message || 'Error pulling attendance logs.');
+      setError(err.message || 'Error loading employee profile');
       console.error(err);
     } finally {
       setLoading(false);
@@ -212,26 +287,25 @@ export default function EmployeeAttendanceProfilePage() {
   const fetchCalendarLogs = async (targetMonth = currentMonth) => {
     try {
       const token = localStorage.getItem('access_token');
-      const startStr = `${targetMonth}-01`;
-      const parts = targetMonth.split('-');
-      const year = parseInt(parts[0]);
-      const month = parseInt(parts[1]) - 1;
-      const endStr = new Date(year, month + 1, 0).toISOString().split('T')[0];
+      if (!token) return;
 
-      const res = await fetch(
-        `${API_URL}/attendance/history?employee_id=${id}&start_date=${startStr}&end_date=${endStr}&limit=32`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
+      const [year, month] = targetMonth.split('-');
+      const firstDay = `${year}-${month}-01`;
+      const lastDayNum = new Date(parseInt(year), parseInt(month), 0).getDate();
+      const lastDay = `${year}-${month}-${String(lastDayNum).padStart(2, '0')}`;
+
+      const res = await fetch(`${API_URL}/attendance/history?employee_id=${id}&start_date=${firstDay}&end_date=${lastDay}&limit=100`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
       if (res.ok) {
         const data = await res.json();
+        const rawLogs: AttendanceLog[] = data.logs || [];
         const map: Record<string, AttendanceLog> = {};
-        if (data.success) {
-          const rawLogs: AttendanceLog[] = data.logs || [];
-          rawLogs.forEach(l => {
-            const formatted = l.date.split('T')[0];
-            map[formatted] = l;
-          });
-        }
+        rawLogs.forEach(l => {
+          const formatted = l.date.split('T')[0];
+          map[formatted] = l;
+        });
         setMonthlyCalendarLogs(map);
       }
     } catch (e) {
@@ -241,6 +315,7 @@ export default function EmployeeAttendanceProfilePage() {
 
   useEffect(() => {
     fetchProfileData(currentMonth, page);
+    fetchMetaOptions();
   }, [id, currentMonth, page]);
 
   useEffect(() => {
@@ -271,6 +346,79 @@ export default function EmployeeAttendanceProfilePage() {
     setPage(1);
   };
 
+  // Handle Edit Employee Form Submit
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError('');
+    setActionSuccess('');
+
+    if (!editForm.full_name.trim() || !editForm.mobile.trim()) {
+      setActionError('Full Name and Mobile Number are required.');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${API_URL}/employees/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          full_name: editForm.full_name.trim(),
+          mobile: editForm.mobile.trim(),
+          department_id: editForm.department_id ? parseInt(editForm.department_id, 10) : null,
+          designation_id: editForm.designation_id ? parseInt(editForm.designation_id, 10) : null,
+          shift_id: editForm.shift_id ? parseInt(editForm.shift_id, 10) : null,
+          manager_id: editForm.manager_id || null,
+          joining_date: editForm.joining_date,
+          is_active: editForm.is_active
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to update employee');
+      }
+
+      setActionSuccess('Employee updated successfully!');
+      setTimeout(() => {
+        setIsEditModalOpen(false);
+        setActionSuccess('');
+        fetchProfileData();
+      }, 1000);
+    } catch (err: any) {
+      setActionError(err.message || 'Error updating employee');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Handle Soft Delete Employee
+  const handleConfirmDelete = async () => {
+    setActionError('');
+    setDeleting(true);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${API_URL}/employees/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to delete employee');
+      }
+
+      router.push('/attendance');
+    } catch (err: any) {
+      setActionError(err.message || 'Error deleting employee');
+      setDeleting(false);
+    }
+  };
+
   // Generate calendar days
   const getCalendarDays = () => {
     const parts = currentMonth.split('-');
@@ -281,12 +429,10 @@ export default function EmployeeAttendanceProfilePage() {
     const numDays = new Date(year, month + 1, 0).getDate();
     const days = [];
 
-    // Empty spaces for previous month's alignment
     for (let i = 0; i < firstDayIndex; i++) {
       days.push({ type: 'empty', dayNum: 0, dateStr: '', isWeekend: false });
     }
 
-    // Days in current month
     for (let i = 1; i <= numDays; i++) {
       const currentDate = new Date(year, month, i);
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
@@ -329,45 +475,21 @@ export default function EmployeeAttendanceProfilePage() {
     if (status === 'WORKING') {
       return 'border-sky-500/20 text-sky-400 bg-sky-950/25 hover:border-sky-400 cursor-pointer';
     }
-    if (status === 'PRESENT') {
+    if (status === 'PRESENT' || status === 'ON_DUTY') {
       return 'border-emerald-500/20 text-emerald-400 bg-emerald-950/25 hover:border-emerald-400 cursor-pointer';
     }
-    if (status === 'LATE') {
+    if (status === 'LATE' || status === 'HALF_DAY') {
       return 'border-amber-500/20 text-amber-400 bg-amber-950/25 hover:border-amber-400 cursor-pointer';
     }
-    if (status === 'MISSED_CHECKOUT') {
-      return 'border-rose-550/20 text-rose-455 bg-rose-950/25 hover:border-rose-550 cursor-pointer';
-    }
-    return 'border-slate-800 text-slate-200 bg-slate-800/30 hover:border-slate-600 cursor-pointer';
+    return 'border-rose-500/20 text-rose-400 bg-rose-950/20 hover:border-rose-400 cursor-pointer';
   };
 
-  const getDayStatusDot = (dateStr: string) => {
-    const log = monthlyCalendarLogs[dateStr];
-    if (!log) return 'bg-rose-500';
-    if (log.status === 'PRESENT') return 'bg-emerald-400';
-    if (log.status === 'WORKING') return 'bg-sky-400';
-    if (log.status === 'LATE') return 'bg-amber-400';
-    if (log.status === 'MISSED_CHECKOUT') return 'bg-orange-500';
-    return 'bg-slate-500';
-  };
-
-  const getCheckInPositionPercentage = (timeStr: string) => {
-    if (!timeStr) return 0;
-    try {
-      const parts = timeStr.split(':');
-      const hour = parseInt(parts[0], 10);
-      const minutes = parseInt(parts[1], 10);
-      const totalMinutes = hour * 60 + minutes;
-      
-      const startMin = 8 * 60; // 8:00 AM
-      const endMin = 12 * 60;  // 12:00 PM
-      
-      const percent = ((totalMinutes - startMin) / (endMin - startMin)) * 100;
-      return Math.max(0, Math.min(100, percent));
-    } catch (e) {
-      return 50;
-    }
-  };
+  // Today log calculation for profile header card
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayLog = monthlyCalendarLogs[todayStr];
+  const todayCheckIn = employee?.todays_check_in || (todayLog ? todayLog.check_in_time : null);
+  const todayCheckOut = employee?.todays_check_out || (todayLog ? todayLog.check_out : null);
+  const todayWorkingHours = todayLog ? todayLog.working_hours : null;
 
   const exportToCSV = () => {
     if (!logs || logs.length === 0) return;
@@ -393,7 +515,7 @@ export default function EmployeeAttendanceProfilePage() {
   };
 
   return (
-    <div className="space-y-8 animate-fade-in text-slate-100">
+    <div className="space-y-8 animate-fade-in text-slate-100 pb-12">
       <style>{`
         @media print {
           .no-print { display: none !important; }
@@ -412,17 +534,17 @@ export default function EmployeeAttendanceProfilePage() {
           onClick={() => router.push('/attendance')}
           className="flex items-center space-x-2 text-xs text-slate-400 hover:text-white transition-colors cursor-pointer"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Directory</span>
+          <ArrowLeft className="w-4 h-4 text-cyan-400" />
+          <span>Back to Attendance Directory</span>
         </button>
 
         <div className="flex items-center space-x-3">
           {/* Month Navigator */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg text-xs font-semibold">
+          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-750 px-3 py-1.5 rounded-lg text-xs font-semibold">
             <button onClick={() => handleMonthChange('prev')} className="p-1 hover:text-cyan-400 cursor-pointer">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-slate-100 uppercase tracking-wider font-bold min-w-[70px] text-center">
+            <span className="text-slate-100 uppercase tracking-wider font-bold min-w-[80px] text-center">
               {new Date(currentMonth + '-02').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
             </span>
             <button onClick={() => handleMonthChange('next')} className="p-1 hover:text-cyan-400 cursor-pointer">
@@ -438,51 +560,84 @@ export default function EmployeeAttendanceProfilePage() {
         </div>
       )}
 
-      {/* PROFILE HEADER PANEL */}
+      {/* 2. Modern Profile Header Card */}
       {employee && (
-        <div className="glass-panel p-6 rounded-xl border border-slate-700 shadow-xl relative overflow-hidden flex flex-col md:flex-row gap-6 items-center">
-          <div className="absolute top-0 right-0 p-4 bg-cyan-950/30 border-l border-b border-slate-700 text-[10px] text-cyan-400 font-extrabold rounded-bl-lg font-mono">
-            {employee.is_active ? 'ACTIVE STATUS' : 'INACTIVE'}
-          </div>
+        <div className="glass-panel p-6 rounded-xl border border-slate-750 shadow-xl relative overflow-hidden flex flex-col lg:flex-row justify-between gap-6 items-start">
+          
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 w-full lg:w-auto">
+            {employee.profile_photo_url ? (
+              <img 
+                src={employee.profile_photo_url} 
+                alt={employee.full_name} 
+                className="w-24 h-24 rounded-2xl border-2 border-slate-700 object-cover shadow-lg shrink-0"
+              />
+            ) : (
+              <div className="w-24 h-24 rounded-2xl bg-slate-850 border-2 border-slate-750 flex items-center justify-center font-extrabold text-cyan-400 text-3xl shadow-lg shrink-0">
+                {employee.full_name.charAt(0)}
+              </div>
+            )}
 
-          {employee.profile_photo_url ? (
-            <img 
-              src={employee.profile_photo_url} 
-              alt={employee.full_name} 
-              className="w-24 h-24 rounded-full border border-slate-650 object-cover shadow-md"
-            />
-          ) : (
-            <div className="w-24 h-24 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-cyan-400 text-3xl shadow-md">
-              {employee.full_name.charAt(0)}
-            </div>
-          )}
-
-          <div className="text-center md:text-left space-y-2 flex-1">
-            <h2 className="text-2xl font-extrabold text-white">{employee.full_name}</h2>
-            <div className="flex flex-wrap justify-center md:justify-start gap-y-2 gap-x-4 text-xs text-slate-350 font-medium">
-              <span className="flex items-center space-x-1.5">
-                <Briefcase className="w-3.5 h-3.5 text-cyan-400" />
-                <span>{employee.designation} ({employee.department || 'General'})</span>
-              </span>
-              <span className="flex items-center space-x-1.5">
-                <User className="w-3.5 h-3.5 text-slate-400" />
-                <span>ID: {employee.employee_id}</span>
-              </span>
-              {employee.mobile && (
-                <span className="flex items-center space-x-1.5">
-                  <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{employee.mobile}</span>
+            <div className="text-center sm:text-left space-y-2">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <h2 className="text-2xl font-extrabold text-white">{employee.full_name}</h2>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  employee.is_active ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/30' : 'bg-rose-950/60 text-rose-400 border border-rose-500/30'
+                }`}>
+                  {employee.is_active ? 'Active' : 'Inactive'}
                 </span>
-              )}
-            </div>
-            <div className="flex flex-wrap justify-center md:justify-start gap-y-2 gap-x-4 text-xs text-slate-400">
-              <span>Shift: <strong className="text-cyan-400">{employee.shift || 'Default Shift'}</strong></span>
-              {employee.manager_name && (
-                <span>Manager: <strong className="text-slate-300">{employee.manager_name}</strong></span>
-              )}
-              <span>Salary Mode: <strong className="text-slate-300 capitalize">{employee.salary_type}</strong></span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-xs text-slate-350 pt-1">
+                <div><span className="text-slate-500">Employee ID:</span> <strong className="text-cyan-400 font-mono">{employee.employee_id}</strong></div>
+                <div><span className="text-slate-500">Department:</span> <strong className="text-slate-200">{employee.department || 'General'}</strong></div>
+                <div><span className="text-slate-500">Designation:</span> <strong className="text-slate-200">{employee.designation || 'Staff'}</strong></div>
+                <div><span className="text-slate-500">Manager:</span> <strong className="text-slate-200">{employee.manager_name || 'Not Assigned'}</strong></div>
+                <div><span className="text-slate-500">Assigned Shift:</span> <strong className="text-slate-200">{employee.shift || 'Default Shift'}</strong></div>
+                <div><span className="text-slate-500">Joining Date:</span> <strong className="text-slate-200">{formatDate(employee.joining_date)}</strong></div>
+              </div>
             </div>
           </div>
+
+          {/* Right Column: Today's Metrics & Action Buttons */}
+          <div className="w-full lg:w-auto flex flex-col justify-between items-end space-y-4 border-t lg:border-t-0 lg:border-l border-slate-800 pt-4 lg:pt-0 lg:pl-6">
+            
+            {/* Edit & Delete Employee Action Buttons */}
+            <div className="flex items-center space-x-2 w-full justify-end no-print">
+              <button
+                onClick={() => setIsEditModalOpen(true)}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 border border-slate-750 hover:bg-slate-800 text-cyan-400 text-xs font-bold transition-all cursor-pointer"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                <span>Edit Employee</span>
+              </button>
+              
+              <button
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800/40 hover:bg-rose-900/40 text-rose-400 text-xs font-bold transition-all cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Employee</span>
+              </button>
+            </div>
+
+            {/* Today's Live Attendance Metric Tiles */}
+            <div className="grid grid-cols-3 gap-3 w-full font-mono text-center">
+              <div className="bg-slate-950/50 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[9px] text-slate-500 font-sans font-bold uppercase block">Today Check-In</span>
+                <span className="text-xs font-bold text-emerald-400 mt-1 block">{formatTo12Hour(todayCheckIn)}</span>
+              </div>
+              <div className="bg-slate-950/50 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[9px] text-slate-500 font-sans font-bold uppercase block">Today Check-Out</span>
+                <span className="text-xs font-bold text-amber-400 mt-1 block">{formatTo12Hour(todayCheckOut)}</span>
+              </div>
+              <div className="bg-slate-950/50 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[9px] text-slate-500 font-sans font-bold uppercase block">Working Hours</span>
+                <span className="text-xs font-bold text-cyan-400 mt-1 block">{todayWorkingHours || '--'}</span>
+              </div>
+            </div>
+
+          </div>
+
         </div>
       )}
 
@@ -518,485 +673,422 @@ export default function EmployeeAttendanceProfilePage() {
                   <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-2">Employment Information</h3>
                   <div className="grid grid-cols-2 gap-4 text-xs">
                     <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Joined Date</span>
-                      <span className="text-slate-200 font-bold">{employee ? formatDate(employee.joining_date) : '--'}</span>
+                      <span className="text-slate-500 block">Mobile Phone</span>
+                      <span className="font-semibold text-slate-200">{employee?.mobile || '--'}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-bold block">System Role</span>
-                      <span className="text-slate-200 capitalize">{employee?.role || 'Staff'}</span>
+                      <span className="text-slate-500 block">Joining Date</span>
+                      <span className="font-semibold text-slate-200">{formatDate(employee?.joining_date || '')}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Supervisor</span>
-                      <span className="text-slate-200">{employee?.manager_name || 'None Linked'}</span>
+                      <span className="text-slate-500 block">Salary Type</span>
+                      <span className="font-semibold text-slate-200">{employee?.salary_type || 'MONTHLY'}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Shift Timing</span>
-                      <span className="text-cyan-400 font-bold font-mono">{employee?.shift || 'Default Shift'}</span>
+                      <span className="text-slate-500 block">System Role</span>
+                      <span className="font-semibold text-slate-200">{employee?.role || 'EMPLOYEE'}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="glass-panel p-6 rounded-xl border border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-2 mb-4">Monthly Roster Ratio</h3>
-                    {summary ? (
-                      <div className="flex items-center space-x-6">
-                        <div className="relative w-20 h-20 flex items-center justify-center border-4 border-cyan-400/25 rounded-full">
-                          <span className="text-lg font-mono font-extrabold text-cyan-400">
-                            {analytics?.monthlyAttendancePercentage || 0}%
+                <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-4">
+                  <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-2">Shift & Management</h3>
+                  <div className="grid grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <span className="text-slate-500 block">Assigned Shift</span>
+                      <span className="font-semibold text-cyan-400">{employee?.shift || 'Morning Shift'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Reporting Manager</span>
+                      <span className="font-semibold text-slate-200">{employee?.manager_name || 'Not Assigned'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Current Status</span>
+                      <span className="font-semibold text-emerald-400">{employee?.current_status || 'PRESENT'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Last Active Date</span>
+                      <span className="font-semibold text-slate-200">{formatDate(employee?.last_attendance_date || '')}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: ATTENDANCE CALENDAR */}
+          {activeTab === 'calendar' && (
+            <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-white text-sm flex items-center space-x-2">
+                  <CalendarIcon className="w-4 h-4 text-cyan-400" />
+                  <span>Monthly Attendance Calendar</span>
+                </h3>
+                <span className="text-[10px] text-slate-500 uppercase font-mono">Click any date for details</span>
+              </div>
+
+              <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
+                <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+              </div>
+
+              <div className="grid grid-cols-7 gap-2">
+                {getCalendarDays().map((day, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => day.type === 'day' && handleDayClick(day.dateStr)}
+                    className={`h-14 p-2 rounded-lg border flex flex-col justify-between text-xs transition-all ${getDayStyling(day)}`}
+                  >
+                    {day.type === 'day' && (
+                      <>
+                        <span className="font-bold text-[11px]">{day.dayNum}</span>
+                        {monthlyCalendarLogs[day.dateStr] && (
+                          <span className="text-[9px] font-mono font-bold truncate">
+                            {monthlyCalendarLogs[day.dateStr].status}
                           </span>
-                        </div>
-                        <div className="text-xs text-slate-350 space-y-1">
-                          <p>🟢 Present: <strong>{summary.presentDays}</strong> days</p>
-                          <p>🔴 Absent: <strong>{summary.absentDays}</strong> days</p>
-                          <p>🟠 Missed checkout: <strong>{summary.missedCheckoutCount}</strong> days</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-500">Summary not loaded.</p>
+                        )}
+                      </>
                     )}
                   </div>
-                </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* TAB 2: INTERACTIVE CALENDAR */}
-          {activeTab === 'calendar' && (
-            <div className="glass-panel p-6 rounded-xl border border-slate-700 shadow-lg animate-fade-in">
-              <div className="flex justify-between items-center border-b border-slate-800 pb-4 mb-4">
-                <h3 className="font-bold text-white text-base flex items-center space-x-2">
-                  <CalendarIcon className="w-5 h-5 text-cyan-400" />
-                  <span>Interactive Attendance Calendar</span>
-                </h3>
-              </div>
-
-              <div className="grid grid-cols-7 gap-2.5 text-center text-[10px] font-extrabold text-slate-450 uppercase tracking-widest pb-3">
-                <span>Sun</span>
-                <span>Mon</span>
-                <span>Tue</span>
-                <span>Wed</span>
-                <span>Thu</span>
-                <span>Fri</span>
-                <span>Sat</span>
-              </div>
-
-              <div className="grid grid-cols-7 gap-2.5">
-                {getCalendarDays().map((day, idx) => {
-                  const log = monthlyCalendarLogs[day.dateStr];
-                  return (
-                    <div 
-                      key={idx}
-                      onClick={() => day.type !== 'empty' && handleDayClick(day.dateStr)}
-                      className={`aspect-square border rounded-lg p-1.5 flex flex-col justify-between transition-all relative group ${
-                        day.type !== 'empty' ? 'cursor-pointer' : ''
-                      } ${getDayStyling(day)}`}
-                    >
-                      {day.type !== 'empty' && (
-                        <>
-                          <span className="font-mono text-xs font-bold text-slate-400">{day.dayNum}</span>
-                          {log && (
-                            <div className="flex items-center space-x-1">
-                              <span className={`w-1.5 h-1.5 rounded-full ${getDayStatusDot(day.dateStr)}`} />
-                              <span className="text-[9px] font-mono tracking-tighter truncate leading-none text-slate-200">
-                                {log.check_in_time ? log.check_in_time.substring(0, 5) : '--:--'}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* HOVER TOOLTIP */}
-                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 hidden group-hover:block bg-slate-900 border border-slate-750 p-2.5 rounded-lg shadow-2xl z-30 text-[10px] space-y-1.5 text-left pointer-events-none no-print">
-                            <p className="font-bold border-b border-slate-800 pb-1 text-slate-200 flex justify-between">
-                              <span>{formatDate(day.dateStr)}</span>
-                              <span className="text-cyan-400">{log ? log.status : 'ABSENT'}</span>
-                            </p>
-                            {log ? (
-                              <>
-                                <p className="text-slate-350">Check-In: <strong className="text-white font-mono">{formatTo12Hour(log.check_in_time)}</strong></p>
-                                <p className="text-slate-350">Check-Out: <strong className="text-white font-mono">{log.check_out ? formatTo12Hour(log.check_out) : '--:--'}</strong></p>
-                                <p className="text-slate-350">Hours Worked: <strong className="text-cyan-400 font-mono">{log.working_hours || '--'}</strong></p>
-                                {log.remarks && <p className="text-slate-500 italic mt-1 truncate">"{log.remarks}"</p>}
-                              </>
-                            ) : (
-                              <p className="text-rose-400 italic">No attendance log filed.</p>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex flex-wrap gap-4 mt-5 text-[10px] font-bold text-slate-400 pt-4 border-t border-slate-850/80">
-                <span className="flex items-center space-x-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-emerald-500 shadow-[0_0_8px_#10b981] inline-block" />
-                  <span>Present</span>
-                </span>
-                <span className="flex items-center space-x-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-sky-400 shadow-[0_0_8px_#38bdf8] inline-block" />
-                  <span>Working (Active)</span>
-                </span>
-                <span className="flex items-center space-x-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-amber-400 shadow-[0_0_8px_#fbbf24] inline-block" />
-                  <span>Late Entry</span>
-                </span>
-                <span className="flex items-center space-x-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-orange-500 shadow-[0_0_8px_#f97316] inline-block" />
-                  <span>Missed Checkout</span>
-                </span>
-                <span className="flex items-center space-x-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-rose-500 shadow-[0_0_8px_#f43f5e] inline-block" />
-                  <span>Absent</span>
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: ATTENDANCE HISTORY LOGS */}
+          {/* TAB 3: ATTENDANCE HISTORY */}
           {activeTab === 'history' && (
-            <div className="glass-panel rounded-xl border border-slate-700 overflow-hidden shadow-lg animate-fade-in">
+            <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
               <div className="overflow-x-auto">
-                {logs.length === 0 ? (
-                  <div className="text-center py-12 text-slate-455 font-semibold text-xs">
-                    No logs logged for this month.
-                  </div>
-                ) : (
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                        <th className="px-6 py-4">Date</th>
-                        <th className="px-6 py-4">Day</th>
-                        <th className="px-6 py-4">Check-In</th>
-                        <th className="px-6 py-4">Check-Out</th>
-                        <th className="px-6 py-4">Working Hours</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Remarks</th>
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 text-[10px] font-extrabold uppercase bg-slate-950/40">
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Check-In</th>
+                      <th className="px-4 py-3">Check-Out</th>
+                      <th className="px-4 py-3">Working Hours</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850/50">
+                    {logs.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No attendance logs found for this month.</td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-850/50 text-slate-350">
-                      {logs.map((log) => {
-                        const dayName = new Date(log.date).toLocaleDateString('en-US', { weekday: 'long' });
-                        return (
-                          <tr key={log.id} className="hover:bg-slate-900/30 transition-colors">
-                            <td className="px-6 py-4 font-semibold text-white">{log.date.split('T')[0]}</td>
-                            <td className="px-6 py-4 font-semibold text-slate-400">{dayName}</td>
-                            <td className="px-6 py-4 font-mono text-slate-100 font-bold">{formatTo12Hour(log.check_in_time)}</td>
-                            <td className="px-6 py-4 font-mono text-slate-100">
-                              {log.check_out ? (
-                                <span className="font-bold text-cyan-400">{formatTo12Hour(log.check_out)}</span>
-                              ) : log.status === 'WORKING' ? (
-                                <span className="text-sky-400 font-semibold italic bg-sky-950/20 border border-sky-500/10 px-2 py-0.5 rounded text-[10px]">Working</span>
-                              ) : (
-                                <span className="text-slate-500">--</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 font-mono text-cyan-400 font-bold">{log.working_hours || '-'}</td>
-                            <td className="px-6 py-4">
-                              <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                log.status === 'PRESENT'
-                                  ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/20'
-                                  : log.status === 'WORKING'
-                                  ? 'bg-sky-950/30 text-sky-400 border border-sky-500/20'
-                                  : log.status === 'LATE'
-                                  ? 'bg-amber-950/30 text-amber-400 border border-amber-500/20'
-                                  : 'bg-rose-950/30 text-rose-450 border border-rose-500/20'
-                              }`}>
-                                <span>{log.status}</span>
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 italic text-slate-450 truncate max-w-[200px]">{log.remarks || 'None'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                    ) : (
+                      logs.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-900/30">
+                          <td className="px-4 py-3 font-mono">{log.date.split('T')[0]}</td>
+                          <td className="px-4 py-3 font-mono">{formatTo12Hour(log.check_in_time)}</td>
+                          <td className="px-4 py-3 font-mono">{formatTo12Hour(log.check_out)}</td>
+                          <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.working_hours || '--'}</td>
+                          <td className="px-4 py-3 font-bold text-emerald-400">{log.status}</td>
+                          <td className="px-4 py-3 text-slate-450">{log.source}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-
-              {totalPages > 1 && (
-                <div className="p-4 border-t border-slate-800 bg-slate-950/30 flex items-center justify-between no-print text-[11px] font-semibold text-slate-450">
-                  <span>Showing page {page} of {totalPages}</span>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="p-1 rounded bg-slate-900 border border-slate-800 disabled:opacity-40"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="p-1 rounded bg-slate-900 border border-slate-800 disabled:opacity-40"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
-          {/* TAB 4: MONTHLY SUMMARY DETAILS */}
+          {/* TAB 4: MONTHLY SUMMARY */}
           {activeTab === 'summary' && (
-            <div className="space-y-6 animate-fade-in">
-              {summary ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Present Days</p>
-                    <h4 className="text-3xl font-extrabold text-emerald-400 mt-2 font-mono">{summary.presentDays}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Absent Days</p>
-                    <h4 className="text-3xl font-extrabold text-rose-400 mt-2 font-mono">{summary.absentDays}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Holidays</p>
-                    <h4 className="text-3xl font-extrabold text-blue-400 mt-2 font-mono">{summary.holidays}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Avg Check-In</p>
-                    <h4 className="text-xl font-extrabold text-white mt-3 font-mono">{summary.avgCheckInTime}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Avg Check-Out</p>
-                    <h4 className="text-xl font-extrabold text-white mt-3 font-mono">{summary.avgCheckOutTime}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Work Hours</p>
-                    <h4 className="text-xl font-extrabold text-cyan-400 mt-3 font-mono">{summary.totalWorkingHours}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Late Count</p>
-                    <h4 className="text-3xl font-extrabold text-amber-400 mt-2 font-mono">{summary.lateArrivals}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Missed Checkouts</p>
-                    <h4 className="text-3xl font-extrabold text-orange-450 mt-2 font-mono">{summary.missedCheckoutCount}</h4>
-                  </div>
-                  <div className="glass-panel p-5 rounded-xl border border-slate-800 text-center col-span-2">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Attendance Percentage</p>
-                    <h4 className="text-2xl font-extrabold text-cyan-400 mt-2.5 font-mono">{analytics?.monthlyAttendancePercentage || 0}%</h4>
-                  </div>
-                </div>
-              ) : (
-                <div className="glass-panel p-6 text-center text-xs text-slate-450">Summary details unavailable.</div>
-              )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="glass-panel p-6 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Present Days</span>
+                <h4 className="text-3xl font-extrabold text-emerald-400 mt-2 font-mono">{summary?.presentDays || 0}</h4>
+              </div>
+              <div className="glass-panel p-6 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Absent Days</span>
+                <h4 className="text-3xl font-extrabold text-rose-400 mt-2 font-mono">{summary?.absentDays || 0}</h4>
+              </div>
+              <div className="glass-panel p-6 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Total Working Hours</span>
+                <h4 className="text-3xl font-extrabold text-cyan-400 mt-2 font-mono">{summary?.totalWorkingHours || '0h'}</h4>
+              </div>
             </div>
           )}
 
-          {/* TAB 5: ANALYTICS CHARTS */}
+          {/* TAB 5: ANALYTICS */}
           {activeTab === 'analytics' && (
-            <div className="glass-panel p-6 rounded-xl border border-slate-800 animate-fade-in shadow-lg">
-              {analytics && analytics.sufficientData ? (
-                <div className="space-y-8">
-                  {/* Daily Hours Chart */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Daily Shift Hours Trend</h4>
-                    <div className="h-44 w-full flex items-end justify-between bg-slate-950/40 border border-slate-850 p-4 pt-8 rounded-lg relative">
-                      <span className="absolute top-2 left-2.5 text-[9px] text-slate-500">Duration (0h - 12h)</span>
-                      {analytics.workingHoursTrend.slice(-15).map((t, index) => {
-                        const hPercent = Math.min(100, (t.hours / 12) * 100);
-                        return (
-                          <div key={index} className="flex-1 flex flex-col items-center justify-end h-full group relative mx-0.5">
-                            <div 
-                              className="bg-cyan-550/80 hover:bg-cyan-400 rounded-t w-full transition-all"
-                              style={{ height: `${hPercent}%` }}
-                            />
-                            <span className="absolute bottom-full mb-1.5 hidden group-hover:block bg-slate-900 border border-slate-750 text-[9px] text-cyan-455 px-1.5 py-0.5 rounded shadow font-mono">
-                              {t.hours}h ({t.date.split('-')[2]})
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Arrival Spread */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Arrival Timing Check-In Spread</h4>
-                    <div className="h-20 w-full bg-slate-950/40 border border-slate-850 p-4 rounded-lg flex items-center relative">
-                      <span className="absolute top-2 left-3 text-[9px] text-slate-500">8:00 AM</span>
-                      <span className="absolute top-2 right-3 text-[9px] text-slate-500">12:00 PM</span>
-                      <div className="w-full bg-slate-800 h-1.5 rounded-full relative">
-                        <div className="absolute left-[31.25%] top-1/2 transform -translate-y-1/2 w-0.5 h-3 bg-amber-500/60" title="Shift Grace Time" />
-                        {analytics.checkInTrend.slice(-12).map((t, idx) => {
-                          const leftPct = getCheckInPositionPercentage(t.time + ':00');
-                          return (
-                            <div 
-                              key={idx}
-                              className="absolute w-2.5 h-2.5 rounded-full bg-cyan-450 border border-slate-950 -translate-y-1/2 -translate-x-1/2 hover:scale-125 transition-transform cursor-pointer group"
-                              style={{ left: `${leftPct}%`, top: '50%' }}
-                            >
-                              <span className="absolute bottom-full mb-2 hidden group-hover:block bg-slate-900 border border-slate-750 text-[9px] text-white px-1.5 py-0.5 rounded font-mono">
-                                {t.time}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-20 text-slate-500 italic text-xs space-y-2 border border-dashed border-slate-800 rounded-xl">
-                  <Info className="w-6 h-6 text-slate-650 mx-auto" />
-                  <p className="font-bold">Insufficient Data for Analytics</p>
-                  <p className="text-[10px] px-6 text-slate-550 leading-relaxed">Requires at least 3 completed working/present logs in this month to chart trend lines.</p>
-                </div>
-              )}
+            <div className="glass-panel p-6 rounded-xl border border-slate-800 text-center space-y-4">
+              <TrendingUp className="w-8 h-8 text-cyan-400 mx-auto" />
+              <h3 className="text-lg font-bold text-white">Monthly Attendance Analytics</h3>
+              <p className="text-xs text-slate-400">Monthly Performance Score: <strong className="text-cyan-400">{analytics?.monthlyAttendancePercentage || 100}%</strong></p>
             </div>
           )}
 
-          {/* TAB 6: REPORTS & EXPORTS */}
+          {/* TAB 6: REPORTS */}
           {activeTab === 'reports' && (
-            <div className="glass-panel p-6 rounded-xl border border-slate-800 animate-fade-in space-y-6">
-              <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-2">Generate Attendance Statement</h3>
-              <p className="text-xs text-slate-350 leading-relaxed">Select output options to print or compile static records for this employee for the selected month ({currentMonth}).</p>
-              
-              <div className="flex flex-wrap gap-4 pt-4">
-                <button
-                  onClick={() => window.print()}
-                  className="px-4 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-cyan-400 hover:border-cyan-400 text-xs font-bold flex items-center space-x-2 transition-all"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Print PDF Statement</span>
-                </button>
-
-                <button
-                  onClick={exportToCSV}
-                  className="px-4 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-emerald-400 hover:border-emerald-400 text-xs font-bold flex items-center space-x-2 transition-all"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download CSV Ledger</span>
-                </button>
+            <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-white text-sm">Attendance Reports & Export</h3>
+                <div className="flex items-center space-x-2">
+                  <button onClick={exportToCSV} className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-750 text-cyan-400 text-xs font-bold hover:bg-slate-800 flex items-center space-x-1 cursor-pointer">
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                  <button onClick={() => window.print()} className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-750 text-slate-300 text-xs font-bold hover:bg-slate-800 flex items-center space-x-1 cursor-pointer">
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Report</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* DETAIL DIALOG MODAL (CLICK CELLS) */}
-      {detailOpen && detailLog && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-panel border border-slate-700 rounded-xl max-w-md w-full overflow-hidden shadow-2xl animate-scale-up">
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
-              <h3 className="font-bold text-white text-sm flex items-center space-x-2">
-                <Clock className="w-4 h-4 text-cyan-400" />
-                <span>Attendance Log Details</span>
-              </h3>
-              <button onClick={() => setDetailOpen(false)} className="text-slate-400 hover:text-white cursor-pointer bg-transparent border-0">
-                <X className="w-4 h-4" />
+      {/* Edit Employee Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in no-print">
+          <div className="glass-panel border border-slate-750 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            
+            <div className="p-5 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-cyan-400">
+                <Edit className="w-5 h-5" />
+                <h3 className="font-bold text-white text-base">Edit Employee Profile</h3>
+              </div>
+              <button 
+                onClick={() => setIsEditModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-850 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-4 text-xs">
+              
+              {actionError && (
+                <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-500/40 text-rose-300 font-semibold flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{actionError}</span>
+                </div>
+              )}
+
+              {actionSuccess && (
+                <div className="p-3 rounded-lg bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 font-semibold flex items-center space-x-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{actionSuccess}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Employee ID (Disabled) */}
+                <div>
+                  <label className="block text-slate-400 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Employee ID (Read Only)
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value={employee?.employee_id || ''}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-500 font-mono cursor-not-allowed"
+                  />
+                </div>
+
+                {/* Employee Name */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Full Name <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.full_name}
+                    onChange={e => setEditForm({ ...editForm, full_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+
+                {/* Mobile Number */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Mobile Number <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.mobile}
+                    onChange={e => setEditForm({ ...editForm, mobile: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+
+                {/* Joining Date */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Joining Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.joining_date}
+                    onChange={e => setEditForm({ ...editForm, joining_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Department
+                  </label>
+                  <select
+                    value={editForm.department_id}
+                    onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
+                  >
+                    <option value="">Select Department</option>
+                    {metaDepts.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Designation */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Designation
+                  </label>
+                  <select
+                    value={editForm.designation_id}
+                    onChange={e => setEditForm({ ...editForm, designation_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
+                  >
+                    <option value="">Select Designation</option>
+                    {metaDesigs.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Shift */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Assigned Shift
+                  </label>
+                  <select
+                    value={editForm.shift_id}
+                    onChange={e => setEditForm({ ...editForm, shift_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
+                  >
+                    <option value="">Select Shift</option>
+                    {metaShifts.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Reporting Manager */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Reporting Manager
+                  </label>
+                  <select
+                    value={editForm.manager_id}
+                    onChange={e => setEditForm({ ...editForm, manager_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
+                  >
+                    <option value="">Select Manager</option>
+                    {metaManagers.map(m => (
+                      <option key={m.id} value={m.id}>{m.full_name || m.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Active Status */}
+                <div className="sm:col-span-2 pt-1">
+                  <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editForm.is_active}
+                      onChange={e => setEditForm({ ...editForm, is_active: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-cyan-400"
+                    />
+                    <span className="font-bold">Active Employee Status</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-750 text-slate-300 font-semibold hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-50"
+                >
+                  {savingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Employee Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in no-print">
+          <div className="glass-panel border border-rose-900/60 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            
+            <div className="p-5 border-b border-rose-900/40 bg-rose-950/20 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-rose-400">
+                <Trash2 className="w-5 h-5" />
+                <h3 className="font-bold text-white text-base">Delete Employee?</h3>
+              </div>
+              <button 
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-850 transition-colors"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-y-3 gap-x-4 border-b border-slate-850 pb-4">
-                <div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">Log Date</p>
-                  <p className="text-slate-200 mt-0.5 font-bold">{formatDate(detailLog.date)}</p>
+              {actionError && (
+                <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-500/40 text-rose-300 font-semibold flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{actionError}</span>
                 </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">Log Status</p>
-                  <p className="text-cyan-400 mt-0.5 font-bold uppercase">{detailLog.status}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">Check-In</p>
-                  <p className="text-slate-200 mt-0.5 font-mono">{formatTo12Hour(detailLog.check_in_time)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">Check-Out</p>
-                  <p className="text-slate-200 mt-0.5 font-mono">{detailLog.check_out ? formatTo12Hour(detailLog.check_out) : '--:--'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">Working Hours</p>
-                  <p className="text-slate-200 mt-0.5 font-mono">{detailLog.working_hours || '--'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">Log Source</p>
-                  <p className="text-cyan-455 mt-0.5 font-semibold uppercase">{detailLog.source}</p>
-                </div>
-              </div>
+              )}
 
-              {/* Mobile device details */}
-              <div className="space-y-2 pt-2">
-                <h5 className="text-[10px] text-slate-450 font-bold uppercase tracking-wider">Device Telemetry Logs</h5>
-                {detailLog.device_name || detailLog.network_type || detailLog.battery_percentage !== null ? (
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 bg-slate-950/40 p-3 border border-slate-850 rounded">
-                    <div>
-                      <p className="text-[10px] text-slate-500">Device Name</p>
-                      <p className="text-slate-350 truncate">{detailLog.device_name || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-500">Network connection</p>
-                      <p className="text-slate-350">{detailLog.network_type || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-500">Battery Level</p>
-                      <p className="text-slate-350">{detailLog.battery_percentage !== null ? `${detailLog.battery_percentage}%` : 'N/A'}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-slate-550 italic">No telemetry data logged for this manual edit / shift.</p>
-                )}
-              </div>
+              <p className="text-slate-300 text-sm leading-relaxed">
+                This employee will be removed from the active employee list.
+              </p>
+              <p className="text-slate-400 text-xs bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <strong className="text-emerald-400 block mb-1">Preservation Policy:</strong>
+                Attendance history, monthly summaries, reports, and analytics will remain fully preserved in the database.
+              </p>
 
-              {/* GPS coordinates mapping */}
-              <div className="space-y-2 pt-2">
-                <h5 className="text-[10px] text-slate-455 font-bold uppercase tracking-wider">GPS Verification Bounds</h5>
-                {detailLog.gps_lat_in || detailLog.gps_lat_out ? (
-                  <div className="space-y-2 bg-slate-950/40 p-3 border border-slate-850 rounded">
-                    {detailLog.gps_lat_in && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400 flex items-center space-x-1">
-                          <MapPin className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Check-In:</span>
-                        </span>
-                        <a 
-                          href={`https://www.google.com/maps/search/?api=1&query=${detailLog.gps_lat_in},${detailLog.gps_lng_in}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-mono text-cyan-400 hover:underline"
-                        >
-                          {detailLog.gps_lat_in.toFixed(5)}, {detailLog.gps_lng_in?.toFixed(5)}
-                        </a>
-                      </div>
-                    )}
-                    {detailLog.gps_lat_out && (
-                      <div className="flex items-center justify-between border-t border-slate-900 pt-2">
-                        <span className="text-slate-400 flex items-center space-x-1">
-                          <MapPin className="w-3.5 h-3.5 text-amber-450" />
-                          <span>Check-Out:</span>
-                        </span>
-                        <a 
-                          href={`https://www.google.com/maps/search/?api=1&query=${detailLog.gps_lat_out},${detailLog.gps_lng_out}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-mono text-amber-450 hover:underline"
-                        >
-                          {detailLog.gps_lat_out.toFixed(5)}, {detailLog.gps_lng_out?.toFixed(5)}
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-slate-550 italic font-medium">GPS location details not synchronized.</p>
-                )}
+              <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-750 text-slate-300 font-semibold hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={deleting}
+                  className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-600/20 transition-all disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-800 bg-slate-950/30 flex justify-end">
-              <button
-                onClick={() => setDetailOpen(false)}
-                className="px-4 py-2 rounded bg-cyan-400 hover:bg-cyan-300 text-slate-900 text-xs font-bold transition-all cursor-pointer"
-              >
-                Close details
-              </button>
-            </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

@@ -24,7 +24,7 @@ export const getEmployees = async (req: AuthRequest, res: Response) => {
        LEFT JOIN departments d ON e.department_id = d.id
        LEFT JOIN designations dg ON e.designation_id = dg.id
        LEFT JOIN shifts s ON e.shift_id = s.id
-       WHERE e.is_active = TRUE
+       WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
     `;
     const params: any[] = [];
 
@@ -260,8 +260,18 @@ export const updateEmployee = async (req: AuthRequest, res: Response) => {
 
     params.push(id);
     const updateQuery = `UPDATE employees SET ${updateFields.join(', ')} WHERE id = $${count}`;
-
     await query(updateQuery, params);
+
+    // Sync manager assignment
+    if (req.body.manager_id !== undefined) {
+      await query('DELETE FROM manager_employees WHERE employee_id = $1', [id]);
+      if (req.body.manager_id && req.body.manager_id.trim() !== '') {
+        await query(
+          'INSERT INTO manager_employees (manager_id, employee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [req.body.manager_id.trim(), id]
+        );
+      }
+    }
 
     // Log the update
     await query(
@@ -287,7 +297,13 @@ export const deleteEmployee = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   try {
-    const result = await query('DELETE FROM employees WHERE id = $1 RETURNING id, employee_id, full_name', [id]);
+    const result = await query(
+      `UPDATE employees 
+       SET is_deleted = TRUE, is_active = FALSE, deleted_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL) 
+       RETURNING id, employee_id, full_name`,
+      [id]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
@@ -340,6 +356,11 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
                 LIMIT 1
               ) as manager_name,
               (
+                SELECT me.manager_id FROM manager_employees me
+                WHERE me.employee_id = e.id
+                LIMIT 1
+              ) as manager_id,
+              (
                 SELECT a.date FROM attendance a
                 WHERE a.employee_id = e.id AND a.is_deleted = FALSE AND a.status != 'ABSENT'
                 ORDER BY a.date DESC
@@ -349,7 +370,17 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
                 SELECT a.status FROM attendance a
                 WHERE a.employee_id = e.id AND a.date = CURRENT_DATE AND a.is_deleted = FALSE
                 LIMIT 1
-              ) as current_status
+              ) as current_status,
+              (
+                SELECT COALESCE(a.check_in_time, a.time) FROM attendance a
+                WHERE a.employee_id = e.id AND a.date = CURRENT_DATE AND a.is_deleted = FALSE
+                LIMIT 1
+              ) as todays_check_in,
+              (
+                SELECT a.check_out_time FROM attendance a
+                WHERE a.employee_id = e.id AND a.date = CURRENT_DATE AND a.is_deleted = FALSE
+                LIMIT 1
+              ) as todays_check_out
        FROM employees e
        LEFT JOIN departments d ON e.department_id = d.id
        LEFT JOIN designations dg ON e.designation_id = dg.id
@@ -369,6 +400,29 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('[Employee Error] Get employee by id failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });
+  }
+};
+
+// Get metadata options for dropdowns (departments, designations, shifts, managers)
+export const getEmployeeMetaData = async (req: AuthRequest, res: Response) => {
+  try {
+    const depts = await query('SELECT id, name FROM departments ORDER BY name ASC');
+    const desigs = await query('SELECT id, name FROM designations ORDER BY name ASC');
+    const shifts = await query('SELECT id, name, checkin_start, checkout_time FROM shifts ORDER BY id ASC');
+    const managers = await query(
+      `SELECT id, full_name, email, role FROM admins WHERE is_active = TRUE ORDER BY full_name ASC`
+    );
+
+    return res.status(200).json({
+      success: true,
+      departments: depts.rows,
+      designations: desigs.rows,
+      shifts: shifts.rows,
+      managers: managers.rows
+    });
+  } catch (error) {
+    console.error('[Employee Meta Error]', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch meta options' });
   }
 };
 
