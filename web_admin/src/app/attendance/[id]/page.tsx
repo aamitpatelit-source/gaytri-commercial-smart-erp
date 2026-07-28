@@ -423,25 +423,44 @@ export default function EmployeeAttendanceProfilePage() {
     }
   };
 
-  // Generate calendar days
-  const getCalendarDays = () => {
+  interface CalendarDay {
+    type: 'empty' | 'day';
+    dayNum: number;
+    dateStr: string;
+    isSunday: boolean;
+    isFuture: boolean;
+  }
+
+  // Generate calendar days (including leading and trailing empty cells for grid balance)
+  const getCalendarDays = (): CalendarDay[] => {
     const parts = currentMonth.split('-');
-    const year = parseInt(parts[0]);
-    const month = parseInt(parts[1]) - 1;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
 
     const firstDayIndex = new Date(year, month, 1).getDay();
     const numDays = new Date(year, month + 1, 0).getDate();
-    const days = [];
+    const days: CalendarDay[] = [];
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Leading empty cells
     for (let i = 0; i < firstDayIndex; i++) {
-      days.push({ type: 'empty', dayNum: 0, dateStr: '', isWeekend: false });
+      days.push({ type: 'empty', dayNum: 0, dateStr: '', isSunday: false, isFuture: false });
     }
 
+    // Days of the month 1..numDays
     for (let i = 1; i <= numDays; i++) {
-      const currentDate = new Date(year, month, i);
+      const d = new Date(year, month, i);
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-      const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
-      days.push({ type: 'day', dayNum: i, dateStr, isWeekend });
+      const isSunday = d.getDay() === 0;
+      const isFuture = d > today;
+      days.push({ type: 'day', dayNum: i, dateStr, isSunday, isFuture });
+    }
+
+    // Trailing empty cells to balance the 7-column grid
+    while (days.length % 7 !== 0) {
+      days.push({ type: 'empty', dayNum: 0, dateStr: '', isSunday: false, isFuture: false });
     }
 
     return days;
@@ -455,37 +474,70 @@ export default function EmployeeAttendanceProfilePage() {
     }
   };
 
-  const getDayStyling = (day: { type: string; dayNum: number; dateStr: string; isWeekend: boolean }) => {
-    if (day.type === 'empty') return 'border-transparent text-slate-700 bg-transparent cursor-default';
-    
+  const getDayStatusInfo = (day: CalendarDay) => {
+    if (day.type === 'empty') {
+      return {
+        label: '',
+        styling: 'border-transparent text-slate-700 bg-transparent cursor-default',
+        clickable: false
+      };
+    }
+
     const log = monthlyCalendarLogs[day.dateStr];
-    if (!log) {
-      const parts = day.dateStr.split('-');
-      const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
 
-      if (d > today) {
-        return 'border-slate-800 text-slate-500 bg-transparent cursor-default';
+    if (log) {
+      const status = log.status;
+      if (status === 'WORKING') {
+        return {
+          label: 'WORKING',
+          styling: 'border-sky-500/30 text-sky-400 bg-sky-950/30 hover:border-sky-400 cursor-pointer shadow-sm',
+          clickable: true
+        };
       }
-      
-      if (day.isWeekend) {
-        return 'border-slate-800/40 text-slate-500 bg-slate-900/10 cursor-default';
+      if (status === 'PRESENT' || status === 'ON_DUTY') {
+        return {
+          label: 'PRESENT',
+          styling: 'border-emerald-500/30 text-emerald-400 bg-emerald-950/30 hover:border-emerald-400 cursor-pointer shadow-sm',
+          clickable: true
+        };
       }
-      return 'border-rose-500/20 text-rose-400 bg-rose-950/20 hover:border-rose-400 cursor-pointer';
+      if (status === 'LATE' || status === 'HALF_DAY') {
+        return {
+          label: status === 'HALF_DAY' ? 'HALF DAY' : 'LATE',
+          styling: 'border-amber-500/30 text-amber-400 bg-amber-950/30 hover:border-amber-400 cursor-pointer shadow-sm',
+          clickable: true
+        };
+      }
+      return {
+        label: status,
+        styling: 'border-rose-500/30 text-rose-400 bg-rose-950/20 hover:border-rose-400 cursor-pointer shadow-sm',
+        clickable: true
+      };
     }
 
-    const status = log.status;
-    if (status === 'WORKING') {
-      return 'border-sky-500/20 text-sky-400 bg-sky-950/25 hover:border-sky-400 cursor-pointer';
+    // If no attendance log exists:
+    if (day.isFuture) {
+      return {
+        label: 'FUTURE',
+        styling: 'border-slate-800 text-slate-500 bg-slate-950/20 cursor-default',
+        clickable: false
+      };
     }
-    if (status === 'PRESENT' || status === 'ON_DUTY') {
-      return 'border-emerald-500/20 text-emerald-400 bg-emerald-950/25 hover:border-emerald-400 cursor-pointer';
+
+    if (day.isSunday) {
+      return {
+        label: 'WEEKLY OFF',
+        styling: 'border-indigo-500/30 text-indigo-350 bg-indigo-950/25 hover:border-indigo-400/50 cursor-pointer',
+        clickable: false
+      };
     }
-    if (status === 'LATE' || status === 'HALF_DAY') {
-      return 'border-amber-500/20 text-amber-400 bg-amber-950/25 hover:border-amber-400 cursor-pointer';
-    }
-    return 'border-rose-500/20 text-rose-400 bg-rose-950/20 hover:border-rose-400 cursor-pointer';
+
+    // Past weekday without attendance record -> ABSENT
+    return {
+      label: 'ABSENT',
+      styling: 'border-rose-500/30 text-rose-400 bg-rose-950/25 hover:border-rose-400/60 cursor-pointer',
+      clickable: false
+    };
   };
 
   // Today log calculation for profile header card
@@ -671,38 +723,74 @@ export default function EmployeeAttendanceProfilePage() {
         <div className="tab-contents">
           {/* TAB 1: ATTENDANCE CALENDAR */}
           {activeTab === 'calendar' && (
-            <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-6">
+            <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-5">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-white text-sm flex items-center space-x-2">
                   <CalendarIcon className="w-4 h-4 text-cyan-400" />
                   <span>Monthly Attendance Calendar</span>
                 </h3>
-                <span className="text-[10px] text-slate-500 uppercase font-mono">Click any date for details</span>
+                <span className="text-[10px] text-slate-500 uppercase font-mono">Click any logged date for details</span>
               </div>
 
+              {/* Calendar Legend Bar */}
+              <div className="flex flex-wrap items-center gap-4 text-[11px] font-bold text-slate-350 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                  <span>Present</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                  <span>Absent</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                  <span>Late / Half Day</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+                  <span>Working</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-400" />
+                  <span>Weekly Off (Sunday)</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
+                  <span>Future Date</span>
+                </div>
+              </div>
+
+              {/* 7-Column Days Header */}
               <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
-                <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                <span className="text-indigo-400">Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
               </div>
 
+              {/* 7-Column Calendar Cells Grid */}
               <div className="grid grid-cols-7 gap-2">
-                {getCalendarDays().map((day, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => day.type === 'day' && handleDayClick(day.dateStr)}
-                    className={`h-14 p-2 rounded-lg border flex flex-col justify-between text-xs transition-all ${getDayStyling(day)}`}
-                  >
-                    {day.type === 'day' && (
-                      <>
-                        <span className="font-bold text-[11px]">{day.dayNum}</span>
-                        {monthlyCalendarLogs[day.dateStr] && (
-                          <span className="text-[9px] font-mono font-bold truncate">
-                            {monthlyCalendarLogs[day.dateStr].status}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
+                {getCalendarDays().map((day, idx) => {
+                  const info = getDayStatusInfo(day);
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => info.clickable && handleDayClick(day.dateStr)}
+                      className={`h-16 p-2 rounded-lg border flex flex-col justify-between text-xs transition-all ${info.styling}`}
+                    >
+                      {day.type === 'day' && (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-[12px]">{day.dayNum}</span>
+                            {day.isSunday && <span className="text-[8px] font-bold text-indigo-400 uppercase">Sun</span>}
+                          </div>
+                          {info.label && (
+                            <span className="text-[9px] font-mono font-extrabold uppercase tracking-tight truncate block">
+                              {info.label}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
