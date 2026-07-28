@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../../core/providers/language_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/config/api_config.dart';
 import '../../core/theme/app_theme.dart';
@@ -283,7 +285,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   Future<void> _saveAttendanceRoster() async {
     final token = await _storage.read(key: 'access_token');
-    if (token == null) return;
+    if (token == null) {
+      _showErrorSnackbar('Session expired. Please sign in again.');
+      return;
+    }
 
     final List<Map<String, dynamic>> records = [];
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -323,16 +328,24 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         })
       ).timeout(const Duration(seconds: 15));
 
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 200 && data['success'] == true) {
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(response.body);
+      } catch (_) {}
+
+      if (response.statusCode == 200 && data != null && data['success'] == true) {
         _showSuccessSnackbar('Attendance roster saved successfully.');
         await _loadAllData();
       } else {
-        final String rawMsg = data['message'] ?? 'Failed to save attendance.';
+        final String rawMsg = data?['message'] ?? 'Failed to save attendance roster.';
         _showErrorSnackbar(rawMsg);
       }
+    } on TimeoutException {
+      _showErrorSnackbar('Request timed out. Please check network connection.');
+    } on http.ClientException {
+      _showErrorSnackbar('No internet connection. Please check your network.');
     } catch (e) {
-      _showErrorSnackbar('Sync failed. Please verify server connection.');
+      _showErrorSnackbar(e.toString().replaceAll('Exception:', '').trim());
     } finally {
       if (mounted) {
         setState(() {
@@ -344,7 +357,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   Future<void> _checkOutEmployee(EmployeeModel emp) async {
     final token = await _storage.read(key: 'access_token');
-    if (token == null) return;
+    if (token == null) {
+      _showErrorSnackbar('Session expired. Please sign in again.');
+      return;
+    }
 
     try {
       final response = await http.post(
@@ -358,15 +374,24 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         }),
       ).timeout(const Duration(seconds: 10));
 
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 200 && data['success'] == true) {
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(response.body);
+      } catch (_) {}
+
+      if (response.statusCode == 200 && data != null && data['success'] == true) {
         _showSuccessSnackbar('${emp.fullName} checked out successfully.');
         await _loadAllData();
       } else {
-        _showErrorSnackbar(data['message'] ?? 'Failed to check out employee.');
+        final msg = data?['message'] ?? 'Checkout failed.';
+        _showErrorSnackbar(msg);
       }
+    } on TimeoutException {
+      _showErrorSnackbar('Request timed out. Please check network connection.');
+    } on http.ClientException {
+      _showErrorSnackbar('No internet connection. Please check your network.');
     } catch (e) {
-      _showErrorSnackbar('Checkout failed. Please check network connection.');
+      _showErrorSnackbar(e.toString().replaceAll('Exception:', '').trim());
     }
   }
 
@@ -448,6 +473,17 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.language_rounded, color: AppTheme.neonCyan, size: 20),
+            onPressed: () {
+              final provider = Provider.of<LanguageProvider>(context, listen: false);
+              final isHi = provider.locale.languageCode == 'hi';
+              final nextLang = isHi ? 'en' : 'hi';
+              provider.changeLanguage(nextLang);
+              _showSuccessSnackbar(nextLang == 'hi' ? 'भाषा बदलकर हिंदी की गई' : 'Language set to English');
+            },
+            tooltip: l10n?.selectLanguage ?? 'Language',
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppTheme.mutedText, size: 20),
             onPressed: _loadAllData,
             tooltip: 'Refresh Data',
@@ -455,7 +491,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: AppTheme.errorRed, size: 20),
             onPressed: _showLogoutDialog,
-            tooltip: 'Logout',
+            tooltip: l10n?.logout ?? 'Logout',
           ),
           const SizedBox(width: 4),
         ],

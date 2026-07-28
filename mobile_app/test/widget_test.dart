@@ -274,8 +274,8 @@ void main() {
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.text('Dashboard'), findsOneWidget);
     expect(find.text('Attendance'), findsOneWidget);
-    expect(find.text('Leaves'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Leaves'), findsNothing);
+    expect(find.text('Settings'), findsNothing);
 
     // 3. Switch to Attendance tab
     await tester.tap(find.text('Attendance'));
@@ -312,17 +312,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    // 8. Test language switcher dynamic update
-    await tester.tap(find.text('Settings'));
-    for (int i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-
-    // Scroll down to reveal language switcher switch
-    await tester.drag(find.byType(SingleChildScrollView).last, const Offset(0, -400));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(Switch));
+    // 8. Test language switcher dynamic update via AppBar icon
+    await tester.tap(find.byIcon(Icons.language_rounded));
     for (int i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
@@ -330,6 +321,6 @@ void main() {
     // Roster matches Hindi string
     expect(find.text('डैशबोर्ड'), findsOneWidget);
     expect(find.text('उपस्थिति'), findsOneWidget);
-    expect(find.text('छुट्टियां'), findsOneWidget);
+    expect(find.text('छुट्टियां'), findsNothing);
   });
 }

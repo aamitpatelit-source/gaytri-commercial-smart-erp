@@ -805,9 +805,9 @@ const employeeCheckIn = async (req, res) => {
     }
 };
 exports.employeeCheckIn = employeeCheckIn;
-// POST /attendance/check-out (EMPLOYEE check-out)
+// POST /attendance/check-out (EMPLOYEE or MANAGER check-out)
 const employeeCheckOut = async (req, res) => {
-    const employeeId = req.user?.id;
+    const employeeId = req.body?.employee_id || req.user?.id;
     const { gps_lat, gps_lng, remarks } = req.body;
     if (!employeeId) {
         return res.status(401).json({ success: false, message: 'Employee credentials not found.' });
@@ -820,39 +820,41 @@ const employeeCheckOut = async (req, res) => {
         await client.query('BEGIN');
         // 1. Get current check-in record
         const existing = await client.query('SELECT id, status, check_in_time, time, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE', [employeeId, today]);
+        let record;
+        let finalStatus = 'PRESENT';
         if (existing.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ success: false, message: 'No check-in record found for today.' });
+            // If no check-in record exists yet, create one for today with status PRESENT and checkout time
+            const insRes = await client.query(`INSERT INTO attendance (employee_id, date, time, check_in_time, check_out_time, status, remarks, source, created_by)
+         VALUES ($1, $2, $3, $3, $4, 'PRESENT', $5, 'MOBILE_APP', $6)
+         RETURNING id, status, check_in_time, check_out_time`, [employeeId, today, '09:00:00', nowTime, remarks || 'Mobile App Check-Out', req.user?.id || null]);
+            record = insRes.rows[0];
         }
-        const record = existing.rows[0];
-        if (record.status === 'PRESENT') {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ success: false, message: 'Already checked out today.' });
+        else {
+            record = existing.rows[0];
+            if (record.status === 'PRESENT' && record.check_out_time) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
+            }
+            // Fetch shift details to check if late arrival was present
+            const shiftRes = await client.query(`SELECT s.late_after FROM employees e 
+         LEFT JOIN shifts s ON e.shift_id = s.id 
+         WHERE e.id = $1`, [employeeId]);
+            const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
+            const checkInTime = record.check_in_time || record.time || '09:00:00';
+            finalStatus = checkInTime > lateAfter ? 'LATE' : 'PRESENT';
+            // Update the existing record
+            await client.query(`UPDATE attendance 
+         SET check_out_time = $1, status = $2, remarks = $3,
+             gps_lat_out = $4, gps_lng_out = $5, updated_at = NOW()
+         WHERE id = $6`, [
+                nowTime,
+                finalStatus,
+                remarks || 'Mobile App Check-Out',
+                gps_lat ? parseFloat(gps_lat) : null,
+                gps_lng ? parseFloat(gps_lng) : null,
+                record.id
+            ]);
         }
-        if (record.status !== 'WORKING' && record.status !== 'LATE') {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ success: false, message: `Cannot check out. Today's status is ${record.status}.` });
-        }
-        // 2. Fetch shift details to check if late arrival was present
-        const shiftRes = await client.query(`SELECT s.late_after FROM employees e 
-       LEFT JOIN shifts s ON e.shift_id = s.id 
-       WHERE e.id = $1`, [employeeId]);
-        const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
-        const checkInTime = record.check_in_time || record.time;
-        // Final status becomes LATE if check-in was after shift grace minutes, otherwise PRESENT
-        const finalStatus = checkInTime > lateAfter ? 'LATE' : 'PRESENT';
-        // 3. Update the record
-        await client.query(`UPDATE attendance 
-       SET check_out_time = $1, status = $2, remarks = $3,
-           gps_lat_out = $4, gps_lng_out = $5, updated_at = NOW()
-       WHERE id = $6`, [
-            nowTime,
-            finalStatus,
-            remarks || 'Mobile App Check-Out',
-            gps_lat ? parseFloat(gps_lat) : null,
-            gps_lng ? parseFloat(gps_lng) : null,
-            record.id
-        ]);
         // 4. Write audit trail
         await client.query(`INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address)
        VALUES ($1, NULL, $2, $3, NULL, $4, 'Mobile App Check-Out', $5)`, [record.id, record.status, finalStatus, remarks || 'Mobile App Check-Out', req.ip || null]);

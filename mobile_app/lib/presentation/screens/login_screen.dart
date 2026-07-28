@@ -120,7 +120,9 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('Access restricted. Manager or Employee privileges required.');
       }
 
-      await _storage.deleteAll();
+      await _storage.delete(key: 'access_token');
+      await _storage.delete(key: 'refresh_token');
+      await _storage.delete(key: 'user');
 
       await _storage.write(key: 'access_token', value: accessToken);
       await _storage.write(key: 'refresh_token', value: refreshToken);

@@ -47,11 +47,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           } else if (user['role'] == 'EMPLOYEE') {
             nextScreen = const EmployeeDashboard();
           } else {
-            await storage.deleteAll();
+            await storage.delete(key: 'access_token');
+            await storage.delete(key: 'refresh_token');
+            await storage.delete(key: 'user');
             nextScreen = const LoginScreen();
           }
         } catch (_) {
-          await storage.deleteAll();
+          await storage.delete(key: 'access_token');
+          await storage.delete(key: 'refresh_token');
+          await storage.delete(key: 'user');
           nextScreen = const LoginScreen();
         }
       }

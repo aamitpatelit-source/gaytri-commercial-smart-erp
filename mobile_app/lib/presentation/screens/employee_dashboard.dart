@@ -217,7 +217,10 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
   Future<void> _handleCheckOut() async {
     final token = await _storage.read(key: 'access_token');
-    if (token == null) return;
+    if (token == null) {
+      _showErrorSnackbar('Session expired. Please sign in again.');
+      return;
+    }
 
     try {
       final res = await http.post(
@@ -228,20 +231,31 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
         },
       ).timeout(const Duration(seconds: 10));
 
-      final data = jsonDecode(res.body);
-      if (res.statusCode == 200 && data['success'] == true) {
+      Map<String, dynamic>? data;
+      try {
+        data = jsonDecode(res.body);
+      } catch (_) {}
+
+      if (res.statusCode == 200 && data != null && data['success'] == true) {
         _showSuccessSnackbar('Checked out successfully.');
-        _loadDashboardData();
+        await _loadDashboardData();
       } else {
-        _showErrorSnackbar(data['message'] ?? 'Check-Out failed.');
+        final msg = data?['message'] ?? 'Check-Out failed.';
+        _showErrorSnackbar(msg);
       }
+    } on TimeoutException {
+      _showErrorSnackbar('Request timed out. Please check network connection.');
+    } on http.ClientException {
+      _showErrorSnackbar('No internet connection. Please check your network.');
     } catch (e) {
-      _showErrorSnackbar('Checkout failed. Please verify server connection.');
+      _showErrorSnackbar(e.toString().replaceAll('Exception:', '').trim());
     }
   }
 
   Future<void> _logout() async {
-    await _storage.deleteAll();
+    await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'refresh_token');
+    await _storage.delete(key: 'user');
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
