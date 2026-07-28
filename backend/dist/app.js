@@ -241,22 +241,22 @@ const bootstrapDatabase = async () => {
             }
             console.log('[Migration] Secure activation passwords initialized.');
         }
-        // 7. Seed production super admin if no super admin exists
-        const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com';
+        // 7. Seed production super admin
+        const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com').toLowerCase().trim();
         const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'sunny7033';
-        const superAdminCheck = await (0, db_1.query)("SELECT id FROM admins WHERE role = 'SUPER_ADMIN' LIMIT 1");
-        if (superAdminCheck.rows.length > 0) {
-            console.log('Production super admin already exists.');
-        }
-        else {
-            const { v4: uuidv4 } = require('uuid');
-            const adminPasswordHash = bcrypt.hashSync(superAdminPassword, 10);
-            await (0, db_1.query)(`
-        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
-        VALUES ($1, $2, $3, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE)
-      `, [uuidv4(), superAdminEmail.toLowerCase().trim(), adminPasswordHash]);
-            console.log(`Production super admin seeded successfully (${superAdminEmail}).`);
-        }
+        const adminPasswordHash = bcrypt.hashSync(superAdminPassword, 10);
+        const { v4: uuidv4 } = require('uuid');
+        await (0, db_1.query)(`
+      INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
+      VALUES ($1, $2, $3, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT (email) DO UPDATE SET
+        password_hash = EXCLUDED.password_hash,
+        role = 'SUPER_ADMIN',
+        is_active = TRUE,
+        must_change_password = FALSE,
+        updated_at = CURRENT_TIMESTAMP
+    `, [uuidv4(), superAdminEmail, adminPasswordHash]);
+        console.log(`Production super admin initialized/verified (${superAdminEmail}).`);
         // Verify manager mappings and warn if any manager has no assigned employees
         const unmappedManagers = await (0, db_1.query)(`
       SELECT id, full_name, email FROM admins 

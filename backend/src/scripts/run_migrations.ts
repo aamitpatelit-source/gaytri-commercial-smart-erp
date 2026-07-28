@@ -173,6 +173,68 @@ async function runMigrations() {
       console.log('[Migration Runner] Migration v5 committed successfully.');
     }
 
+    // --- MIGRATION V6: Seed Production Super Admin & Clean Legacy Demo Data ---
+    if (currentVer < 6) {
+      console.log('[Migration Runner] Starting Migration v6: Production Super Admin Seed & Legacy Cleanup...');
+      await client.query('BEGIN');
+
+      const bcrypt = require('bcryptjs');
+      const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com').toLowerCase().trim();
+      const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'sunny7033';
+      const passwordHash = bcrypt.hashSync(superAdminPassword, 10);
+
+      // 1. Delete legacy demo accounts
+      await client.query("DELETE FROM admins WHERE email IN ('admin@gaytri.com', 'manager@gaytri.com')");
+
+      // 2. Clear legacy test data tables
+      const tablesToClean = [
+        'attendance',
+        'payroll',
+        'break_logs',
+        'leaves',
+        'leave_requests',
+        'leave_balances',
+        'employees',
+        'manager_employees',
+        'manager_departments',
+        'attendance_migration_conflicts',
+        'notifications',
+        'refresh_tokens',
+        'device_authorizations',
+        'password_reset_tokens',
+        'inventory'
+      ];
+
+      for (const table of tablesToClean) {
+        const tblExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' AND table_name = $1
+          );
+        `, [table]);
+
+        if (tblExists.rows[0].exists) {
+          await client.query(`TRUNCATE TABLE "${table}" RESTART IDENTITY CASCADE;`);
+        }
+      }
+
+      // 3. Upsert Production Super Admin
+      await client.query(`
+        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
+        VALUES (uuid_generate_v4(), $1, $2, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (email) DO UPDATE SET
+          password_hash = EXCLUDED.password_hash,
+          role = 'SUPER_ADMIN',
+          is_active = TRUE,
+          must_change_password = FALSE,
+          updated_at = CURRENT_TIMESTAMP
+      `, [superAdminEmail, passwordHash]);
+
+      await client.query('INSERT INTO schema_migrations (version) VALUES (6);');
+      await client.query('COMMIT');
+      console.log('[Migration Runner] Migration v6 committed successfully.');
+    }
+
     console.log('[Migration Runner] All database migrations completed cleanly.');
   } catch (err: any) {
     await client.query('ROLLBACK');
