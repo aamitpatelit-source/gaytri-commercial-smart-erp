@@ -163,38 +163,34 @@ async function runMigrations() {
             const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com').toLowerCase().trim();
             const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'sunny7033';
             const passwordHash = bcrypt.hashSync(superAdminPassword, 10);
-            // 1. Delete legacy demo accounts
-            await client.query("DELETE FROM admins WHERE email IN ('admin@gaytri.com', 'manager@gaytri.com')");
-            // 2. Clear legacy test data tables
-            const tablesToClean = [
-                'attendance',
-                'payroll',
-                'break_logs',
-                'leaves',
-                'leave_requests',
-                'leave_balances',
-                'employees',
-                'manager_employees',
-                'manager_departments',
-                'attendance_migration_conflicts',
-                'notifications',
-                'refresh_tokens',
-                'device_authorizations',
-                'password_reset_tokens',
-                'inventory'
-            ];
-            for (const table of tablesToClean) {
-                const tblExists = await client.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' AND table_name = $1
-          );
-        `, [table]);
-                if (tblExists.rows[0].exists) {
-                    await client.query(`TRUNCATE TABLE "${table}" RESTART IDENTITY CASCADE;`);
-                }
+            // Clean tables cleanly in foreign key safe CASCADE order
+            try {
+                await client.query(`
+          TRUNCATE TABLE 
+            attendance, 
+            payroll, 
+            break_logs, 
+            leaves, 
+            leave_requests, 
+            leave_balances, 
+            manager_employees, 
+            manager_departments, 
+            attendance_migration_conflicts, 
+            notifications, 
+            refresh_tokens, 
+            device_authorizations, 
+            password_reset_tokens, 
+            inventory, 
+            employees, 
+            admins 
+          RESTART IDENTITY CASCADE;
+        `);
+                console.log('[Migration Runner] Truncated data tables cleanly.');
             }
-            // 3. Upsert Production Super Admin
+            catch (cleanErr) {
+                console.warn('[Migration Runner] Truncate notice:', cleanErr.message);
+            }
+            // Upsert Production Super Admin
             await client.query(`
         INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password, created_at, updated_at)
         VALUES (uuid_generate_v4(), $1, $2, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
