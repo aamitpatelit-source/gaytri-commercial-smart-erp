@@ -12,8 +12,6 @@ import {
   Clock, 
   MapPin, 
   TrendingUp, 
-  Download, 
-  Printer,
   ChevronLeft,
   ChevronRight,
   Info,
@@ -118,7 +116,7 @@ export default function EmployeeAttendanceProfilePage() {
   const params = useParams();
   const id = params.id as string;
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'history' | 'summary' | 'analytics' | 'reports'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'history' | 'summary' | 'analytics'>('calendar');
   const [employee, setEmployee] = useState<EmployeeProfile | null>(null);
   const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
@@ -547,28 +545,7 @@ export default function EmployeeAttendanceProfilePage() {
   const todayCheckOut = employee?.todays_check_out || (todayLog ? todayLog.check_out : null);
   const todayWorkingHours = todayLog ? todayLog.working_hours : null;
 
-  const exportToCSV = () => {
-    if (!logs || logs.length === 0) return;
-    const headers = ['Date', 'Check-In', 'Check-Out', 'Working Hours', 'Status', 'Remarks', 'Source'];
-    const rows = logs.map(l => [
-      l.date.split('T')[0],
-      l.check_in_time || '',
-      l.check_out || '',
-      l.working_hours || '',
-      l.status,
-      l.remarks || '',
-      l.source
-    ]);
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `attendance_report_${employee?.employee_id || 'employee'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+
 
   return (
     <div className="space-y-8 animate-fade-in text-slate-100 pb-12">
@@ -699,7 +676,7 @@ export default function EmployeeAttendanceProfilePage() {
 
       {/* Tabs Navigation */}
       <div className="flex border-b border-slate-800 space-x-6 no-print overflow-x-auto">
-        {(['calendar', 'history', 'summary', 'analytics', 'reports'] as const).map((tab) => (
+        {(['calendar', 'history', 'summary', 'analytics'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -860,24 +837,7 @@ export default function EmployeeAttendanceProfilePage() {
             </div>
           )}
 
-          {/* TAB 6: REPORTS */}
-          {activeTab === 'reports' && (
-            <div className="glass-panel p-6 rounded-xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-white text-sm">Attendance Reports & Export</h3>
-                <div className="flex items-center space-x-2">
-                  <button onClick={exportToCSV} className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-750 text-cyan-400 text-xs font-bold hover:bg-slate-800 flex items-center space-x-1 cursor-pointer">
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
-                  </button>
-                  <button onClick={() => window.print()} className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-750 text-slate-300 text-xs font-bold hover:bg-slate-800 flex items-center space-x-1 cursor-pointer">
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Print Report</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+
         </div>
       )}
 
