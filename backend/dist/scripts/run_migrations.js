@@ -157,38 +157,81 @@ async function runMigrations() {
         }
         // --- MIGRATION V6: Seed Production Super Admin & Clean Legacy Demo Data ---
         if (currentVer < 6) {
-            console.log('[Migration Runner] Starting Migration v6: Production Super Admin Seed & Legacy Cleanup...');
+            console.log('[Migration Runner] Starting Migration v6: Schema-Safe Production Super Admin Seed...');
             await client.query('BEGIN');
             const bcrypt = require('bcryptjs');
             const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com').toLowerCase().trim();
             const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'sunny7033';
             const passwordHash = bcrypt.hashSync(superAdminPassword, 10);
-            // Clean tables cleanly in foreign key safe CASCADE order
-            try {
-                await client.query(`
-          TRUNCATE TABLE 
-            attendance, 
-            payroll, 
-            break_logs, 
-            leaves, 
-            leave_requests, 
-            leave_balances, 
-            manager_employees, 
-            manager_departments, 
-            attendance_migration_conflicts, 
-            notifications, 
-            refresh_tokens, 
-            device_authorizations, 
-            password_reset_tokens, 
-            inventory, 
-            employees, 
-            admins 
-          RESTART IDENTITY CASCADE;
-        `);
-                console.log('[Migration Runner] Truncated data tables cleanly.');
+            // Candidate tables to clean
+            const candidateTables = [
+                'attendance',
+                'payroll',
+                'break_logs',
+                'leaves',
+                'leave_requests',
+                'leave_balances',
+                'manager_employees',
+                'manager_departments',
+                'attendance_migration_conflicts',
+                'notifications',
+                'refresh_tokens',
+                'device_authorizations',
+                'password_reset_tokens',
+                'inventory',
+                'employees',
+                'admins'
+            ];
+            // Query database for tables that actually exist in public schema
+            const existingTablesRes = await client.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+          AND table_type = 'BASE TABLE'
+          AND table_name = ANY($1::text[])
+      `, [candidateTables]);
+            const existingTables = existingTablesRes.rows.map((r) => `"${r.table_name}"`);
+            if (existingTables.length > 0) {
+                const truncateSql = `TRUNCATE TABLE ${existingTables.join(', ')} RESTART IDENTITY CASCADE;`;
+                console.log(`[Migration Runner] Safely truncating ${existingTables.length} existing tables...`);
+                await client.query(truncateSql);
+                console.log('[Migration Runner] Data tables truncated cleanly.');
             }
-            catch (cleanErr) {
-                console.warn('[Migration Runner] Truncate notice:', cleanErr.message);
+            else {
+                console.log('[Migration Runner] No candidate data tables found to truncate.');
+            }
+            // Reset sequence values for lookup tables safely if they exist
+            const lookupSequences = [
+                { table: 'departments', seq: 'departments_id_seq' },
+                { table: 'designations', seq: 'designations_id_seq' },
+                { table: 'shifts', seq: 'shifts_id_seq' }
+            ];
+            for (const item of lookupSequences) {
+                const seqCheck = await client.query(`
+          SELECT EXISTS (
+            SELECT 1 FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'S' AND c.relname = $1 AND n.nspname = 'public'
+          );
+        `, [item.seq]);
+                if (seqCheck.rows[0].exists) {
+                    const tblCheck = await client.query(`
+            SELECT EXISTS (
+              SELECT 1 FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = $1
+            );
+          `, [item.table]);
+                    if (tblCheck.rows[0].exists) {
+                        const countRes = await client.query(`SELECT COUNT(*) FROM "${item.table}"`);
+                        const rowCount = parseInt(countRes.rows[0].count, 10);
+                        if (rowCount === 0) {
+                            await client.query(`ALTER SEQUENCE "${item.seq}" RESTART WITH 1;`);
+                        }
+                        else {
+                            await client.query(`SELECT setval('${item.seq}', COALESCE((SELECT MAX(id) FROM "${item.table}"), 1));`);
+                        }
+                    }
+                }
             }
             // Upsert Production Super Admin
             await client.query(`
