@@ -14,9 +14,6 @@ import {
   Briefcase, 
   ChevronRight, 
   AlertCircle,
-  LogIn,
-  LogOut,
-  CalendarCheck,
   CheckCircle2
 } from 'lucide-react';
 
@@ -70,13 +67,6 @@ interface DashboardStats {
     absent: number;
     working: number;
     missedCheckout: number;
-  };
-  operationalInsights: {
-    firstCheckIn: { full_name: string; check_in_time: string } | null;
-    lastCheckOut: { full_name: string; check_out_time: string } | null;
-    currentlyWorking: number;
-    attendanceRate: number;
-    missedCheckoutCount: number;
   };
 }
 
@@ -521,85 +511,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-      </div>
-
-      {/* ⭐ Today's Operational Insights (Bottom Section) */}
-      <div className="glass-panel p-6 rounded-xl border border-slate-800 shadow-lg space-y-4">
-        <h3 className="font-bold text-white text-sm border-b border-slate-800 pb-3 flex items-center space-x-2">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>Today's Operational Insights</span>
-        </h3>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
-          {/* First Check-In */}
-          <div className="bg-slate-950/40 p-4 border border-slate-800 rounded-lg flex items-center space-x-3">
-            <div className="p-2.5 rounded bg-slate-900 border border-slate-750 text-cyan-400 shrink-0">
-              <LogIn className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 font-bold uppercase block">First Check-In</span>
-              {stats?.operationalInsights?.firstCheckIn ? (
-                <>
-                  <p className="font-bold text-slate-200 truncate max-w-[130px]">{stats.operationalInsights.firstCheckIn.full_name}</p>
-                  <p className="font-mono text-cyan-400 font-bold text-[11px]">{formatTo12Hour(stats.operationalInsights.firstCheckIn.check_in_time)}</p>
-                </>
-              ) : (
-                <p className="text-slate-500 italic">None logged</p>
-              )}
-            </div>
-          </div>
-
-          {/* Last Check-Out */}
-          <div className="bg-slate-950/40 p-4 border border-slate-800 rounded-lg flex items-center space-x-3">
-            <div className="p-2.5 rounded bg-slate-900 border border-slate-750 text-amber-400 shrink-0">
-              <LogOut className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 font-bold uppercase block">Last Check-Out</span>
-              {stats?.operationalInsights?.lastCheckOut ? (
-                <>
-                  <p className="font-bold text-slate-200 truncate max-w-[130px]">{stats.operationalInsights.lastCheckOut.full_name}</p>
-                  <p className="font-mono text-amber-400 font-bold text-[11px]">{formatTo12Hour(stats.operationalInsights.lastCheckOut.check_out_time)}</p>
-                </>
-              ) : (
-                <p className="text-slate-500 italic">None logged</p>
-              )}
-            </div>
-          </div>
-
-          {/* Currently Working */}
-          <div className="bg-slate-950/40 p-4 border border-slate-800 rounded-lg flex items-center space-x-3">
-            <div className="p-2.5 rounded bg-slate-900 border border-slate-750 text-sky-400 shrink-0">
-              <Clock className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 font-bold uppercase block">Active Working</span>
-              <p className="font-mono text-sky-400 font-extrabold text-lg mt-0.5">{stats?.operationalInsights?.currentlyWorking || 0}</p>
-            </div>
-          </div>
-
-          {/* Today's Attendance Rate */}
-          <div className="bg-slate-950/40 p-4 border border-slate-800 rounded-lg flex items-center space-x-3">
-            <div className="p-2.5 rounded bg-slate-900 border border-slate-750 text-emerald-400 shrink-0">
-              <CalendarCheck className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 font-bold uppercase block">Attendance Ratio</span>
-              <p className="font-mono text-emerald-400 font-extrabold text-lg mt-0.5">{stats?.operationalInsights?.attendanceRate || 0}%</p>
-            </div>
-          </div>
-
-          {/* Missed Checkouts */}
-          <div className="bg-slate-950/40 p-4 border border-slate-800 rounded-lg flex items-center space-x-3">
-            <div className="p-2.5 rounded bg-slate-900 border border-slate-750 text-orange-400 shrink-0">
-              <AlertCircle className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-500 font-bold uppercase block">Missed Checkout</span>
-              <p className="font-mono text-orange-400 font-extrabold text-lg mt-0.5">{stats?.operationalInsights?.missedCheckoutCount || 0}</p>
-            </div>
-          </div>
-        </div>
       </div>
 
     </div>
