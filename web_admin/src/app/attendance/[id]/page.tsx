@@ -11,7 +11,6 @@ import {
   AlertCircle, 
   Clock, 
   MapPin, 
-  TrendingUp, 
   ChevronLeft,
   ChevronRight,
   Info,
@@ -58,14 +57,6 @@ interface MonthlySummary {
   lateArrivals: number;
   missedCheckoutCount: number;
   lastAttendanceDate: string;
-}
-
-interface Analytics {
-  sufficientData: boolean;
-  monthlyAttendancePercentage: number;
-  workingHoursTrend: { date: string; hours: number }[];
-  checkInTrend: { date: string; time: string }[];
-  checkOutTrend: { date: string; time: string }[];
 }
 
 interface AttendanceLog {
@@ -116,10 +107,9 @@ export default function EmployeeAttendanceProfilePage() {
   const params = useParams();
   const id = params.id as string;
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'history' | 'summary' | 'analytics'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'history' | 'summary'>('calendar');
   const [employee, setEmployee] = useState<EmployeeProfile | null>(null);
   const [summary, setSummary] = useState<MonthlySummary | null>(null);
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -264,7 +254,6 @@ export default function EmployeeAttendanceProfilePage() {
       if (summaryRes.ok) {
         const statsData = await summaryRes.json();
         setSummary(statsData.summary || statsData.monthlySummary || null);
-        setAnalytics(statsData.analytics || null);
       }
 
       // 3. Fetch Attendance History Logs
@@ -725,7 +714,7 @@ export default function EmployeeAttendanceProfilePage() {
 
       {/* Tabs Navigation */}
       <div className="flex border-b border-slate-800 space-x-6 no-print overflow-x-auto">
-        {(['calendar', 'history', 'summary', 'analytics'] as const).map((tab) => (
+        {(['calendar', 'history', 'summary'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -888,14 +877,7 @@ export default function EmployeeAttendanceProfilePage() {
             </div>
           )}
 
-          {/* TAB 5: ANALYTICS */}
-          {activeTab === 'analytics' && (
-            <div className="glass-panel p-6 rounded-xl border border-slate-800 text-center space-y-4">
-              <TrendingUp className="w-8 h-8 text-cyan-400 mx-auto" />
-              <h3 className="text-lg font-bold text-white">Monthly Attendance Analytics</h3>
-              <p className="text-xs text-slate-400">Monthly Performance Score: <strong className="text-cyan-400">{analytics?.monthlyAttendancePercentage || 100}%</strong></p>
-            </div>
-          )}
+
 
 
         </div>
