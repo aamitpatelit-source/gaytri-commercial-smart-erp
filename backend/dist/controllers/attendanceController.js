@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteAttendanceRecord = exports.getEmployeeStats = exports.correctAttendance = exports.employeeCheckOut = exports.employeeCheckIn = exports.startAutoLockScheduler = exports.lockDailyAttendance = exports.getEmployeeSummary = exports.getAuditLogs = exports.getAttendanceHistory = exports.getDashboardStats = exports.calculateWorkingHours = exports.markAttendance = exports.voidAttendance = exports.getCompanyTimezone = exports.ManagerManualProvider = void 0;
+exports.getMonthlyPayrollReport = exports.deleteAttendanceRecord = exports.getEmployeeStats = exports.correctAttendance = exports.employeeCheckOut = exports.employeeCheckIn = exports.startAutoLockScheduler = exports.lockDailyAttendance = exports.getEmployeeSummary = exports.getAuditLogs = exports.getAttendanceHistory = exports.getDashboardStats = exports.calculateWorkingHours = exports.markAttendance = exports.voidAttendance = exports.getCompanyTimezone = exports.ManagerManualProvider = void 0;
 const db_1 = __importStar(require("../config/db"));
 const moment_timezone_1 = __importDefault(require("moment-timezone"));
 const managerScopeService_1 = require("../services/managerScopeService");
@@ -1161,3 +1161,107 @@ const deleteAttendanceRecord = async (req, res) => {
     }
 };
 exports.deleteAttendanceRecord = deleteAttendanceRecord;
+// GET /attendance/payroll-report (Generate Monthly Payroll Report)
+const getMonthlyPayrollReport = async (req, res) => {
+    try {
+        const { month, reporting_manager, status } = req.query;
+        const selectedMonth = month || (0, moment_timezone_1.default)().format('YYYY-MM');
+        const startDate = `${selectedMonth}-01`;
+        const endDate = (0, moment_timezone_1.default)(startDate, 'YYYY-MM-DD').endOf('month').format('YYYY-MM-DD');
+        let empQueryStr = `
+      SELECT e.id, e.employee_id, e.full_name, COALESCE(e.monthly_salary, 0.00) as monthly_salary,
+             d.name as department, dg.name as designation, s.name as shift, s.working_hours as shift_working_hours,
+             (SELECT string_agg(adm.full_name, ', ') 
+              FROM manager_employees me 
+              JOIN admins adm ON me.manager_id = adm.id 
+              WHERE me.employee_id = e.id) as reporting_manager
+      FROM employees e
+      LEFT JOIN departments d ON e.department_id = d.id
+      LEFT JOIN designations dg ON e.designation_id = dg.id
+      LEFT JOIN shifts s ON e.shift_id = s.id
+      WHERE (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+        AND e.is_active = TRUE
+    `;
+        const empParams = [];
+        let counter = 1;
+        if (req.user && req.user.role === 'MANAGER') {
+            empQueryStr += ` AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $${counter++}) `;
+            empParams.push(req.user.id);
+        }
+        else if (reporting_manager) {
+            empQueryStr += ` AND e.id IN (SELECT employee_id FROM manager_employees WHERE manager_id = $${counter++}) `;
+            empParams.push(reporting_manager);
+        }
+        empQueryStr += ` ORDER BY e.employee_id ASC `;
+        const empRes = await (0, db_1.query)(empQueryStr, empParams);
+        const employees = empRes.rows;
+        const payrollReport = [];
+        for (const emp of employees) {
+            let attQueryStr = `
+        SELECT date, check_in_time, check_out_time, status
+        FROM attendance
+        WHERE employee_id = $1
+          AND date >= $2
+          AND date <= $3
+          AND is_deleted = FALSE
+      `;
+            const attParams = [emp.id, startDate, endDate];
+            if (status) {
+                attQueryStr += ` AND status = $4`;
+                attParams.push(status);
+            }
+            const attRes = await (0, db_1.query)(attQueryStr, attParams);
+            const records = attRes.rows;
+            let totalWorkedMs = 0;
+            let presentDays = 0;
+            for (const rec of records) {
+                // Rule: Only completed attendance records (both check_in_time AND check_out_time present) are included in payroll.
+                // If check_out_time is missing (e.g., checkout pending or active working status), hours contributed is 0.
+                if (rec.check_in_time && rec.check_out_time) {
+                    const start = (0, moment_timezone_1.default)(rec.check_in_time, 'HH:mm:ss');
+                    const end = (0, moment_timezone_1.default)(rec.check_out_time, 'HH:mm:ss');
+                    if (start.isValid() && end.isValid()) {
+                        let diff = end.diff(start);
+                        if (diff < 0)
+                            diff += 24 * 60 * 60 * 1000;
+                        totalWorkedMs += diff;
+                        presentDays++;
+                    }
+                }
+            }
+            const totalWorkedHours = Math.round(totalWorkedMs / (1000 * 60 * 60));
+            const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
+            const standardHours = 208; // 26 Days x 8 Hours
+            const hourlyRate = Math.round(monthlySalary / standardHours);
+            const payableSalary = Math.round(totalWorkedHours * hourlyRate);
+            payrollReport.push({
+                employee_uuid: emp.id,
+                employee_id: emp.employee_id,
+                full_name: emp.full_name,
+                department: emp.department || 'General',
+                designation: emp.designation || 'Staff',
+                shift: emp.shift || 'Morning Shift',
+                reporting_manager: emp.reporting_manager || 'N/A',
+                month: selectedMonth,
+                monthly_salary: monthlySalary,
+                standard_hours: standardHours,
+                hourly_rate: hourlyRate,
+                total_worked_hours: totalWorkedHours,
+                present_days: presentDays,
+                payable_salary: payableSalary,
+                gross_payable_salary: payableSalary,
+                net_pay: payableSalary,
+            });
+        }
+        return res.status(200).json({
+            success: true,
+            month: selectedMonth,
+            payroll: payrollReport,
+        });
+    }
+    catch (error) {
+        console.error('[Payroll Report API Error]', error);
+        return res.status(500).json({ success: false, message: 'Failed to generate payroll report.' });
+    }
+};
+exports.getMonthlyPayrollReport = getMonthlyPayrollReport;

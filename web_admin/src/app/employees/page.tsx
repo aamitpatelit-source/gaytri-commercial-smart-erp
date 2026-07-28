@@ -21,6 +21,7 @@ interface Employee {
   shift: string;
   shift_id?: number | string;
   mobile: string;
+  monthly_salary?: number | string;
   is_active: boolean;
 }
 
@@ -58,6 +59,7 @@ export default function EmployeesPage() {
     shift_id: 1 as number | string,
     shift: 'Morning Shift',
     mobile: '',
+    monthly_salary: '',
     is_active: true,
     manager_id: '',
   });
@@ -165,6 +167,7 @@ export default function EmployeesPage() {
           shift_id: empForm.shift_id,
           shift: empForm.shift,
           mobile: empForm.mobile,
+          monthly_salary: empForm.monthly_salary,
           is_active: empForm.is_active,
           manager_id: empForm.manager_id || null,
         })
@@ -186,6 +189,7 @@ export default function EmployeesPage() {
           shift_id: defaultShiftId,
           shift: defaultShiftName,
           mobile: '',
+          monthly_salary: '',
           is_active: true,
           manager_id: managers.length > 0 ? managers[0].id : '',
         });
@@ -221,6 +225,7 @@ export default function EmployeesPage() {
           shift_id: empForm.shift_id,
           shift: empForm.shift,
           mobile: empForm.mobile,
+          monthly_salary: empForm.monthly_salary,
           is_active: empForm.is_active,
         })
       });
@@ -283,6 +288,7 @@ export default function EmployeesPage() {
       shift_id: matchingShift ? matchingShift.id : (emp.shift_id || (shifts.length > 0 ? shifts[0].id : 1)),
       shift: emp.shift || (matchingShift ? matchingShift.name : 'Morning Shift'),
       mobile: emp.mobile,
+      monthly_salary: emp.monthly_salary !== undefined && emp.monthly_salary !== null ? String(emp.monthly_salary) : '',
       is_active: emp.is_active !== false,
       manager_id: '',
     });
@@ -332,6 +338,7 @@ export default function EmployeesPage() {
               shift_id: defaultShiftId,
               shift: defaultShiftName,
               mobile: '',
+              monthly_salary: '',
               is_active: true,
               manager_id: managers.length > 0 ? managers[0].id : '',
             });
@@ -372,12 +379,13 @@ export default function EmployeesPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                  <th className="pb-3 pt-4 pl-6 w-[15%]">Employee ID</th>
-                  <th className="pb-3 pt-4 w-[25%]">Name</th>
-                  <th className="pb-3 pt-4 w-[20%]">Assigned Shift</th>
-                  <th className="pb-3 pt-4 w-[20%]">Mobile</th>
-                  <th className="pb-3 pt-4 w-[10%]">Status</th>
-                  <th className="pb-3 pt-4 pr-6 text-center w-[10%]">Actions</th>
+                  <th className="pb-3 pt-4 pl-6 w-[12%]">Employee ID</th>
+                  <th className="pb-3 pt-4 w-[22%]">Name</th>
+                  <th className="pb-3 pt-4 w-[18%]">Assigned Shift</th>
+                  <th className="pb-3 pt-4 w-[18%]">Mobile</th>
+                  <th className="pb-3 pt-4 w-[15%]">Monthly Salary</th>
+                  <th className="pb-3 pt-4 w-[8%]">Status</th>
+                  <th className="pb-3 pt-4 pr-6 text-center w-[7%]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850/50 text-xs text-slate-300">
@@ -387,6 +395,9 @@ export default function EmployeesPage() {
                     <td className="py-4 font-bold text-white text-sm">{emp.full_name}</td>
                     <td className="py-4 font-medium text-slate-200">{emp.shift || 'Morning Shift'}</td>
                     <td className="py-4 font-mono text-slate-200">{emp.mobile}</td>
+                    <td className="py-4 font-mono font-bold text-emerald-400">
+                      ₹{emp.monthly_salary ? Number(emp.monthly_salary).toLocaleString('en-IN') : '0'}
+                    </td>
                     <td className="py-4">
                       {emp.is_active !== false ? (
                         <span className="w-fit px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-950/35 text-emerald-450 border border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.1)]">
@@ -500,6 +511,18 @@ export default function EmployeesPage() {
               </div>
 
               <div>
+                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Monthly Salary (₹)</label>
+                <input
+                  type="number"
+                  value={empForm.monthly_salary}
+                  onChange={(e) => setEmpForm({...empForm, monthly_salary: e.target.value})}
+                  placeholder="e.g. 12000, 15000, 18000"
+                  className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium font-mono"
+                  required
+                />
+              </div>
+
+              <div>
                 <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Assign to Manager</label>
                 <select
                   value={empForm.manager_id}
@@ -595,6 +618,18 @@ export default function EmployeesPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Monthly Salary (₹)</label>
+                <input
+                  type="number"
+                  value={empForm.monthly_salary}
+                  onChange={(e) => setEmpForm({...empForm, monthly_salary: e.target.value})}
+                  placeholder="e.g. 12000, 15000, 18000"
+                  className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium font-mono"
+                  required
+                />
               </div>
 
               <div>

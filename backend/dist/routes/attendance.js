@@ -15,6 +15,7 @@ router.post('/correct', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, e
 router.get('/employee/:id/stats', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getEmployeeStats));
 router.get('/dashboard', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getDashboardStats));
 router.get('/history', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getAttendanceHistory));
+router.get('/payroll-report', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getMonthlyPayrollReport));
 router.get('/audit-logs', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getAuditLogs));
 router.get('/employee-summary', (0, auth_1.requireRole)(['EMPLOYEE']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getEmployeeSummary));
 router.delete('/:id', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(attendanceController_1.deleteAttendanceRecord));

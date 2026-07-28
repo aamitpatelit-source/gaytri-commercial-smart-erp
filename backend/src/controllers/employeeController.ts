@@ -11,7 +11,7 @@ export const getEmployees = async (req: AuthRequest, res: Response) => {
   }
   try {
     let queryStr = `
-       SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
+       SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
               e.require_password_change, e.created_at, e.updated_at,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,
@@ -59,6 +59,7 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
     mobile,
     joining_date,
     salary_type,
+    monthly_salary,
     password,
     is_active,
     manager_id,
@@ -81,6 +82,7 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
 
     const joiningDate = joining_date ? new Date(joining_date) : new Date();
     const salaryType = (salary_type || 'MONTHLY').toUpperCase();
+    const monthlySalary = parseFloat(monthly_salary) || 0.00;
     const activeStatus = is_active !== false;
 
     // Enforce secure credentials activation
@@ -142,10 +144,10 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
     const empResult = await client.query(
       `INSERT INTO employees (
         employee_id, full_name, department_id, designation_id, shift_id, mobile,
-        joining_date, salary_type, role, password_hash, is_active, require_password_change
+        joining_date, salary_type, monthly_salary, role, password_hash, is_active, require_password_change
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EMPLOYEE', $9, $10, $11)
-       RETURNING id, employee_id, full_name, is_active`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'EMPLOYEE', $10, $11, $12)
+       RETURNING id, employee_id, full_name, is_active, monthly_salary`,
       [
         employee_id.trim(),
         full_name.trim(),
@@ -155,6 +157,7 @@ export const createEmployee = async (req: AuthRequest, res: Response) => {
         mobile.trim(),
         joiningDate,
         salaryType,
+        monthlySalary,
         finalHash,
         activeStatus,
         requireChange,
@@ -298,6 +301,11 @@ export const updateEmployee = async (req: AuthRequest, res: Response) => {
       params.push(salary_type.toUpperCase());
     }
 
+    if (req.body.monthly_salary !== undefined) {
+      updateFields.push(`monthly_salary = $${count++}`);
+      params.push(parseFloat(req.body.monthly_salary) || 0.00);
+    }
+
     if (password && password.trim() !== '') {
       const hash = await bcrypt.hash(password, 10);
       updateFields.push(`password_hash = $${count++}`);
@@ -395,7 +403,7 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
     }
 
     const employeeRes = await query(
-      `SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
+      `SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
               e.profile_photo_url,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,

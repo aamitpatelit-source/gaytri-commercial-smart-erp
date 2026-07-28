@@ -11,6 +11,7 @@ import {
   correctAttendance,
   getEmployeeStats,
   deleteAttendanceRecord,
+  getMonthlyPayrollReport,
 } from '../controllers/attendanceController';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -28,6 +29,7 @@ router.post('/correct', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandl
 router.get('/employee/:id/stats', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']) as any, asyncHandler(getEmployeeStats));
 router.get('/dashboard', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(getDashboardStats));
 router.get('/history', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']) as any, asyncHandler(getAttendanceHistory));
+router.get('/payroll-report', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(getMonthlyPayrollReport));
 router.get('/audit-logs', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(getAuditLogs));
 router.get('/employee-summary', requireRole(['EMPLOYEE']) as any, asyncHandler(getEmployeeSummary));
 router.delete('/:id', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(deleteAttendanceRecord));

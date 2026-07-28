@@ -47,7 +47,7 @@ const getEmployees = async (req, res) => {
     }
     try {
         let queryStr = `
-       SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
+       SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
               e.require_password_change, e.created_at, e.updated_at,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,
@@ -83,7 +83,7 @@ const getEmployees = async (req, res) => {
 exports.getEmployees = getEmployees;
 // Create a new employee
 const createEmployee = async (req, res) => {
-    const { employee_id, full_name, department_id, designation_id, shift_id, mobile, joining_date, salary_type, password, is_active, manager_id, } = req.body;
+    const { employee_id, full_name, department_id, designation_id, shift_id, mobile, joining_date, salary_type, monthly_salary, password, is_active, manager_id, } = req.body;
     if (!employee_id || !full_name || !mobile) {
         return res.status(400).json({ success: false, message: 'Missing required information (employee_id, full_name, mobile)' });
     }
@@ -98,6 +98,7 @@ const createEmployee = async (req, res) => {
         }
         const joiningDate = joining_date ? new Date(joining_date) : new Date();
         const salaryType = (salary_type || 'MONTHLY').toUpperCase();
+        const monthlySalary = parseFloat(monthly_salary) || 0.00;
         const activeStatus = is_active !== false;
         // Enforce secure credentials activation
         let finalHash;
@@ -153,10 +154,10 @@ const createEmployee = async (req, res) => {
         }
         const empResult = await client.query(`INSERT INTO employees (
         employee_id, full_name, department_id, designation_id, shift_id, mobile,
-        joining_date, salary_type, role, password_hash, is_active, require_password_change
+        joining_date, salary_type, monthly_salary, role, password_hash, is_active, require_password_change
       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EMPLOYEE', $9, $10, $11)
-       RETURNING id, employee_id, full_name, is_active`, [
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'EMPLOYEE', $10, $11, $12)
+       RETURNING id, employee_id, full_name, is_active, monthly_salary`, [
             employee_id.trim(),
             full_name.trim(),
             department_id || null,
@@ -165,6 +166,7 @@ const createEmployee = async (req, res) => {
             mobile.trim(),
             joiningDate,
             salaryType,
+            monthlySalary,
             finalHash,
             activeStatus,
             requireChange,
@@ -274,6 +276,10 @@ const updateEmployee = async (req, res) => {
             updateFields.push(`salary_type = $${count++}`);
             params.push(salary_type.toUpperCase());
         }
+        if (req.body.monthly_salary !== undefined) {
+            updateFields.push(`monthly_salary = $${count++}`);
+            params.push(parseFloat(req.body.monthly_salary) || 0.00);
+        }
         if (password && password.trim() !== '') {
             const hash = await bcryptjs_1.default.hash(password, 10);
             updateFields.push(`password_hash = $${count++}`);
@@ -347,7 +353,7 @@ const getEmployeeById = async (req, res) => {
                 return res.status(403).json({ success: false, message: 'Access denied. Employee outside manager scope.' });
             }
         }
-        const employeeRes = await (0, db_1.query)(`SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, e.role, e.is_active,
+        const employeeRes = await (0, db_1.query)(`SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
               e.profile_photo_url,
               d.name as department, d.id as department_id,
               dg.name as designation, dg.id as designation_id,

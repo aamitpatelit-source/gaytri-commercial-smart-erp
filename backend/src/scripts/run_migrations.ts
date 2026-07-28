@@ -132,6 +132,25 @@ async function runMigrations() {
       console.log('[Migration Runner] Migration v3 committed successfully.');
     }
 
+    // --- MIGRATION V4: Monthly Salary Schema Alignment ---
+    if (currentVer < 4) {
+      console.log('[Migration Runner] Starting Migration v4: Employee Monthly Salary Column...');
+      await client.query('BEGIN');
+
+      await client.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'monthly_salary') THEN
+            ALTER TABLE employees ADD COLUMN monthly_salary DECIMAL(12,2) DEFAULT 0.00;
+          END IF;
+        END $$;
+      `);
+
+      await client.query('INSERT INTO schema_migrations (version) VALUES (4);');
+      await client.query('COMMIT');
+      console.log('[Migration Runner] Migration v4 committed successfully.');
+    }
+
     console.log('[Migration Runner] All database migrations completed cleanly.');
   } catch (err: any) {
     await client.query('ROLLBACK');

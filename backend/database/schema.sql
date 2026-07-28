@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS employees (
     mobile VARCHAR(20),
     joining_date DATE DEFAULT CURRENT_DATE,
     salary_type VARCHAR(50) DEFAULT 'MONTHLY',
+    monthly_salary DECIMAL(12,2) DEFAULT 0.00,
     role VARCHAR(50) DEFAULT 'EMPLOYEE',
     password_hash VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS employees (
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS department_id INTEGER;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS designation_id INTEGER;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift_id INTEGER;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS monthly_salary DECIMAL(12,2) DEFAULT 0.00;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS require_password_change BOOLEAN DEFAULT TRUE;
 
 -- Add foreign key constraints safely if not present

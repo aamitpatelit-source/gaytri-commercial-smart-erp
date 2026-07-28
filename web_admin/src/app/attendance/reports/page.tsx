@@ -6,81 +6,68 @@ import {
   FileSpreadsheet, 
   Download, 
   Printer, 
-  Calendar, 
-  Search, 
   RefreshCw, 
-  BarChart,
-  ChevronLeft,
-  ChevronRight
+  BarChart3,
+  Calendar,
+  Users,
+  DollarSign
 } from 'lucide-react';
-
+import jsPDF from 'jspdf';
 import { API_URL } from '../../../config';
 
-interface ReportRow {
+interface PayrollItem {
+  employee_uuid: string;
   employee_id: string;
   full_name: string;
   department: string;
+  designation: string;
   shift: string;
-  date: string;
-  check_in_time: string;
-  check_out: string | null;
-  working_hours: string | null;
-  status: string;
-  remarks: string | null;
+  reporting_manager: string;
+  month: string;
+  monthly_salary: number;
+  standard_hours: number;
+  hourly_rate: number;
+  total_worked_hours: number;
+  present_days: number;
+  payable_salary: number;
+  gross_payable_salary: number;
+  net_pay: number;
 }
 
 interface Manager {
   id: string;
   full_name: string;
-}
-
-interface Department {
-  id: string;
-  name: string;
+  email: string;
 }
 
 export default function ReportsPage() {
   const router = useRouter();
 
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(1); // Default to start of month
-    return d.toISOString().split('T')[0];
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
   });
-  const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
-  });
-  const [status, setStatus] = useState('');
-  const [departmentId, setDepartmentId] = useState('');
   const [reportingManager, setReportingManager] = useState('');
+  const [status, setStatus] = useState('');
 
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [managers, setManagers] = useState<Manager[]>([]);
-  const [reportData, setReportData] = useState<ReportRow[]>([]);
+  const [payrollData, setPayrollData] = useState<PayrollItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Summary Metrics
   const [summary, setSummary] = useState({
-    totalRows: 0,
-    presentCount: 0,
-    lateCount: 0,
-    missedCheckouts: 0,
-    absentCount: 0
+    totalEmployees: 0,
+    totalWorkedHours: 0,
+    totalPayrollAmount: 0
   });
 
-  const fetchFilterData = async () => {
+  const fetchManagers = async () => {
     try {
       const token = localStorage.getItem('access_token');
       if (!token) return;
-
-      const deptRes = await fetch(`${API_URL}/company/departments`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (deptRes.ok) {
-        const d = await deptRes.json();
-        setDepartments(d.departments || []);
-      }
 
       const mgrRes = await fetch(`${API_URL}/auth/managers`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -94,8 +81,8 @@ export default function ReportsPage() {
     }
   };
 
-  const handleGenerateReport = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGeneratePayrollReport = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     try {
       const token = localStorage.getItem('access_token');
       if (!token) {
@@ -106,15 +93,12 @@ export default function ReportsPage() {
       setError('');
 
       const params = new URLSearchParams({
-        start_date: startDate,
-        end_date: endDate,
-        status: status,
-        department_id: departmentId,
+        month: selectedMonth,
         reporting_manager: reportingManager,
-        limit: '1000' // High limit for report compilation
+        status: status,
       });
 
-      const res = await fetch(`${API_URL}/attendance/history?${params.toString()}`, {
+      const res = await fetch(`${API_URL}/attendance/payroll-report?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -126,34 +110,23 @@ export default function ReportsPage() {
 
       const data = await res.json();
       if (data.success) {
-        const rows: ReportRow[] = data.logs || [];
-        setReportData(rows);
+        const items: PayrollItem[] = data.payroll || [];
+        setPayrollData(items);
 
-        // Aggregate summary metrics
-        let present = 0;
-        let late = 0;
-        let missed = 0;
-        let absent = 0;
-
-        rows.forEach(r => {
-          if (r.status === 'PRESENT') present++;
-          if (r.status === 'LATE') {
-            present++;
-            late++;
-          }
-          if (r.status === 'MISSED_CHECKOUT') missed++;
-          if (r.status === 'ABSENT') absent++;
+        let totalHours = 0;
+        let totalPay = 0;
+        items.forEach(item => {
+          totalHours += item.total_worked_hours;
+          totalPay += item.payable_salary;
         });
 
         setSummary({
-          totalRows: rows.length,
-          presentCount: present,
-          lateCount: late,
-          missedCheckouts: missed,
-          absentCount: absent
+          totalEmployees: items.length,
+          totalWorkedHours: totalHours,
+          totalPayrollAmount: totalPay
         });
       } else {
-        setError(data.message || 'Report generation failed.');
+        setError(data.message || 'Payroll report compilation failed.');
       }
     } catch (err: any) {
       setError('Connection to server lost. Please retry.');
@@ -164,30 +137,244 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
-    fetchFilterData();
+    fetchManagers();
+    handleGeneratePayrollReport();
   }, []);
 
+  const handleDownloadPayslipPDF = (item: PayrollItem) => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    // Format Month and Year
+    const [yearStr, monthStr] = item.month.split('-');
+    const dateObj = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
+    const monthName = dateObj.toLocaleString('en-US', { month: 'long' });
+    const year = yearStr;
+
+    // File Name: Payslip_<EmployeeID>_<Month>_<Year>.pdf
+    const cleanEmpId = item.employee_id.replace(/[^a-zA-Z0-9_-]/g, '');
+    const fileName = `Payslip_${cleanEmpId}_${monthName}_${year}.pdf`;
+
+    // Draw Header background
+    doc.setFillColor(15, 23, 42); // deep blue / slate-900
+    doc.rect(0, 0, 210, 42, 'F');
+
+    // Top Accent Bar
+    doc.setFillColor(6, 182, 212); // cyan-500
+    doc.rect(0, 0, 210, 4, 'F');
+
+    // Company Name
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('GAYTRI COMMERCIAL', 16, 18);
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text('Smart Enterprise Resource Planning System', 16, 24);
+
+    // Payslip Title Badge (Right-aligned)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(6, 182, 212); // cyan-400
+    doc.text('MONTHLY SALARY PAYSLIP', 194, 18, { align: 'right' });
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(255, 255, 255);
+    doc.text(`${monthName} ${year}`, 194, 25, { align: 'right' });
+
+    // Section 1: Employee Information Block
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.roundedRect(14, 48, 182, 44, 3, 3, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(14, 48, 182, 44, 3, 3, 'D');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(30, 41, 59); // slate-800
+    doc.text('EMPLOYEE INFORMATION', 20, 56);
+
+    doc.setFontSize(9);
+    // Column 1
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Employee Name:', 20, 64);
+    doc.setTextColor(15, 23, 42);
+    doc.text(item.full_name, 55, 64);
+
+    doc.setTextColor(100, 116, 139);
+    doc.text('Employee ID:', 20, 71);
+    doc.setTextColor(2, 132, 199); // blue
+    doc.text(item.employee_id, 55, 71);
+
+    doc.setTextColor(100, 116, 139);
+    doc.text('Designation:', 20, 78);
+    doc.setTextColor(15, 23, 42);
+    doc.text(item.designation || 'Staff', 55, 78);
+
+    doc.setTextColor(100, 116, 139);
+    doc.text('Department:', 20, 85);
+    doc.setTextColor(15, 23, 42);
+    doc.text(item.department || 'General', 55, 85);
+
+    // Column 2
+    doc.setTextColor(100, 116, 139);
+    doc.text('Assigned Shift:', 110, 64);
+    doc.setTextColor(15, 23, 42);
+    doc.text(item.shift || 'Morning Shift', 150, 64);
+
+    doc.setTextColor(100, 116, 139);
+    doc.text('Reporting Manager:', 110, 71);
+    doc.setTextColor(15, 23, 42);
+    doc.text(item.reporting_manager || 'N/A', 150, 71);
+
+    doc.setTextColor(100, 116, 139);
+    doc.text('Month & Year:', 110, 78);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${monthName} ${year}`, 150, 78);
+
+    doc.setTextColor(100, 116, 139);
+    doc.text('Salary Basis:', 110, 85);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Monthly Salary / Attendance Hours', 150, 85);
+
+    // Section 2: Attendance Summary Block
+    doc.setFillColor(240, 249, 255); // sky-50
+    doc.roundedRect(14, 98, 182, 26, 3, 3, 'F');
+    doc.setDrawColor(186, 230, 253);
+    doc.roundedRect(14, 98, 182, 26, 3, 3, 'D');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(3, 105, 161); // sky-700
+    doc.text('ATTENDANCE SUMMARY', 20, 106);
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Total Worked Hours:', 20, 115);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${item.total_worked_hours} Hours`, 60, 115);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Present Days Logged:', 110, 115);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${item.present_days} Days`, 150, 115);
+
+    // Section 3: Salary Details Breakdown Table
+    doc.setFillColor(15, 23, 42);
+    doc.rect(14, 132, 182, 9, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text('SALARY DETAILS', 20, 138);
+    doc.text('CALCULATION FORMULA / BASIS', 105, 138);
+    doc.text('AMOUNT (INR)', 190, 138, { align: 'right' });
+
+    let y = 147;
+
+    const rows = [
+      { label: 'Monthly Salary', detail: 'Base Monthly Salary Rate', amount: `₹${item.monthly_salary.toLocaleString('en-IN')}` },
+      { label: 'Standard Monthly Hours', detail: '26 Working Days × 8 Hours = 208 Hours', amount: `${item.standard_hours} Hours` },
+      { label: 'Hourly Rate', detail: 'Monthly Salary ÷ 208 Hours', amount: `₹${item.hourly_rate}/hr` },
+      { label: 'Worked Hours', detail: 'Actual Attendance Worked Hours', amount: `${item.total_worked_hours} Hours` },
+    ];
+
+    rows.forEach((r, idx) => {
+      if (idx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(14, y - 5, 182, 8, 'F');
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      doc.text(r.label, 20, y);
+      doc.setTextColor(100, 116, 139);
+      doc.text(r.detail, 105, y);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(r.amount, 190, y, { align: 'right' });
+      y += 9;
+    });
+
+    // Gross Payable Salary Line
+    doc.setFillColor(236, 253, 245); // emerald-50
+    doc.roundedRect(14, y + 2, 182, 12, 2, 2, 'F');
+    doc.setDrawColor(167, 243, 208);
+    doc.roundedRect(14, y + 2, 182, 12, 2, 2, 'D');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(6, 95, 70); // emerald-800
+    doc.text('GROSS PAYABLE SALARY', 20, y + 10);
+    doc.text(`Worked Hours (${item.total_worked_hours}h) × Hourly Rate (₹${item.hourly_rate})`, 85, y + 10);
+    doc.setFontSize(11);
+    doc.text(`₹${item.payable_salary.toLocaleString('en-IN')}`, 190, y + 10, { align: 'right' });
+
+    y += 18;
+
+    // Net Pay Highlight Box
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.roundedRect(14, y, 182, 16, 3, 3, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text('NET PAYABLE SALARY (NET PAY)', 20, y + 10);
+    doc.setFontSize(14);
+    doc.setTextColor(56, 189, 248); // sky-400
+    doc.text(`₹${item.net_pay.toLocaleString('en-IN')}`, 190, y + 10, { align: 'right' });
+
+    // Footer Section
+    const footerY = 265;
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, footerY, 196, footerY);
+
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const fullYear = now.getFullYear();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const mins = String(now.getMinutes()).padStart(2, '0');
+    const generatedTimeStr = `${day}/${month}/${fullYear} ${hours}:${mins}`;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Generated On: ${generatedTimeStr}`, 14, footerY + 6);
+    doc.text('This is a system-generated payslip. No signature is required.', 14, footerY + 11);
+    doc.text('Gaytri Commercial ERP', 196, footerY + 6, { align: 'right' });
+
+    // Download PDF
+    doc.save(fileName);
+  };
+
   const handleExportCSV = () => {
-    if (reportData.length === 0) return;
+    if (payrollData.length === 0) return;
     
     const headers = [
-      'Employee Name', 'Employee ID', 'Department', 'Shift', 
-      'Date', 'Check-In Time', 'Check-Out Time', 'Hours Worked', 'Status', 'Remarks'
+      'Employee Name', 'Employee ID', 'Department', 'Shift', 'Reporting Manager',
+      'Month', 'Worked Hours', 'Monthly Salary (INR)', 'Hourly Rate (INR)', 'Payable Salary (INR)'
     ];
     
     const csvContent = [
       headers.join(','),
-      ...reportData.map(r => [
-        `"${r.full_name}"`,
-        `"${r.employee_id}"`,
-        `"${r.department}"`,
-        `"${r.shift}"`,
-        `"${r.date.split('T')[0]}"`,
-        `"${r.check_in_time || ''}"`,
-        `"${r.check_out || ''}"`,
-        `"${r.working_hours || ''}"`,
-        `"${r.status}"`,
-        `"${r.remarks || ''}"`
+      ...payrollData.map(item => [
+        `"${item.full_name}"`,
+        `"${item.employee_id}"`,
+        `"${item.department}"`,
+        `"${item.shift}"`,
+        `"${item.reporting_manager}"`,
+        `"${item.month}"`,
+        `"${item.total_worked_hours}h"`,
+        `"${item.monthly_salary}"`,
+        `"${item.hourly_rate}"`,
+        `"${item.payable_salary}"`
       ].join(','))
     ].join('\n');
 
@@ -195,7 +382,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Gaytri_ERP_Attendance_Report_${startDate}_to_${endDate}.csv`);
+    link.setAttribute('download', `Gaytri_ERP_Payroll_Report_${selectedMonth}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -216,53 +403,29 @@ export default function ReportsPage() {
       `}</style>
 
       <div className="print-title hidden text-black text-center font-bold text-xl">
-        Gaytri Commercial - Attendance Compilation Sheet ({startDate} to {endDate})
+        Gaytri Commercial - Monthly Payroll Summary Sheet ({selectedMonth})
       </div>
 
       {/* FILTER PANEL */}
       <div className="glass-panel p-6 rounded-xl border border-slate-700 space-y-4 no-print shadow-md">
         <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
           <FileSpreadsheet className="w-5 h-5 text-cyan-400" />
-          <h3 className="font-bold text-white text-sm">Attendance Report Generator</h3>
+          <h3 className="font-bold text-white text-sm">Monthly Payroll Report</h3>
         </div>
 
-        <form onSubmit={handleGenerateReport} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <form onSubmit={handleGeneratePayrollReport} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-450 font-bold uppercase">Start Date</label>
+            <label className="text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
             <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-455 font-bold uppercase">End Date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] text-slate-450 font-bold uppercase">Department</label>
-            <select
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
-            >
-              <option value="">All Departments</option>
-              {departments.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] text-slate-450 font-bold uppercase">Reporting Manager</label>
+            <label className="text-[10px] text-slate-400 font-bold uppercase">Reporting Manager (Optional)</label>
             <select
               value={reportingManager}
               onChange={(e) => setReportingManager(e.target.value)}
@@ -276,7 +439,7 @@ export default function ReportsPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-450 font-bold uppercase">Status</label>
+            <label className="text-[10px] text-slate-400 font-bold uppercase">Status (Optional)</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
@@ -286,16 +449,15 @@ export default function ReportsPage() {
               <option value="PRESENT">Present</option>
               <option value="WORKING">Working (Active)</option>
               <option value="LATE">Late</option>
-              <option value="ABSENT">Absent</option>
-              <option value="MISSED_CHECKOUT">Missed Checkout</option>
+              <option value="HALF_DAY">Half Day</option>
             </select>
           </div>
 
-          <div className="sm:col-span-2 lg:col-span-5 flex justify-end gap-3 pt-2">
+          <div className="flex items-end gap-3">
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2 bg-cyan-550 hover:bg-cyan-600 text-slate-900 text-xs font-bold rounded-lg transition-all shadow-md flex items-center space-x-2 disabled:opacity-50"
+              className="flex-1 py-2 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 h-[38px]"
             >
               {loading ? (
                 <>
@@ -304,7 +466,7 @@ export default function ReportsPage() {
                 </>
               ) : (
                 <>
-                  <BarChart className="w-3.5 h-3.5" />
+                  <BarChart3 className="w-3.5 h-3.5" />
                   <span>Compile Report</span>
                 </>
               )}
@@ -313,117 +475,110 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={handleExportCSV}
-              disabled={reportData.length === 0}
-              className="px-4 py-2 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-405 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 disabled:opacity-50"
+              disabled={payrollData.length === 0}
+              className="py-2 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px]"
+              title="Export CSV"
             >
               <Download className="w-4 h-4" />
-              <span>Export CSV</span>
+              <span>CSV</span>
             </button>
 
             <button
               type="button"
               onClick={() => window.print()}
-              disabled={reportData.length === 0}
-              className="px-4 py-2 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-405 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 disabled:opacity-50"
+              disabled={payrollData.length === 0}
+              className="py-2 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px]"
+              title="Print Sheet"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Sheet</span>
+              <span>Print</span>
             </button>
           </div>
         </form>
       </div>
 
       {error && (
-        <div className="p-4 rounded-lg bg-rose-955/30 border border-rose-500/30 text-rose-350 text-xs font-semibold no-print">
+        <div className="p-4 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-350 text-xs font-semibold no-print">
           {error}
         </div>
       )}
 
-      {/* REPORT SUMMARY CARD */}
-      {reportData.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Total Logs</span>
-            <h4 className="text-xl font-extrabold mt-1 text-white font-mono">{summary.totalRows}</h4>
+      {/* PAYROLL SUMMARY METRICS */}
+      {payrollData.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Staff Evaluated</span>
+              <h4 className="text-2xl font-extrabold mt-1 text-white font-mono">{summary.totalEmployees} Employees</h4>
+            </div>
+            <Users className="w-8 h-8 text-cyan-400/50" />
           </div>
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Presents</span>
-            <h4 className="text-xl font-extrabold mt-1 text-emerald-400 font-mono">{summary.presentCount}</h4>
+          <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Worked Hours</span>
+              <h4 className="text-2xl font-extrabold mt-1 text-sky-400 font-mono">{summary.totalWorkedHours} Hours</h4>
+            </div>
+            <Calendar className="w-8 h-8 text-sky-400/50" />
           </div>
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Lates</span>
-            <h4 className="text-xl font-extrabold mt-1 text-amber-400 font-mono">{summary.lateCount}</h4>
-          </div>
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Missed Checkouts</span>
-            <h4 className="text-xl font-extrabold mt-1 text-rose-455 font-mono">{summary.missedCheckouts}</h4>
-          </div>
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 text-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Absents</span>
-            <h4 className="text-xl font-extrabold mt-1 text-rose-400 font-mono">{summary.absentCount}</h4>
+          <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Payable Payroll</span>
+              <h4 className="text-2xl font-extrabold mt-1 text-emerald-400 font-mono">₹{summary.totalPayrollAmount.toLocaleString('en-IN')}</h4>
+            </div>
+            <DollarSign className="w-8 h-8 text-emerald-400/50" />
           </div>
         </div>
       )}
 
-      {/* REPORT TABLE */}
-      {reportData.length > 0 && (
+      {/* PAYROLL TABLE */}
+      {payrollData.length > 0 && (
         <div className="glass-panel rounded-xl border border-slate-700 overflow-hidden shadow-lg">
+          <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
+            <span className="text-xs font-extrabold text-slate-200 uppercase tracking-wider">
+              Payroll Register - {selectedMonth}
+            </span>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
                   <th className="pb-3 pt-4 pl-6">Employee</th>
-                  <th className="pb-3 pt-4">Dept / Shift</th>
-                  <th className="pb-3 pt-4">Date</th>
-                  <th className="pb-3 pt-4 font-mono">In</th>
-                  <th className="pb-3 pt-4 font-mono">Out</th>
-                  <th className="pb-3 pt-4 font-mono">Hours</th>
-                  <th className="pb-3 pt-4">Status</th>
-                  <th className="pb-3 pt-4 pr-6">Remarks</th>
+                  <th className="pb-3 pt-4 font-mono text-center">Worked Hours</th>
+                  <th className="pb-3 pt-4 font-mono text-right">Monthly Salary</th>
+                  <th className="pb-3 pt-4 font-mono text-right">Hourly Rate</th>
+                  <th className="pb-3 pt-4 font-mono text-right">Payable Salary</th>
+                  <th className="pb-3 pt-4 pr-6 text-center">Payslip</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-850/50 text-xs text-slate-350">
-                {reportData.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
+              <tbody className="divide-y divide-slate-850/50 text-xs text-slate-300">
+                {payrollData.map((item) => (
+                  <tr key={item.employee_uuid} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
                     <td className="py-3.5 pl-6">
-                      <p className="font-bold text-white text-xs">{row.full_name}</p>
-                      <p className="text-[9px] text-slate-500 font-mono">{row.employee_id}</p>
+                      <p className="font-bold text-white text-xs">{item.full_name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{item.employee_id}</p>
                     </td>
-                    <td className="py-3.5">
-                      <p className="font-semibold text-slate-200">{row.department}</p>
-                      <p className="text-[9px] text-slate-500">{row.shift}</p>
+                    <td className="py-3.5 font-mono font-bold text-sky-400 text-center">
+                      {item.total_worked_hours}h
                     </td>
-                    <td className="py-3.5 font-medium text-slate-300">
-                      {new Date(row.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    <td className="py-3.5 font-mono text-slate-200 text-right">
+                      ₹{item.monthly_salary.toLocaleString('en-IN')}
                     </td>
-                    <td className="py-3.5 font-mono font-bold text-slate-100">
-                      {row.check_in_time ? row.check_in_time.substring(0, 5) : '--:--'}
+                    <td className="py-3.5 font-mono text-cyan-400 text-right font-semibold">
+                      ₹{item.hourly_rate}/hr
                     </td>
-                    <td className="py-3.5 font-mono text-slate-100">
-                      {row.check_out ? (
-                        <span className="font-bold text-cyan-400">{row.check_out.substring(0, 5)}</span>
-                      ) : row.status === 'WORKING' ? (
-                        <span className="text-sky-400 font-semibold italic bg-sky-950/20 border border-sky-500/10 px-2 py-0.5 rounded text-[10px]">Working</span>
-                      ) : (
-                        <span className="text-slate-500">--</span>
-                      )}
+                    <td className="py-3.5 font-mono font-extrabold text-emerald-400 text-right text-sm">
+                      ₹{item.payable_salary.toLocaleString('en-IN')}
                     </td>
-                    <td className="py-3.5 font-mono text-cyan-400 font-bold">{row.working_hours || '-'}</td>
-                    <td className="py-3.5">
-                      <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[9px] font-bold ${
-                        row.status === 'PRESENT'
-                          ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-500/20'
-                          : row.status === 'WORKING'
-                          ? 'bg-sky-950/30 text-sky-400 border border-sky-500/20'
-                          : row.status === 'LATE'
-                          ? 'bg-amber-950/30 text-amber-400 border border-amber-500/20'
-                          : 'bg-rose-955/30 text-rose-400 border border-rose-500/20'
-                      }`}>
-                        <span>{row.status}</span>
-                      </span>
-                    </td>
-                    <td className="py-3.5 pr-6 italic text-slate-500 truncate max-w-[120px]" title={row.remarks || ''}>
-                      {row.remarks || '--'}
+                    <td className="py-3.5 pr-6 text-center">
+                      <button
+                        onClick={() => handleDownloadPayslipPDF(item)}
+                        className="px-3 py-1.5 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 hover:bg-cyan-950/20 text-cyan-400 hover:text-cyan-300 font-bold rounded-lg text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5 mx-auto"
+                        title={`Download PDF Payslip for ${item.full_name}`}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>📄 Download</span>
+                      </button>
                     </td>
                   </tr>
                 ))}
