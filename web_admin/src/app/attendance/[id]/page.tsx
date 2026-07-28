@@ -122,6 +122,7 @@ export default function EmployeeAttendanceProfilePage() {
     mobile: '',
     designation: 'Machine Operator',
     shift: 'Morning Shift',
+    monthly_salary: '',
     manager_id: '',
     joining_date: '',
     is_active: true
@@ -229,6 +230,7 @@ export default function EmployeeAttendanceProfilePage() {
         mobile: empProfile.mobile || '',
         designation: empProfile.designation || 'Machine Operator',
         shift: empProfile.shift || 'Morning Shift',
+        monthly_salary: (empProfile as any).monthly_salary !== undefined && (empProfile as any).monthly_salary !== null ? String((empProfile as any).monthly_salary) : '',
         manager_id: empProfile.manager_id || '',
         joining_date: empProfile.joining_date ? empProfile.joining_date.split('T')[0] : '',
         is_active: empProfile.is_active
@@ -355,6 +357,7 @@ export default function EmployeeAttendanceProfilePage() {
           mobile: editForm.mobile.trim(),
           designation: editForm.designation,
           shift: editForm.shift,
+          monthly_salary: editForm.monthly_salary,
           manager_id: editForm.manager_id || null,
           joining_date: editForm.joining_date,
           is_active: editForm.is_active
@@ -970,6 +973,23 @@ export default function EmployeeAttendanceProfilePage() {
                   </select>
                 </div>
 
+                {/* Monthly Salary (₹) */}
+                <div>
+                  <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
+                    Monthly Salary (₹) <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    placeholder="e.g. 12000, 15000, 18000"
+                    value={editForm.monthly_salary}
+                    onChange={e => setEditForm({ ...editForm, monthly_salary: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-400 font-mono text-xs"
+                  />
+                </div>
+
                 {/* Reporting Manager */}
                 <div>
                   <label className="block text-slate-350 font-bold uppercase text-[10px] tracking-wider mb-1">
@@ -978,7 +998,7 @@ export default function EmployeeAttendanceProfilePage() {
                   <select
                     value={editForm.manager_id}
                     onChange={e => setEditForm({ ...editForm, manager_id: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-400 text-xs"
                   >
                     <option value="">Select Manager</option>
                     {metaManagers.length === 0 ? (
@@ -992,7 +1012,7 @@ export default function EmployeeAttendanceProfilePage() {
                 </div>
 
                 {/* Active Status */}
-                <div className="flex items-center pt-5">
+                <div className="sm:col-span-2 flex items-center pt-2">
                   <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1000,7 +1020,7 @@ export default function EmployeeAttendanceProfilePage() {
                       onChange={e => setEditForm({ ...editForm, is_active: e.target.checked })}
                       className="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-cyan-400"
                     />
-                    <span className="font-bold">Active Employee Status</span>
+                    <span className="font-bold text-xs">Active Employee Status</span>
                   </label>
                 </div>
               </div>

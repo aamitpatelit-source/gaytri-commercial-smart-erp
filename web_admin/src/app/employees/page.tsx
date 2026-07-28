@@ -735,35 +735,37 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] text-slate-355 font-extrabold uppercase tracking-wider block mb-1">Employee ID (Read-only)</label>
-                <input
-                  type="text"
-                  value={empForm.employee_id}
-                  disabled
-                  className="w-full px-3 py-2.5 bg-slate-950/60 border border-slate-800 rounded-lg text-xs font-mono text-slate-400 cursor-not-allowed"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Full Name</label>
-                <input
-                  type="text"
-                  value={empForm.full_name}
-                  onChange={(e) => setEmpForm({...empForm, full_name: e.target.value})}
-                  className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
+              {/* 2-Column Grid Layout */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Row 1: Employee ID | Full Name */}
                 <div>
-                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number</label>
+                  <label className="text-[10px] text-slate-355 font-extrabold uppercase tracking-wider block mb-1">Employee ID (Read-only)</label>
+                  <input
+                    type="text"
+                    value={empForm.employee_id}
+                    disabled
+                    className="w-full px-3 py-2 bg-slate-950/60 border border-slate-800 rounded-lg text-xs font-mono text-slate-400 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Full Name <span className="text-rose-400">*</span></label>
+                  <input
+                    type="text"
+                    value={empForm.full_name}
+                    onChange={(e) => setEmpForm({...empForm, full_name: e.target.value})}
+                    className="w-full px-3 py-2 glass-input text-xs text-white font-medium"
+                    required
+                  />
+                </div>
+
+                {/* Row 2: Mobile Number | Joining Date */}
+                <div>
+                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number <span className="text-rose-400">*</span></label>
                   <input
                     type="text"
                     value={empForm.mobile}
                     onChange={(e) => setEmpForm({...empForm, mobile: e.target.value})}
-                    className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium"
+                    className="w-full px-3 py-2 glass-input text-xs text-white font-medium"
                     required
                   />
                 </div>
@@ -780,39 +782,39 @@ export default function EmployeesPage() {
                         shift: found ? found.name : 'Morning Shift'
                       });
                     }}
-                    className="w-full px-3 py-2.5 bg-slate-950 border border-slate-500 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-750 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
                   >
                     {shifts.map(s => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Monthly Salary (₹)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={empForm.monthly_salary}
-                  onChange={(e) => setEmpForm({...empForm, monthly_salary: e.target.value})}
-                  placeholder="e.g. 12000, 15000, 18000"
-                  className="w-full px-3 py-2.5 glass-input text-xs text-white font-medium font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Account Status</label>
-                <select
-                  value={empForm.is_active ? "true" : "false"}
-                  onChange={(e) => setEmpForm({...empForm, is_active: e.target.value === "true"})}
-                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-555 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer hover:border-cyan-400 transition-colors"
-                >
-                  <option value="true">Active</option>
-                  <option value="false">Suspended</option>
-                </select>
+                {/* Row 3: Monthly Salary (₹) | Account Status */}
+                <div>
+                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Monthly Salary (₹) <span className="text-rose-400">*</span></label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={empForm.monthly_salary}
+                    onChange={(e) => setEmpForm({...empForm, monthly_salary: e.target.value})}
+                    placeholder="e.g. 12000, 15000, 18000"
+                    className="w-full px-3 py-2 glass-input text-xs text-white font-medium font-mono"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wider block mb-1">Account Status</label>
+                  <select
+                    value={empForm.is_active ? "true" : "false"}
+                    onChange={(e) => setEmpForm({...empForm, is_active: e.target.value === "true"})}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-750 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="true">Active Employee</option>
+                    <option value="false">Suspended / Inactive</option>
+                  </select>
+                </div>
               </div>
 
               <button

@@ -314,9 +314,14 @@ const updateEmployee = async (req, res) => {
         await (0, db_1.query)(`INSERT INTO audit_logs (action, details, performed_by, performed_by_role)
        VALUES ('EMPLOYEE_UPDATED', $1, $2, $3)`, [`Updated employee ${employee.employee_id} (${full_name.trim()})`, req.user?.id || null, req.user?.role || 'SYSTEM']);
         console.log(`[Employee Info] Updated employee: ${id} (${full_name.trim()})`);
+        const updatedEmpRes = await (0, db_1.query)(`SELECT e.id, e.employee_id, e.full_name, e.mobile, e.joining_date, e.salary_type, COALESCE(e.monthly_salary, 0.00) as monthly_salary, e.role, e.is_active,
+              COALESCE(e.profile_image_url, e.profile_photo_url) as profile_image_url,
+              COALESCE(e.profile_photo_url, e.profile_image_url) as profile_photo_url
+       FROM employees e WHERE e.id = $1`, [id]);
         return res.status(200).json({
             success: true,
             message: 'Employee updated successfully',
+            employee: updatedEmpRes.rows[0] || null
         });
     }
     catch (error) {
