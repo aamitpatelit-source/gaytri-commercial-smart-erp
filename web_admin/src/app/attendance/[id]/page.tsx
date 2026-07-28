@@ -263,7 +263,7 @@ export default function EmployeeAttendanceProfilePage() {
       });
       if (summaryRes.ok) {
         const statsData = await summaryRes.json();
-        setSummary(statsData.monthlySummary || null);
+        setSummary(statsData.summary || statsData.monthlySummary || null);
         setAnalytics(statsData.analytics || null);
       }
 

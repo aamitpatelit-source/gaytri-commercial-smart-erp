@@ -974,7 +974,9 @@ const getEmployeeStats = async (req, res) => {
         // 2. Fetch all attendance logs of the month
         const logsRes = await (0, db_1.query)(`SELECT date, COALESCE(check_in_time, time) as check_in_time, check_out_time as check_out, status, remarks
        FROM attendance
-       WHERE employee_id = $1 AND date >= $2 AND date <= $3 AND is_deleted = FALSE`, [id, startStr, endStr]);
+       WHERE (employee_id = $1 OR employee_id IN (SELECT employee_id FROM employees WHERE id::text = $1 OR employee_id = $1))
+         AND date >= $2 AND date <= $3 
+         AND (is_deleted = FALSE OR is_deleted IS NULL)`, [id, startStr, endStr]);
         // 3. Fetch all holidays of the month
         const holidaysRes = await (0, db_1.query)('SELECT date FROM holiday_calendar WHERE date >= $1 AND date <= $2', [startStr, endStr]);
         const holidayDates = new Set(holidaysRes.rows.map(h => (0, moment_timezone_1.default)(h.date).format('YYYY-MM-DD')));
@@ -1008,12 +1010,11 @@ const getEmployeeStats = async (req, res) => {
             if (log) {
                 const checkIn = log.check_in_time;
                 const checkOut = log.check_out;
-                if (log.status === 'WORKING') {
-                    workingDays++;
-                    lastAttendanceDate = dateStr;
-                }
-                else if (log.status === 'PRESENT' || log.status === 'LATE' || log.status === 'HALF_DAY' || log.status === 'WORK_FROM_HOME' || log.status === 'ON_DUTY') {
+                if (log.status === 'PRESENT' || log.status === 'WORKING' || log.status === 'LATE' || log.status === 'HALF_DAY' || log.status === 'WORK_FROM_HOME' || log.status === 'ON_DUTY') {
                     presentDays++;
+                    if (log.status === 'WORKING') {
+                        workingDays++;
+                    }
                     lastAttendanceDate = dateStr;
                     if (checkIn) {
                         const checkInParts = checkIn.split(':');
@@ -1084,29 +1085,33 @@ const getEmployeeStats = async (req, res) => {
             : null;
         const avgCheckInTime = avgCheckInMinutes !== null ? formatMinutesTo12Hour(avgCheckInMinutes) : '--:--';
         const avgCheckOutTime = avgCheckOutMinutes !== null ? formatMinutesTo12Hour(avgCheckOutMinutes) : '--:--';
-        const workingHours = Math.floor(totalWorkingMinutes / 60);
-        const workingMinutes = Math.round(totalWorkingMinutes % 60);
-        const totalWorkingHoursStr = `${workingHours.toString().padStart(2, '0')}h ${workingMinutes.toString().padStart(2, '0')}m`;
-        const totalActiveDays = presentDays + absentDays + workingDays + missedCheckoutCount;
-        const monthlyAttendancePercentage = totalActiveDays > 0
-            ? Math.round(((presentDays + workingDays) / totalActiveDays) * 100)
+        // Format total working hours: e.g. "14h 30m"
+        const totalHours = Math.floor(totalWorkingMinutes / 60);
+        const totalMins = totalWorkingMinutes % 60;
+        const totalWorkingHoursStr = `${totalHours}h ${totalMins}m`;
+        // Calculate Monthly Attendance Percentage
+        const totalConsideredDays = presentDays + absentDays;
+        const monthlyAttendancePercentage = totalConsideredDays > 0
+            ? Math.round((presentDays / totalConsideredDays) * 100)
             : 100;
         // Analytics Sufficiency Guard: show analytics only when sufficient data (>= 3 present/working records) exists
         const sufficientData = (presentDays + workingDays) >= 3;
+        const summaryPayload = {
+            presentDays,
+            absentDays,
+            workingDays,
+            holidays: holidayDays,
+            avgCheckInTime,
+            avgCheckOutTime,
+            totalWorkingHours: totalWorkingHoursStr,
+            lateArrivals,
+            missedCheckoutCount,
+            lastAttendanceDate: lastAttendanceDate ? (0, moment_timezone_1.default)(lastAttendanceDate).format('YYYY-MM-DD') : 'N/A'
+        };
         return res.status(200).json({
             success: true,
-            summary: {
-                presentDays,
-                absentDays,
-                workingDays,
-                holidays: holidayDays,
-                avgCheckInTime,
-                avgCheckOutTime,
-                totalWorkingHours: totalWorkingHoursStr,
-                lateArrivals,
-                missedCheckoutCount,
-                lastAttendanceDate: lastAttendanceDate ? (0, moment_timezone_1.default)(lastAttendanceDate).format('YYYY-MM-DD') : 'N/A'
-            },
+            summary: summaryPayload,
+            monthlySummary: summaryPayload,
             analytics: {
                 sufficientData,
                 monthlyAttendancePercentage,
