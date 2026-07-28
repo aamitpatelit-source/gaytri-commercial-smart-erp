@@ -6,8 +6,6 @@ import {
   getAttendanceHistory,
   getAuditLogs,
   getEmployeeSummary,
-  getAttendanceSettings,
-  updateAttendanceSettings,
   employeeCheckIn,
   employeeCheckOut,
   correctAttendance,
@@ -31,7 +29,5 @@ router.get('/dashboard', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any
 router.get('/history', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']) as any, asyncHandler(getAttendanceHistory));
 router.get('/audit-logs', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(getAuditLogs));
 router.get('/employee-summary', requireRole(['EMPLOYEE']) as any, asyncHandler(getEmployeeSummary));
-router.get('/settings', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(getAttendanceSettings));
-router.put('/settings', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(updateAttendanceSettings));
 
 export default router;
