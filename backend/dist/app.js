@@ -79,6 +79,7 @@ app.get(['/api/v1', '/api/v1/health'], (req, res) => {
     res.status(200).json({
         success: true,
         message: 'Gaytri Commercial API is running.',
+        version: '1.0.0-prod-v6',
         timestamp: new Date().toISOString(),
     });
 });
