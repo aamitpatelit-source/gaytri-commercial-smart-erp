@@ -11,6 +11,7 @@ router.post('/mark', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']
 router.post('/void', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(attendanceController_1.voidAttendance));
 router.post('/check-in', (0, auth_1.requireRole)(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(attendanceController_1.employeeCheckIn));
 router.post('/check-out', (0, auth_1.requireRole)(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(attendanceController_1.employeeCheckOut));
+router.post('/checkout', (0, auth_1.requireRole)(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(attendanceController_1.employeeCheckOut));
 router.post('/correct', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN']), (0, errorHandler_1.asyncHandler)(attendanceController_1.correctAttendance));
 router.get('/employee/:id/stats', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getEmployeeStats));
 router.get('/dashboard', (0, auth_1.requireRole)(['SUPER_ADMIN', 'ADMIN', 'MANAGER']), (0, errorHandler_1.asyncHandler)(attendanceController_1.getDashboardStats));

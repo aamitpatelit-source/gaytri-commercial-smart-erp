@@ -589,6 +589,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Error'**
   String get error;
+
+  /// No description provided for @checkOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Check Out'**
+  String get checkOut;
+
+  /// No description provided for @checkIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Check In'**
+  String get checkIn;
+
+  /// No description provided for @checkedOutSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Checked out successfully.'**
+  String get checkedOutSuccess;
+
+  /// No description provided for @checkoutFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Check-Out failed.'**
+  String get checkoutFailed;
+
+  /// No description provided for @totalEmployees.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Employees'**
+  String get totalEmployees;
+
+  /// No description provided for @activeWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'Active Working'**
+  String get activeWorking;
+
+  /// No description provided for @managerTerminalOnline.
+  ///
+  /// In en, this message translates to:
+  /// **'Manager Terminal Online'**
+  String get managerTerminalOnline;
+
+  /// No description provided for @searchEmployeePlaceholder.
+  ///
+  /// In en, this message translates to:
+  /// **'Search employee...'**
+  String get searchEmployeePlaceholder;
+
+  /// No description provided for @allDepartments.
+  ///
+  /// In en, this message translates to:
+  /// **'All Departments'**
+  String get allDepartments;
+
+  /// No description provided for @allStatuses.
+  ///
+  /// In en, this message translates to:
+  /// **'All Statuses'**
+  String get allStatuses;
+
+  /// No description provided for @filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get filter;
+
+  /// No description provided for @clearFilters.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear Filters'**
+  String get clearFilters;
+
+  /// No description provided for @sessionExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Session expired. Please sign in again.'**
+  String get sessionExpired;
+
+  /// No description provided for @requestTimedOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Request timed out. Please check network connection.'**
+  String get requestTimedOut;
+
+  /// No description provided for @noInternetConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'No internet connection. Please check your network.'**
+  String get noInternetConnection;
+
+  /// No description provided for @workedHours.
+  ///
+  /// In en, this message translates to:
+  /// **'Worked Hours'**
+  String get workedHours;
+
+  /// No description provided for @todayCheckIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Today Check-In'**
+  String get todayCheckIn;
+
+  /// No description provided for @todayCheckOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Today Check-Out'**
+  String get todayCheckOut;
+
+  /// No description provided for @hours.
+  ///
+  /// In en, this message translates to:
+  /// **'Hours'**
+  String get hours;
+
+  /// No description provided for @mins.
+  ///
+  /// In en, this message translates to:
+  /// **'Mins'**
+  String get mins;
+
+  /// No description provided for @hello.
+  ///
+  /// In en, this message translates to:
+  /// **'Hello'**
+  String get hello;
+
+  /// No description provided for @manager.
+  ///
+  /// In en, this message translates to:
+  /// **'Manager'**
+  String get manager;
 }
 
 class _AppLocalizationsDelegate

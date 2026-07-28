@@ -919,12 +919,17 @@ export const employeeCheckIn = async (req: AuthRequest, res: Response) => {
 
 // POST /attendance/check-out (EMPLOYEE or MANAGER check-out)
 export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
+  console.log('Checkout API Hit');
   const employeeId = req.body?.employee_id || req.user?.id;
   const { gps_lat, gps_lng, remarks } = req.body;
 
   if (!employeeId) {
+    console.log('Checkout API -> Unauthorized / Missing Employee ID');
     return res.status(401).json({ success: false, message: 'Employee credentials not found.' });
   }
+
+  console.log('↓');
+  console.log(`Authenticated: employeeId=${employeeId}, user=${req.user?.id}`);
 
   const tz = await getCompanyTimezone();
   const today = moment().tz(tz).format('YYYY-MM-DD');
@@ -944,6 +949,8 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
     let finalStatus = 'PRESENT';
 
     if (existing.rows.length === 0) {
+      console.log('↓');
+      console.log('Attendance Not Found -> Creating Open Attendance Session & Checkout');
       // If no check-in record exists yet, create one for today with status PRESENT and checkout time
       const insRes = await client.query(
         `INSERT INTO attendance (employee_id, date, time, check_in_time, check_out_time, status, remarks, source, created_by)
@@ -954,9 +961,12 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
       record = insRes.rows[0];
     } else {
       record = existing.rows[0];
+      console.log('↓');
+      console.log(`Attendance Found: record_id=${record.id}, current_status=${record.status}`);
 
       if (record.status === 'PRESENT' && record.check_out_time) {
         await client.query('ROLLBACK');
+        console.log('Checkout API -> Employee already checked out today.');
         return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
       }
 
@@ -971,6 +981,9 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
       const checkInTime = record.check_in_time || record.time || '09:00:00';
       
       finalStatus = checkInTime > lateAfter ? 'LATE' : 'PRESENT';
+
+      console.log('↓');
+      console.log(`Updating Checkout: check_out_time=${nowTime}, finalStatus=${finalStatus}`);
 
       // Update the existing record
       await client.query(
@@ -989,6 +1002,11 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
       );
     }
 
+    const checkInStr = record.check_in_time || '09:00:00';
+    const hoursWorked = calculateWorkingHours(checkInStr, nowTime, finalStatus);
+    console.log('↓');
+    console.log(`Hours Calculated: ${hoursWorked} hours`);
+
     // 4. Write audit trail
     await client.query(
       `INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address)
@@ -997,7 +1015,10 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
     );
 
     await client.query('COMMIT');
-    console.log(`[Mobile App] Employee ${employeeId} checked out successfully at ${nowTime}.`);
+    console.log('↓');
+    console.log('Database Updated');
+    console.log('↓');
+    console.log('Response Returned: HTTP 200 Success');
     
     return res.status(200).json({
       success: true,
@@ -1005,13 +1026,14 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
       attendance: {
         id: record.id,
         check_out_time: nowTime,
-        status: finalStatus
+        status: finalStatus,
+        worked_hours: hoursWorked
       }
     });
   } catch (error: any) {
     await client.query('ROLLBACK');
     console.error('[Check-Out Error] Failed to check out:', error);
-    return res.status(500).json({ success: false, message: 'Check-out failed. Please try again.' });
+    return res.status(500).json({ success: false, message: 'Check-out failed due to database or server error: ' + error.message });
   } finally {
     client.release();
   }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -357,40 +358,72 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   Future<void> _checkOutEmployee(EmployeeModel emp) async {
     final token = await _storage.read(key: 'access_token');
+    final l10n = AppLocalizations.of(context)!;
     if (token == null) {
-      _showErrorSnackbar('Session expired. Please sign in again.');
+      _showErrorSnackbar(l10n.sessionExpired);
       return;
     }
 
+    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/check-out');
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+    final payloadMap = {
+      'employee_id': emp.id,
+    };
+    final payloadJson = jsonEncode(payloadMap);
+
+    print('Checkout Request');
+    print('URL: $url');
+    print('Payload: $payloadJson');
+    print('Headers: $headers');
+
     try {
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/checkout'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'employee_id': emp.id,
-        }),
+        url,
+        headers: headers,
+        body: payloadJson,
       ).timeout(const Duration(seconds: 10));
+
+      print('Response Code: ${response.statusCode}');
+      print('Response Body: ${response.body}');
 
       Map<String, dynamic>? data;
       try {
         data = jsonDecode(response.body);
-      } catch (_) {}
+      } catch (e) {
+        print('Exception parsing response body: $e');
+      }
 
       if (response.statusCode == 200 && data != null && data['success'] == true) {
-        _showSuccessSnackbar('${emp.fullName} checked out successfully.');
+        final checkOutTimeStr = data['attendance']?['check_out_time'] ?? DateTime.now().toString().substring(11, 16);
+        setState(() {
+          _checkOutTimes[emp.id] = checkOutTimeStr;
+        });
+        _showSuccessSnackbar('${emp.fullName} ${l10n.checkedOutSuccess}');
         await _loadAllData();
       } else {
-        final msg = data?['message'] ?? 'Checkout failed.';
+        final backendError = data?['message'];
+        final msg = backendError ?? (response.statusCode == 404
+            ? 'Checkout endpoint not found (404).'
+            : response.statusCode == 401
+                ? l10n.sessionExpired
+                : l10n.checkoutFailed);
+        print('Checkout Failure Detail: $msg');
         _showErrorSnackbar(msg);
       }
-    } on TimeoutException {
-      _showErrorSnackbar('Request timed out. Please check network connection.');
-    } on http.ClientException {
-      _showErrorSnackbar('No internet connection. Please check your network.');
+    } on TimeoutException catch (e) {
+      print('Exception: $e');
+      _showErrorSnackbar(l10n.requestTimedOut);
+    } on SocketException catch (e) {
+      print('Exception: $e');
+      _showErrorSnackbar(l10n.noInternetConnection);
+    } on http.ClientException catch (e) {
+      print('Exception: $e');
+      _showErrorSnackbar(l10n.noInternetConnection);
     } catch (e) {
+      print('Exception: $e');
       _showErrorSnackbar(e.toString().replaceAll('Exception:', '').trim());
     }
   }

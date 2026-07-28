@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -217,37 +218,63 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
   Future<void> _handleCheckOut() async {
     final token = await _storage.read(key: 'access_token');
+    final l10n = AppLocalizations.of(context)!;
     if (token == null) {
-      _showErrorSnackbar('Session expired. Please sign in again.');
+      _showErrorSnackbar(l10n.sessionExpired);
       return;
     }
 
+    final url = Uri.parse('${ApiConfig.baseUrl}/attendance/check-out');
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+
+    print('Checkout Request');
+    print('URL: $url');
+    print('Payload: {}');
+    print('Headers: $headers');
+
     try {
       final res = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/attendance/checkout'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        url,
+        headers: headers,
       ).timeout(const Duration(seconds: 10));
+
+      print('Response Code: ${res.statusCode}');
+      print('Response Body: ${res.body}');
 
       Map<String, dynamic>? data;
       try {
         data = jsonDecode(res.body);
-      } catch (_) {}
+      } catch (e) {
+        print('Exception parsing response body: $e');
+      }
 
       if (res.statusCode == 200 && data != null && data['success'] == true) {
-        _showSuccessSnackbar('Checked out successfully.');
+        _showSuccessSnackbar(l10n.checkedOutSuccess);
         await _loadDashboardData();
       } else {
-        final msg = data?['message'] ?? 'Check-Out failed.';
+        final backendError = data?['message'];
+        final msg = backendError ?? (res.statusCode == 404
+            ? 'Checkout endpoint not found (404).'
+            : res.statusCode == 401
+                ? l10n.sessionExpired
+                : l10n.checkoutFailed);
+        print('Checkout Failure Detail: $msg');
         _showErrorSnackbar(msg);
       }
-    } on TimeoutException {
-      _showErrorSnackbar('Request timed out. Please check network connection.');
-    } on http.ClientException {
-      _showErrorSnackbar('No internet connection. Please check your network.');
+    } on TimeoutException catch (e) {
+      print('Exception: $e');
+      _showErrorSnackbar(l10n.requestTimedOut);
+    } on SocketException catch (e) {
+      print('Exception: $e');
+      _showErrorSnackbar(l10n.noInternetConnection);
+    } on http.ClientException catch (e) {
+      print('Exception: $e');
+      _showErrorSnackbar(l10n.noInternetConnection);
     } catch (e) {
+      print('Exception: $e');
       _showErrorSnackbar(e.toString().replaceAll('Exception:', '').trim());
     }
   }
@@ -391,9 +418,9 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        "TODAY'S ATTENDANCE",
-                        style: TextStyle(
+                      Text(
+                        l10n?.workforceOverview ?? "TODAY'S ATTENDANCE",
+                        style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                           color: AppTheme.mutedText,
@@ -414,7 +441,11 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                           ),
                         ),
                         child: Text(
-                          _attendanceStatus.toUpperCase(),
+                          _attendanceStatus == 'PRESENT'
+                              ? (l10n?.present ?? 'PRESENT')
+                              : _attendanceStatus == 'WORKING' || _attendanceStatus == 'Checked In'
+                                  ? (l10n?.activeWorking ?? 'WORKING')
+                                  : _attendanceStatus.toUpperCase(),
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.bold,
@@ -430,9 +461,9 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildAttendanceMetric('Check In', _checkInTime, Icons.login_rounded, AppTheme.successGreen),
-                      _buildAttendanceMetric('Check Out', _checkOutTime, Icons.logout_rounded, AppTheme.errorRed),
-                      _buildAttendanceMetric('Working Hours', _workingHours, Icons.timer_outlined, AppTheme.neonCyan),
+                      _buildAttendanceMetric(l10n?.todayCheckIn ?? 'Check In', _checkInTime, Icons.login_rounded, AppTheme.successGreen),
+                      _buildAttendanceMetric(l10n?.todayCheckOut ?? 'Check Out', _checkOutTime, Icons.logout_rounded, AppTheme.errorRed),
+                      _buildAttendanceMetric(l10n?.workedHours ?? 'Working Hours', _workingHours, Icons.timer_outlined, AppTheme.neonCyan),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -448,9 +479,9 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                           elevation: 2,
                         ),
                         icon: const Icon(Icons.logout_rounded, size: 18),
-                        label: const Text(
-                          'CHECK OUT NOW',
-                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        label: Text(
+                          (l10n?.checkOut ?? 'CHECK OUT NOW').toUpperCase(),
+                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                         ),
                         onPressed: _isLoading ? null : _handleCheckOut,
                       ),
@@ -464,14 +495,14 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: AppTheme.successGreen.withOpacity(0.2)),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
-                          SizedBox(width: 8),
+                          const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
+                          const SizedBox(width: 8),
                           Text(
-                            'TODAY\'S SHIFT COMPLETED',
-                            style: TextStyle(color: AppTheme.successGreen, fontSize: 11.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                            l10n?.attendanceSaved ?? 'TODAY\'S SHIFT COMPLETED',
+                            style: const TextStyle(color: AppTheme.successGreen, fontSize: 11.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                           ),
                         ],
                       ),
@@ -482,9 +513,9 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
             const SizedBox(height: 24),
 
             // History Log List
-            const Text(
-              'RECENT LOGS',
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.mutedText, letterSpacing: 1.0),
+            Text(
+              (l10n?.attendanceActivity ?? 'RECENT LOGS').toUpperCase(),
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.mutedText, letterSpacing: 1.0),
             ),
             const SizedBox(height: 12),
 
@@ -497,8 +528,8 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.white.withOpacity(0.04)),
                 ),
-                child: const Center(
-                  child: Text('No attendance history found.', style: TextStyle(fontSize: 12, color: AppTheme.mutedText)),
+                child: Center(
+                  child: Text(l10n?.noActivityToday ?? 'No attendance history found.', style: const TextStyle(fontSize: 12, color: AppTheme.mutedText)),
                 ),
               )
             else

@@ -807,11 +807,15 @@ const employeeCheckIn = async (req, res) => {
 exports.employeeCheckIn = employeeCheckIn;
 // POST /attendance/check-out (EMPLOYEE or MANAGER check-out)
 const employeeCheckOut = async (req, res) => {
+    console.log('Checkout API Hit');
     const employeeId = req.body?.employee_id || req.user?.id;
     const { gps_lat, gps_lng, remarks } = req.body;
     if (!employeeId) {
+        console.log('Checkout API -> Unauthorized / Missing Employee ID');
         return res.status(401).json({ success: false, message: 'Employee credentials not found.' });
     }
+    console.log('↓');
+    console.log(`Authenticated: employeeId=${employeeId}, user=${req.user?.id}`);
     const tz = await (0, exports.getCompanyTimezone)();
     const today = (0, moment_timezone_1.default)().tz(tz).format('YYYY-MM-DD');
     const nowTime = (0, moment_timezone_1.default)().tz(tz).format('HH:mm:ss');
@@ -823,6 +827,8 @@ const employeeCheckOut = async (req, res) => {
         let record;
         let finalStatus = 'PRESENT';
         if (existing.rows.length === 0) {
+            console.log('↓');
+            console.log('Attendance Not Found -> Creating Open Attendance Session & Checkout');
             // If no check-in record exists yet, create one for today with status PRESENT and checkout time
             const insRes = await client.query(`INSERT INTO attendance (employee_id, date, time, check_in_time, check_out_time, status, remarks, source, created_by)
          VALUES ($1, $2, $3, $3, $4, 'PRESENT', $5, 'MOBILE_APP', $6)
@@ -831,8 +837,11 @@ const employeeCheckOut = async (req, res) => {
         }
         else {
             record = existing.rows[0];
+            console.log('↓');
+            console.log(`Attendance Found: record_id=${record.id}, current_status=${record.status}`);
             if (record.status === 'PRESENT' && record.check_out_time) {
                 await client.query('ROLLBACK');
+                console.log('Checkout API -> Employee already checked out today.');
                 return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
             }
             // Fetch shift details to check if late arrival was present
@@ -842,6 +851,8 @@ const employeeCheckOut = async (req, res) => {
             const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
             const checkInTime = record.check_in_time || record.time || '09:00:00';
             finalStatus = checkInTime > lateAfter ? 'LATE' : 'PRESENT';
+            console.log('↓');
+            console.log(`Updating Checkout: check_out_time=${nowTime}, finalStatus=${finalStatus}`);
             // Update the existing record
             await client.query(`UPDATE attendance 
          SET check_out_time = $1, status = $2, remarks = $3,
@@ -855,25 +866,33 @@ const employeeCheckOut = async (req, res) => {
                 record.id
             ]);
         }
+        const checkInStr = record.check_in_time || '09:00:00';
+        const hoursWorked = (0, exports.calculateWorkingHours)(checkInStr, nowTime, finalStatus);
+        console.log('↓');
+        console.log(`Hours Calculated: ${hoursWorked} hours`);
         // 4. Write audit trail
         await client.query(`INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address)
        VALUES ($1, NULL, $2, $3, NULL, $4, 'Mobile App Check-Out', $5)`, [record.id, record.status, finalStatus, remarks || 'Mobile App Check-Out', req.ip || null]);
         await client.query('COMMIT');
-        console.log(`[Mobile App] Employee ${employeeId} checked out successfully at ${nowTime}.`);
+        console.log('↓');
+        console.log('Database Updated');
+        console.log('↓');
+        console.log('Response Returned: HTTP 200 Success');
         return res.status(200).json({
             success: true,
             message: 'Checked out successfully.',
             attendance: {
                 id: record.id,
                 check_out_time: nowTime,
-                status: finalStatus
+                status: finalStatus,
+                worked_hours: hoursWorked
             }
         });
     }
     catch (error) {
         await client.query('ROLLBACK');
         console.error('[Check-Out Error] Failed to check out:', error);
-        return res.status(500).json({ success: false, message: 'Check-out failed. Please try again.' });
+        return res.status(500).json({ success: false, message: 'Check-out failed due to database or server error: ' + error.message });
     }
     finally {
         client.release();

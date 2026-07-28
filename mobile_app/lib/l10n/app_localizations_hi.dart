@@ -257,4 +257,73 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get error => 'त्रुटि';
+
+  @override
+  String get checkOut => 'चेक आउट';
+
+  @override
+  String get checkIn => 'चेक इन';
+
+  @override
+  String get checkedOutSuccess => 'सफलतापूर्वक चेक आउट हो गया।';
+
+  @override
+  String get checkoutFailed => 'चेक आउट विफल रहा।';
+
+  @override
+  String get totalEmployees => 'कुल कर्मचारी';
+
+  @override
+  String get activeWorking => 'सक्रिय कार्यरत';
+
+  @override
+  String get managerTerminalOnline => 'प्रबंधक टर्मिनल ऑनलाइन';
+
+  @override
+  String get searchEmployeePlaceholder => 'कर्मचारी खोजें...';
+
+  @override
+  String get allDepartments => 'सभी विभाग';
+
+  @override
+  String get allStatuses => 'सभी स्थितियां';
+
+  @override
+  String get filter => 'फ़िल्टर';
+
+  @override
+  String get clearFilters => 'फ़िल्टर हटाएं';
+
+  @override
+  String get sessionExpired =>
+      'सत्र समाप्त हो गया है। कृपया पुनः साइन इन करें।';
+
+  @override
+  String get requestTimedOut =>
+      'अनुरोध का समय समाप्त हो गया। कृपया नेटवर्क कनेक्शन जांचें।';
+
+  @override
+  String get noInternetConnection =>
+      'कोई इंटरनेट कनेक्शन नहीं है। कृपया अपना नेटवर्क जांचें।';
+
+  @override
+  String get workedHours => 'काम के घंटे';
+
+  @override
+  String get todayCheckIn => 'आज का चेक-इन';
+
+  @override
+  String get todayCheckOut => 'आज का चेक-आउट';
+
+  @override
+  String get hours => 'घंटे';
+
+  @override
+  String get mins => 'मिनट';
+
+  @override
+  String get hello => 'नमस्ते';
+
+  @override
+  String get manager => 'प्रबंधक';
 }

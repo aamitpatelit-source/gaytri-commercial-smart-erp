@@ -25,6 +25,7 @@ router.post('/mark', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, as
 router.post('/void', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(voidAttendance));
 router.post('/check-in', requireRole(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(employeeCheckIn));
 router.post('/check-out', requireRole(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(employeeCheckOut));
+router.post('/checkout', requireRole(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(employeeCheckOut));
 router.post('/correct', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(correctAttendance));
 router.get('/employee/:id/stats', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']) as any, asyncHandler(getEmployeeStats));
 router.get('/dashboard', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(getDashboardStats));

@@ -277,42 +277,23 @@ const bootstrapDatabase = async () => {
       console.log('[Migration] Secure activation passwords initialized.');
     }
 
-    // 7. Seed default super admin if empty
-    const superAdminCheck = await query("SELECT id FROM admins WHERE email = 'admin@gaytri.com' LIMIT 1");
+    // 7. Seed production super admin if no super admin exists
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'gaytricommercial7033@gmail.com';
+    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'sunny7033';
+
+    const superAdminCheck = await query("SELECT id FROM admins WHERE role = 'SUPER_ADMIN' LIMIT 1");
     if (superAdminCheck.rows.length > 0) {
-      console.log('Default super admin already exists.');
+      console.log('Production super admin already exists.');
     } else {
       const { v4: uuidv4 } = require('uuid');
-      const adminPasswordHash = bcrypt.hashSync('workforce@2026', 10);
+      const adminPasswordHash = bcrypt.hashSync(superAdminPassword, 10);
       await query(`
         INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
-        VALUES ($1, 'admin@gaytri.com', $2, 'Gaytri Admin', 'SUPER_ADMIN', TRUE, TRUE)
-      `, [uuidv4(), adminPasswordHash]);
-      console.log('Default super admin seeded successfully with temporary password "workforce@2026".');
+        VALUES ($1, $2, $3, 'Gaytri Super Admin', 'SUPER_ADMIN', TRUE, FALSE)
+      `, [uuidv4(), superAdminEmail.toLowerCase().trim(), adminPasswordHash]);
+      console.log(`Production super admin seeded successfully (${superAdminEmail}).`);
     }
 
-    // 8. Seed default manager account if empty
-    const managerCheck = await query("SELECT id FROM admins WHERE email = 'manager@gaytri.com' LIMIT 1");
-    if (managerCheck.rows.length === 0) {
-      const { v4: uuidv4 } = require('uuid');
-      const managerId = uuidv4();
-      const managerHash = bcrypt.hashSync('workforce@2026', 10);
-      await query(`
-        INSERT INTO admins (id, email, password_hash, full_name, role, is_active, must_change_password)
-        VALUES ($1, 'manager@gaytri.com', $2, 'Gaytri Manager', 'MANAGER', TRUE, TRUE)
-      `, [managerId, managerHash]);
-      
-      // Assign all active employees to this manager
-      const activeEmps = await query('SELECT id FROM employees WHERE is_active = TRUE');
-      for (const emp of activeEmps.rows) {
-        await query(`
-          INSERT INTO manager_employees (manager_id, employee_id)
-          VALUES ($1, $2)
-          ON CONFLICT DO NOTHING
-        `, [managerId, emp.id]);
-      }
-      console.log('Default manager seeded successfully with temporary password "workforce@2026".');
-    }
 
     // Verify manager mappings and warn if any manager has no assigned employees
     const unmappedManagers = await query(`

@@ -256,4 +256,72 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get error => 'Error';
+
+  @override
+  String get checkOut => 'Check Out';
+
+  @override
+  String get checkIn => 'Check In';
+
+  @override
+  String get checkedOutSuccess => 'Checked out successfully.';
+
+  @override
+  String get checkoutFailed => 'Check-Out failed.';
+
+  @override
+  String get totalEmployees => 'Total Employees';
+
+  @override
+  String get activeWorking => 'Active Working';
+
+  @override
+  String get managerTerminalOnline => 'Manager Terminal Online';
+
+  @override
+  String get searchEmployeePlaceholder => 'Search employee...';
+
+  @override
+  String get allDepartments => 'All Departments';
+
+  @override
+  String get allStatuses => 'All Statuses';
+
+  @override
+  String get filter => 'Filter';
+
+  @override
+  String get clearFilters => 'Clear Filters';
+
+  @override
+  String get sessionExpired => 'Session expired. Please sign in again.';
+
+  @override
+  String get requestTimedOut =>
+      'Request timed out. Please check network connection.';
+
+  @override
+  String get noInternetConnection =>
+      'No internet connection. Please check your network.';
+
+  @override
+  String get workedHours => 'Worked Hours';
+
+  @override
+  String get todayCheckIn => 'Today Check-In';
+
+  @override
+  String get todayCheckOut => 'Today Check-Out';
+
+  @override
+  String get hours => 'Hours';
+
+  @override
+  String get mins => 'Mins';
+
+  @override
+  String get hello => 'Hello';
+
+  @override
+  String get manager => 'Manager';
 }

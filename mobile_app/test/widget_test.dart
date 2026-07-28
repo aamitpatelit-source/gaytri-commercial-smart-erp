@@ -204,6 +204,17 @@ class MockHttpClientResponse extends Stream<List<int>> implements HttpClientResp
         'success': true,
         'message': 'Attendance saved successfully.'
       });
+    } else if (url.path.endsWith('/attendance/check-out') || url.path.endsWith('/attendance/checkout')) {
+      return jsonEncode({
+        'success': true,
+        'message': 'Checked out successfully.',
+        'attendance': {
+          'id': 'att-1',
+          'check_out_time': '17:30:00',
+          'status': 'PRESENT',
+          'worked_hours': '8.5'
+        }
+      });
     }
     return '{}';
   }
