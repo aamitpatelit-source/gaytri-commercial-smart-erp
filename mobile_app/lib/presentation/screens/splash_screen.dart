@@ -106,11 +106,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     width: 90,
                     height: 90,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [AppTheme.neonCyan, AppTheme.accentIndigo],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
@@ -120,10 +115,16 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                         ),
                       ],
                     ),
-                    child: const Icon(
-                      Icons.layers_rounded,
-                      size: 45,
-                      color: AppTheme.darkBg,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: Image.asset(
+                        'assets/images/app_logo.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: AppTheme.cardBg,
+                          child: const Icon(Icons.business_center_rounded, size: 45, color: AppTheme.neonCyan),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),

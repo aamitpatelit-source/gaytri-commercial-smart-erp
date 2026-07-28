@@ -195,16 +195,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(16),
+                            width: 64,
+                            height: 64,
                             decoration: BoxDecoration(
                               color: AppTheme.cardBg.withOpacity(0.4),
                               border: Border.all(color: Colors.white10),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                            child: const Icon(
-                              Icons.layers_rounded,
-                              color: AppTheme.neonCyan,
-                              size: 36,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Image.asset(
+                                'assets/images/app_logo.png',
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(Icons.business_center_rounded, color: AppTheme.neonCyan, size: 32),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 16),

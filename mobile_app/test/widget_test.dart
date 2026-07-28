@@ -33,6 +33,7 @@ class MockHttpClient implements HttpClient {
 }
 
 class MockHttpClientRequest implements HttpClientRequest {
+  @override
   final String method;
   final Uri url;
   
