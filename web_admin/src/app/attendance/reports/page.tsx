@@ -155,263 +155,191 @@ export default function ReportsPage() {
     const fileName = `Payslip_${cleanEmpId}_${monthName}_${year}.pdf`;
 
     // -------------------------------------------------------------
-    // BACKGROUND & WATERMARK
+    // BASE PAGE & WATERMARK
     // -------------------------------------------------------------
-    // Base White Background
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, 210, 297, 'F');
 
-    // Light Opacity Watermark Emblem in Background Center (x=105, y=145)
+    // Subtle background watermark logo emblem
     doc.setDrawColor(241, 245, 249); // slate-100
-    doc.setLineWidth(1.5);
+    doc.setLineWidth(1.2);
     doc.roundedRect(65, 105, 80, 80, 16, 16, 'D');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(42);
+    doc.setFontSize(40);
     doc.setTextColor(241, 245, 249);
-    doc.text('GC', 105, 153, { align: 'center' });
+    doc.text('GC', 105, 152, { align: 'center' });
 
     // -------------------------------------------------------------
-    // TOP ACCENT BARS & HEADER
+    // TOP ACCENT & CORPORATE HEADER
     // -------------------------------------------------------------
-    // Top Primary Bar (Navy)
-    doc.setFillColor(15, 23, 42); // slate-900 / navy
-    doc.rect(0, 0, 210, 4, 'F');
+    // Primary Navy Accent Bar
+    doc.setFillColor(15, 23, 42); // Navy #0F172A
+    doc.rect(0, 0, 210, 3.5, 'F');
 
-    // Top Accent Bar (Cyan)
-    doc.setFillColor(6, 182, 212); // cyan-500
-    doc.rect(0, 0, 210, 1.5, 'F');
+    // Sub Teal Accent Line
+    doc.setFillColor(14, 165, 233); // Cyan/Teal #0EA5E9
+    doc.rect(0, 0, 210, 1.2, 'F');
 
     // --- Official Company Logo Badge (Top Left) ---
-    // Outer Logo Container Box
     doc.setFillColor(15, 23, 42);
-    doc.roundedRect(14, 11, 13, 13, 2.5, 2.5, 'F');
-    doc.setDrawColor(6, 182, 212);
-    doc.setLineWidth(0.6);
-    doc.roundedRect(14, 11, 13, 13, 2.5, 2.5, 'D');
+    doc.roundedRect(14, 11, 12, 12, 2, 2, 'F');
+    doc.setDrawColor(14, 165, 233);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(14, 11, 12, 12, 2, 2, 'D');
 
-    // Monogram "GC" inside Logo Box
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(6, 182, 212);
-    doc.text('GC', 20.5, 19.5, { align: 'center' });
+    doc.setFontSize(9.5);
+    doc.setTextColor(14, 165, 233);
+    doc.text('GC', 20, 19, { align: 'center' });
 
     // Company Name
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
-    doc.text('GAYTRI COMMERCIAL', 31, 17);
+    doc.setFontSize(14);
+    doc.text('GAYTRI COMMERCIAL', 30, 17);
 
-    // Enterprise Subtitle
-    doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text('Smart Enterprise Resource Planning System', 31, 22.5);
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184); // slate-400
-    doc.text('Official Payroll Statement • Confidential', 31, 26.5);
-
-    // --- Payslip Title Badge & Period (Top Right) ---
-    // Title Pill Badge
-    doc.setFillColor(240, 249, 255); // sky-50 / light cyan
-    doc.roundedRect(132, 11, 64, 8, 2, 2, 'F');
-    doc.setDrawColor(186, 230, 253); // sky-200
-    doc.setLineWidth(0.4);
-    doc.roundedRect(132, 11, 64, 8, 2, 2, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(3, 105, 161); // sky-700
-    doc.text('MONTHLY SALARY PAYSLIP', 164, 16.2, { align: 'center' });
-
-    // Period Detail Right Aligned
+    // Subtitle
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Payroll Period:', 196, 23, { align: 'right' });
+    doc.setTextColor(100, 116, 139); // Slate Gray
+    doc.text('Smart Enterprise Resource Planning System', 30, 22);
+
+    // --- Payslip Title & Month (Top Right) ---
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text(`${monthName} ${year}`, 196, 27.5, { align: 'right' });
+    doc.text('MONTHLY SALARY PAYSLIP', 196, 17, { align: 'right' });
 
-    // Thin Premium Divider Line
-    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Payroll Period: ${monthName} ${year}`, 196, 22.5, { align: 'right' });
+
+    // Divider Line
+    doc.setDrawColor(226, 232, 240); // Slate-200
     doc.setLineWidth(0.4);
-    doc.line(14, 32, 196, 32);
+    doc.line(14, 30, 196, 30);
 
     // -------------------------------------------------------------
-    // SECTION 1: EMPLOYEE INFORMATION CARD (y = 36 to 76)
+    // EMPLOYEE DETAILS (Compact Card)
     // -------------------------------------------------------------
-    doc.setFillColor(248, 250, 252); // slate-50 background
-    doc.roundedRect(14, 36, 182, 40, 3, 3, 'F');
+    doc.setFillColor(248, 250, 252); // Slate-50 background
+    doc.roundedRect(14, 34, 182, 34, 2.5, 2.5, 'F');
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.4);
-    doc.roundedRect(14, 36, 182, 40, 3, 3, 'D');
+    doc.roundedRect(14, 34, 182, 34, 2.5, 2.5, 'D');
 
-    // Section Header Strip
-    doc.setFillColor(6, 182, 212); // cyan indicator bar
-    doc.rect(18, 41, 3, 5, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    doc.text('EMPLOYEE INFORMATION', 24, 45);
-
-    doc.setDrawColor(241, 245, 249);
-    doc.line(18, 48, 192, 48);
-
-    // Grid Layout Details
     doc.setFontSize(8.5);
 
-    // Column 1 (Left: Label x=20, Value x=56)
+    // Column 1 (Left: Label x=20, Value x=54)
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139);
-    doc.text('Employee Name:', 20, 54);
+    doc.text('Employee Name:', 20, 42);
     doc.setTextColor(15, 23, 42);
-    doc.text(item.full_name, 56, 54);
+    doc.text(item.full_name, 54, 42);
 
     doc.setTextColor(100, 116, 139);
-    doc.text('Employee ID:', 20, 60.5);
-    doc.setTextColor(2, 132, 199); // blue accent for ID
-    doc.text(item.employee_id, 56, 60.5);
+    doc.text('Employee ID:', 20, 49);
+    doc.setTextColor(14, 165, 233); // Teal Accent for ID
+    doc.text(item.employee_id, 54, 49);
 
     doc.setTextColor(100, 116, 139);
-    doc.text('Designation:', 20, 67);
+    doc.text('Designation:', 20, 56);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text(item.designation || 'Staff', 56, 67);
+    doc.text(item.designation || 'Staff', 54, 56);
 
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139);
-    doc.text('Department:', 20, 73.5);
+    doc.text('Department:', 20, 63);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text(item.department || 'General', 56, 73.5);
+    doc.text(item.department || 'General', 54, 63);
 
     // Column 2 (Right: Label x=110, Value x=148)
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139);
-    doc.text('Assigned Shift:', 110, 54);
+    doc.text('Assigned Shift:', 110, 42);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text(item.shift || 'Morning Shift', 148, 54);
+    doc.text(item.shift || 'Morning Shift', 148, 42);
 
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139);
-    doc.text('Reporting Manager:', 110, 60.5);
+    doc.text('Reporting Manager:', 110, 49);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text(item.reporting_manager || 'N/A', 148, 60.5);
+    doc.text(item.reporting_manager || 'N/A', 148, 49);
 
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139);
-    doc.text('Payroll Month:', 110, 67);
+    doc.text('Payroll Month:', 110, 56);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text(`${monthName} ${year}`, 148, 67);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Salary Basis:', 110, 73.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(15, 23, 42);
-    doc.text('Monthly / Attendance Hours', 148, 73.5);
+    doc.text(`${monthName} ${year}`, 148, 56);
 
     // -------------------------------------------------------------
-    // SECTION 2: ATTENDANCE SUMMARY CARDS (y = 80 to 104)
+    // ATTENDANCE SUMMARY (Clean Stat Cards)
     // -------------------------------------------------------------
-    // Card 1: Total Worked Hours (x=14 to 101, width=87mm)
-    doc.setFillColor(240, 249, 255); // sky-50
-    doc.roundedRect(14, 80, 87, 23, 3, 3, 'F');
-    doc.setDrawColor(186, 230, 253);
+    // Card 1: Worked Hours (Width=87mm)
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 72, 87, 20, 2, 2, 'F');
+    doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.4);
-    doc.roundedRect(14, 80, 87, 23, 3, 3, 'D');
+    doc.roundedRect(14, 72, 87, 20, 2, 2, 'D');
 
-    // Icon Circle Badge
-    doc.setFillColor(186, 230, 253);
-    doc.circle(23, 91.5, 4.5, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(3, 105, 161);
-    doc.text('H', 23, 94.2, { align: 'center' });
-
     doc.setFontSize(7.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text('TOTAL WORKED HOURS', 31, 88);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('WORKED HOURS', 22, 79);
+    doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
-    doc.text(`${item.total_worked_hours} Hours`, 31, 96.5);
+    doc.text(`${item.total_worked_hours} Hours`, 22, 87);
 
-    // Card 2: Present Days Logged (x=109 to 196, width=87mm)
-    doc.setFillColor(236, 253, 245); // emerald-50
-    doc.roundedRect(109, 80, 87, 23, 3, 3, 'F');
-    doc.setDrawColor(167, 243, 208);
+    // Card 2: Worked Days / Present Days (Width=87mm)
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(109, 72, 87, 20, 2, 2, 'F');
+    doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.4);
-    doc.roundedRect(109, 80, 87, 23, 3, 3, 'D');
+    doc.roundedRect(109, 72, 87, 20, 2, 2, 'D');
 
-    // Icon Circle Badge
-    doc.setFillColor(167, 243, 208);
-    doc.circle(118, 91.5, 4.5, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(6, 95, 70);
-    doc.text('D', 118, 94.2, { align: 'center' });
-
     doc.setFontSize(7.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text('PRESENT DAYS LOGGED', 126, 88);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12.5);
-    doc.setTextColor(6, 95, 70);
-    doc.text(`${item.present_days} Days`, 126, 96.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('WORKED DAYS', 117, 79);
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${item.present_days} Days`, 117, 87);
 
     // -------------------------------------------------------------
-    // SECTION 3: SALARY DETAILS BREAKDOWN TABLE (y = 108 to 156)
+    // SALARY BREAKDOWN TABLE (2-Column Minimal Executive Table)
     // -------------------------------------------------------------
     // Table Header Bar
-    doc.setFillColor(15, 23, 42); // slate-900 / navy
-    doc.roundedRect(14, 108, 182, 9, 1.5, 1.5, 'F');
+    doc.setFillColor(15, 23, 42); // Navy
+    doc.roundedRect(14, 96, 182, 8.5, 1.5, 1.5, 'F');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(255, 255, 255);
-    doc.text('DESCRIPTION', 20, 114);
-    doc.text('CALCULATION BASIS / FORMULA', 90, 114);
-    doc.text('AMOUNT (INR)', 190, 114, { align: 'right' });
+    doc.text('DESCRIPTION', 20, 101.5);
+    doc.text('AMOUNT', 190, 101.5, { align: 'right' });
 
-    let y = 124;
+    let y = 111;
 
+    // Currency values rendered with "INR " to prevent any superscript "¹" bug in jsPDF Helvetica font!
     const rows = [
-      { 
-        label: 'Monthly Salary', 
-        detail: 'Base Monthly Salary Rate', 
-        amount: `₹${item.monthly_salary.toLocaleString('en-IN')}`,
-        highlight: true 
-      },
-      { 
-        label: 'Standard Monthly Hours', 
-        detail: `26 Working Days × 8 Hours = ${item.standard_hours} Hours`, 
-        amount: `${item.standard_hours} Hours`,
-        highlight: false 
-      },
-      { 
-        label: 'Hourly Rate', 
-        detail: `Monthly Salary ÷ ${item.standard_hours} Hours`, 
-        amount: `₹${item.hourly_rate}/hr`,
-        highlight: true 
-      },
-      { 
-        label: 'Worked Hours', 
-        detail: 'Actual Attendance Worked Hours', 
-        amount: `${item.total_worked_hours} Hours`,
-        highlight: true 
-      },
+      { label: 'Monthly Salary Rate', value: `INR ${item.monthly_salary.toLocaleString('en-IN')}`, bold: false },
+      { label: 'Standard Monthly Hours', value: `${item.standard_hours} Hours`, bold: false },
+      { label: 'Hourly Rate', value: `INR ${item.hourly_rate} / hr`, bold: false },
+      { label: 'Worked Hours Recorded', value: `${item.total_worked_hours} Hours`, bold: false },
+      { label: 'Gross Salary', value: `INR ${item.payable_salary.toLocaleString('en-IN')}`, bold: true },
+      { label: 'Deductions', value: `INR 0.00`, bold: false },
     ];
 
     rows.forEach((r, idx) => {
       if (idx % 2 === 1) {
         doc.setFillColor(248, 250, 252);
-        doc.rect(14, y - 6, 182, 9.5, 'F');
+        doc.rect(14, y - 5.5, 182, 9, 'F');
       }
 
       // Soft row border
@@ -419,74 +347,42 @@ export default function ReportsPage() {
       doc.setLineWidth(0.3);
       doc.line(14, y + 3.5, 196, y + 3.5);
 
-      doc.setFont('helvetica', r.highlight ? 'bold' : 'normal');
+      doc.setFont('helvetica', r.bold ? 'bold' : 'normal');
       doc.setFontSize(8.5);
       doc.setTextColor(30, 41, 59);
       doc.text(r.label, 20, y);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text(r.detail, 90, y);
-
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(r.highlight ? 15 : 51, r.highlight ? 23 : 65, r.highlight ? 42 : 85);
-      doc.text(r.amount, 190, y, { align: 'right' });
+      doc.setTextColor(15, 23, 42);
+      doc.text(r.value, 190, y, { align: 'right' });
 
-      y += 10;
+      y += 9.5;
     });
 
     // -------------------------------------------------------------
-    // SECTION 4: SALARY SUMMARY CARDS (y = 154 to 196)
+    // NET PAY HERO SECTION
     // -------------------------------------------------------------
-    // Gross Payable Salary Card (Subtle Emerald Highlight)
-    doc.setFillColor(236, 253, 245); // emerald-50
-    doc.roundedRect(14, 154, 182, 14, 2.5, 2.5, 'F');
-    doc.setDrawColor(167, 243, 208); // emerald-200
-    doc.setLineWidth(0.4);
-    doc.roundedRect(14, 154, 182, 14, 2.5, 2.5, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(6, 95, 70); // emerald-800
-    doc.text('GROSS PAYABLE SALARY', 20, 163);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Worked Hours (${item.total_worked_hours}h) × Hourly Rate (₹${item.hourly_rate})`, 76, 163);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11.5);
-    doc.setTextColor(6, 95, 70);
-    doc.text(`₹${item.payable_salary.toLocaleString('en-IN')}`, 190, 163, { align: 'right' });
-
-    // Net Payable Salary Card (Solid Navy & Cyan Highlight - Visually Most Prominent)
-    doc.setFillColor(15, 23, 42); // slate-900 / solid navy
-    doc.roundedRect(14, 173, 182, 19, 3.5, 3.5, 'F');
-    doc.setDrawColor(6, 182, 212); // cyan glow border
-    doc.setLineWidth(0.6);
-    doc.roundedRect(14, 173, 182, 19, 3.5, 3.5, 'D');
+    const heroY = y + 4;
+    doc.setFillColor(15, 23, 42); // Solid Navy Card
+    doc.roundedRect(14, heroY, 182, 20, 3, 3, 'F');
+    doc.setDrawColor(14, 165, 233); // Subtle Cyan Accent Border
+    doc.setLineWidth(0.5);
+    doc.roundedRect(14, heroY, 182, 20, 3, 3, 'D');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(255, 255, 255);
-    doc.text('NET PAYABLE SALARY (NET PAY)', 20, 182.5);
+    doc.text('NET PAY', 22, heroY + 12);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(56, 189, 248); // sky-400 subtext
-    doc.text('Final Credited Amount • Disbursed via Gaytri Commercial Payroll Engine', 20, 187);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(56, 189, 248); // sky-400 prominent value
-    doc.text(`₹${item.net_pay.toLocaleString('en-IN')}`, 190, 185.5, { align: 'right' });
+    doc.setFontSize(18);
+    doc.setTextColor(56, 189, 248); // Sky Blue / Cyan Highlight Amount
+    doc.text(`INR ${item.net_pay.toLocaleString('en-IN')}`, 188, heroY + 13.5, { align: 'right' });
 
     // -------------------------------------------------------------
-    // FOOTER SECTION (y = 268 to 285)
+    // FOOTER SECTION
     // -------------------------------------------------------------
-    const footerY = 268;
-    doc.setDrawColor(226, 232, 240); // slate-200
+    const footerY = 270;
+    doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.4);
     doc.line(14, footerY, 196, footerY);
 
@@ -501,11 +397,13 @@ export default function ReportsPage() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Generated On: ${generatedTimeStr}`, 14, footerY + 5.5);
-    doc.text('System Generated Payslip • Gaytri Commercial ERP • No Signature Required', 14, footerY + 10);
+    doc.text(`Generated Date: ${generatedTimeStr}`, 14, footerY + 5.5);
+    doc.text('System Generated Payslip • Gaytri Commercial ERP', 14, footerY + 10);
 
-    doc.text('Gaytri Commercial Enterprise Resource Planning', 196, footerY + 5.5, { align: 'right' });
-    doc.text('Page 1 of 1', 196, footerY + 10, { align: 'right' });
+    doc.text('Authorized Signatory', 196, footerY + 5.5, { align: 'right' });
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Gaytri Commercial ERP', 196, footerY + 9.5, { align: 'right' });
 
     // Download PDF
     doc.save(fileName);
