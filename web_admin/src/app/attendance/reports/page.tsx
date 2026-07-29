@@ -453,11 +453,11 @@ export default function ReportsPage() {
             </select>
           </div>
 
-          <div className="flex items-end gap-3">
+          <div className="flex items-end gap-2 sm:gap-3 flex-wrap sm:flex-nowrap sm:col-span-2 lg:col-span-1">
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 h-[38px]"
+              className="flex-1 py-2 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 h-[38px] min-w-[120px]"
             >
               {loading ? (
                 <>

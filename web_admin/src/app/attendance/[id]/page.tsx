@@ -758,37 +758,42 @@ export default function EmployeeAttendanceProfilePage() {
                 </div>
               </div>
 
-              {/* 7-Column Days Header */}
-              <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
-                <span className="text-indigo-400">Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
-              </div>
+              {/* Calendar Grid Container with Responsive Overflow */}
+              <div className="overflow-x-auto">
+                <div className="min-w-[420px] sm:min-w-0 space-y-2">
+                  {/* 7-Column Days Header */}
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[10px] sm:text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
+                    <span className="text-indigo-400">Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                  </div>
 
-              {/* 7-Column Calendar Cells Grid */}
-              <div className="grid grid-cols-7 gap-2">
-                {getCalendarDays().map((day, idx) => {
-                  const info = getDayStatusInfo(day);
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() => info.clickable && handleDayClick(day.dateStr)}
-                      className={`h-16 p-2 rounded-lg border flex flex-col justify-between text-xs transition-all ${info.styling}`}
-                    >
-                      {day.type === 'day' && (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <span className="font-extrabold text-[12px]">{day.dayNum}</span>
-                            {day.isSunday && <span className="text-[8px] font-bold text-indigo-400 uppercase">Sun</span>}
-                          </div>
-                          {info.label && (
-                            <span className="text-[9px] font-mono font-extrabold uppercase tracking-tight truncate block">
-                              {info.label}
-                            </span>
+                  {/* 7-Column Calendar Cells Grid */}
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                    {getCalendarDays().map((day, idx) => {
+                      const info = getDayStatusInfo(day);
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => info.clickable && handleDayClick(day.dateStr)}
+                          className={`h-12 sm:h-16 p-1 sm:p-2 rounded-lg border flex flex-col justify-between text-[10px] sm:text-xs transition-all ${info.styling}`}
+                        >
+                          {day.type === 'day' && (
+                            <>
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-[10px] sm:text-[12px]">{day.dayNum}</span>
+                                {day.isSunday && <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase">Sun</span>}
+                              </div>
+                              {info.label && (
+                                <span className="text-[8px] sm:text-[9px] font-mono font-extrabold uppercase tracking-tight truncate block">
+                                  {info.label}
+                                </span>
+                              )}
+                            </>
                           )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           )}

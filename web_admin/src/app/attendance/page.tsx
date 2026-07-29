@@ -599,10 +599,10 @@ export default function EmployeeAttendanceDirectoryPage() {
       {/* + Add Employee Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="glass-panel border border-slate-750 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+          <div className="glass-panel border border-slate-750 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
             
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between">
+            <div className="p-5 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2 text-cyan-400">
                 <UserPlus className="w-5 h-5" />
                 <h3 className="font-bold text-white text-base">Add New Employee</h3>
@@ -616,7 +616,7 @@ export default function EmployeeAttendanceDirectoryPage() {
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleAddEmployee} className="p-6 space-y-4 text-xs">
+            <form onSubmit={handleAddEmployee} className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto">
               
               {modalError && (
                 <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-500/40 text-rose-300 font-semibold flex items-center space-x-2">

@@ -185,17 +185,17 @@ export default function DashboardPage() {
     <div className="space-y-8 animate-fade-in text-slate-100 pb-12">
       
       {/* 1. Welcome Banner */}
-      <div className="glass-panel p-6 rounded-xl flex items-center justify-between border-l-4 border-cyan-400 shadow-lg">
+      <div className="glass-panel p-4 sm:p-6 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between border-l-4 border-cyan-400 shadow-lg gap-3">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center space-x-2">
+          <h2 className="text-lg sm:text-xl font-bold text-white flex items-center space-x-2">
             <span>Gaytri Commercial Operations Center</span>
-            <Sparkles className="w-5 h-5 text-cyan-400" />
+            <Sparkles className="w-5 h-5 text-cyan-400 shrink-0" />
           </h2>
-          <p className="text-sm text-slate-350 mt-1">Real-time enterprise management & attendance dashboard active.</p>
+          <p className="text-xs sm:text-sm text-slate-350 mt-1">Real-time enterprise management & attendance dashboard active.</p>
         </div>
-        <div className="text-right hidden sm:block">
-          <span className="text-xs text-slate-400 block font-semibold">Current System Date</span>
-          <span className="text-sm text-cyan-400 font-extrabold font-mono tracking-wider">
+        <div className="text-left sm:text-right">
+          <span className="text-[10px] sm:text-xs text-slate-400 block font-semibold">Current System Date</span>
+          <span className="text-xs sm:text-sm text-cyan-400 font-extrabold font-mono tracking-wider">
             {new Date().toISOString().split('T')[0]}
           </span>
         </div>

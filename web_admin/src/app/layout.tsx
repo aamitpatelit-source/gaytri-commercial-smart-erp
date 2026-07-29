@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   RefreshCw,
   X,
-  BarChart2
+  BarChart2,
+  Menu
 } from 'lucide-react';
 import { API_URL } from '../config';
 import './globals.css';
@@ -44,6 +45,7 @@ export default function RootLayout({
   const pathname = usePathname();
   const router = useRouter();
   
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [hasUnread, setHasUnread] = useState(true);
   const [userName, setUserName] = useState('Gaytri Admin');
@@ -311,8 +313,19 @@ export default function RootLayout({
   if (isLoginPage) {
     return (
       <html lang="en">
+        <head>
+          <title>Gaytri Commercial - Smart ERP &amp; Operations Portal</title>
+          <meta name="description" content="Gaytri Commercial Smart ERP: Real-time enterprise management, workforce monitoring, mobile attendance directory, and payroll reports." />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <meta name="theme-color" content="#060A13" />
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Outfit:wght@400;500;600;700;800&amp;display=swap" />
+        </head>
         <body className="bg-radial-gradient-dark min-h-screen text-slate-100 antialiased">
-          {children}
+          <main id="main-content" className="min-h-screen">
+            {children}
+          </main>
         </body>
       </html>
     );
@@ -322,34 +335,42 @@ export default function RootLayout({
   if (mustChangePassword) {
     return (
       <html lang="en">
+        <head>
+          <title>Security Setup | Gaytri Commercial Smart ERP</title>
+          <meta name="description" content="First time setup verification and account security password setup." />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <meta name="theme-color" content="#060A13" />
+        </head>
         <body className="bg-radial-gradient-dark min-h-screen text-slate-100 antialiased flex items-center justify-center p-4 relative">
-          <div className="absolute top-1/4 left-1/3 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
-          
-          <div className="w-full max-w-md glass-panel rounded-2xl border border-slate-800 shadow-glass-shadow p-8 z-10 animate-fade-in">
-            <div className="flex flex-col items-center text-center mb-8">
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-amber-400 to-rose-600 flex items-center justify-center shadow-neon-glow mb-4 animate-pulse">
-                <ShieldAlert className="w-7 h-7 text-slate-950" />
-              </div>
-              <h1 className="text-2xl font-extrabold text-white tracking-wide">Change Default Password</h1>
-              <p className="text-xs text-amber-400 font-bold uppercase tracking-wider mt-1">First Time Setup Verification</p>
-            </div>
+          <main id="main-content" className="w-full flex items-center justify-center">
+            <div className="absolute top-1/4 left-1/3 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
             
-            <ForcePasswordChangeForm 
-              onSuccess={() => {
-                setMustChangePassword(false);
-                const userStr = localStorage.getItem('user');
-                if (userStr) {
-                  try {
-                    const user = JSON.parse(userStr);
-                    user.must_change_password = false;
-                    localStorage.setItem('user', JSON.stringify(user));
-                  } catch (e) {
-                    console.error(e);
+            <div className="w-full max-w-md glass-panel rounded-2xl border border-slate-800 shadow-glass-shadow p-8 z-10 animate-fade-in">
+              <div className="flex flex-col items-center text-center mb-8">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-amber-400 to-rose-600 flex items-center justify-center shadow-neon-glow mb-4 animate-pulse">
+                  <ShieldAlert className="w-7 h-7 text-slate-950" />
+                </div>
+                <h1 className="text-2xl font-extrabold text-white tracking-wide">Change Default Password</h1>
+                <p className="text-xs text-amber-400 font-bold uppercase tracking-wider mt-1">First Time Setup Verification</p>
+              </div>
+              
+              <ForcePasswordChangeForm 
+                onSuccess={() => {
+                  setMustChangePassword(false);
+                  const userStr = localStorage.getItem('user');
+                  if (userStr) {
+                    try {
+                      const user = JSON.parse(userStr);
+                      user.must_change_password = false;
+                      localStorage.setItem('user', JSON.stringify(user));
+                    } catch (e) {
+                      console.error(e);
+                    }
                   }
-                }
-              }} 
-            />
-          </div>
+                }} 
+              />
+            </div>
+          </main>
         </body>
       </html>
     );
@@ -357,6 +378,14 @@ export default function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        <title>Gaytri Commercial - Smart ERP &amp; Attendance Portal</title>
+        <meta name="description" content="Gaytri Commercial Smart ERP: Real-time workforce management, mobile attendance directory, payroll reports, and operations console." />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#060A13" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
       <body className="bg-radial-gradient-dark min-h-screen text-slate-100 antialiased flex overflow-hidden">
         {/* Toast Notification HUD */}
         {toast && (
@@ -378,8 +407,66 @@ export default function RootLayout({
           </div>
         )}
 
-        {/* Sidebar Nav */}
-        <aside className="w-64 glass-panel border-r border-slate-800 flex flex-col z-20">
+        {/* Mobile Drawer Overlay */}
+        {isMobileMenuOpen && (
+          <div 
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 lg:hidden"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+        )}
+
+        {/* Mobile Drawer Sidebar */}
+        <aside className={`fixed inset-y-0 left-0 z-50 w-64 glass-panel border-r border-slate-800 flex flex-col bg-slate-950/95 transition-transform duration-300 transform lg:hidden ${
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}>
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 font-bold shadow-neon-glow">
+                <Layers className="w-5 h-5 text-slate-950" />
+              </div>
+              <div>
+                <h2 className="font-extrabold text-lg text-white leading-none tracking-wide">GAYTRI</h2>
+                <span className="text-[10px] text-cyan-400 font-bold tracking-widest uppercase">COMMERCIAL</span>
+              </div>
+            </div>
+            <button 
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+            {menuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    isActive 
+                      ? 'bg-gradient-to-r from-cyan-950/40 to-blue-950/20 text-cyan-400 border border-cyan-500/20 shadow-neon-glow'
+                      : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-100 hover:border hover:border-slate-800'
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
+            <span>Management Console v4.0</span>
+            <span className="text-cyan-455 font-bold uppercase">Prod Mode</span>
+          </div>
+        </aside>
+
+        {/* Desktop Sidebar Nav */}
+        <aside className="hidden lg:flex w-64 glass-panel border-r border-slate-800 flex-col z-20">
           <div className="p-6 border-b border-slate-800 flex items-center space-x-3">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 font-bold shadow-neon-glow">
               <Layers className="w-5 h-5 text-slate-950" />
@@ -420,19 +507,29 @@ export default function RootLayout({
         {/* Dashboard Frame Content Area */}
         <div className="flex-1 flex flex-col h-screen overflow-hidden">
           {/* Main Top Header Nav */}
-          <header className="h-16 border-b border-slate-850 px-8 flex items-center justify-between z-10 glass-panel">
-            <h1 className="text-xl font-bold text-slate-100 capitalize">
-              {pathname === '/' ? 'Operational Overview' : 
-               pathname === '/attendance' ? 'Attendance Directory' : 
-               (pathname.startsWith('/attendance/') && pathname !== '/attendance/reports') ? 'Employee Attendance Profile' : 
-               pathname === '/attendance/reports' ? 'Attendance Reports' : 
-               pathname === '/managers' ? 'Manager Accounts' : 
-               pathname.replace('/', '').replace(/-/g, ' ')}
-            </h1>
+          <header className="h-16 border-b border-slate-850 px-4 sm:px-6 lg:px-8 flex items-center justify-between z-10 glass-panel">
+            <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="p-2 rounded-lg bg-slate-850/60 border border-slate-800 text-slate-300 hover:text-white lg:hidden flex-shrink-0 cursor-pointer"
+                aria-label="Toggle Navigation Menu"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+
+              <h1 className="text-base sm:text-xl font-bold text-slate-100 capitalize truncate">
+                {pathname === '/' ? 'Operational Overview' : 
+                 pathname === '/attendance' ? 'Attendance Directory' : 
+                 (pathname.startsWith('/attendance/') && pathname !== '/attendance/reports') ? 'Employee Attendance Profile' : 
+                 pathname === '/attendance/reports' ? 'Attendance Reports' : 
+                 pathname === '/managers' ? 'Manager Accounts' : 
+                 pathname.replace('/', '').replace(/-/g, ' ')}
+              </h1>
+            </div>
 
             {/* Top Toolbar: Alert, Notifications, System Clock, Dropdown */}
-            <div className="flex items-center space-x-6">
-              <div className="flex items-center space-x-2 bg-slate-850/60 border border-slate-800 px-3 py-1.5 rounded-lg">
+            <div className="flex items-center space-x-2 sm:space-x-4 lg:space-x-6 flex-shrink-0">
+              <div className="hidden sm:flex items-center space-x-2 bg-slate-850/60 border border-slate-800 px-3 py-1.5 rounded-lg">
                 <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]' : 'bg-rose-500'}`} />
                 <span className="text-[10px] font-bold text-slate-350 uppercase tracking-wider">
                   {isOnline ? 'System Online' : 'System Offline'}
@@ -460,7 +557,7 @@ export default function RootLayout({
                 </button>
 
                 {showNotifications && (
-                  <div className="absolute right-0 mt-2 w-80 glass-panel border border-slate-800 rounded-lg shadow-glass-shadow p-4 z-30 max-h-96 overflow-y-auto animate-fade-in">
+                  <div className="absolute right-0 mt-2 w-72 sm:w-80 glass-panel border border-slate-800 rounded-lg shadow-glass-shadow p-4 z-30 max-h-96 overflow-y-auto animate-fade-in">
                     <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-3">
                       <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Notifications</span>
                       <button 
@@ -563,7 +660,7 @@ export default function RootLayout({
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto p-8 relative">
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
             {children}
           </main>
         </div>
