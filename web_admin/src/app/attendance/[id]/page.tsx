@@ -498,7 +498,8 @@ export default function EmployeeAttendanceProfilePage() {
     if (day.type === 'empty') {
       return {
         label: '',
-        styling: 'border-transparent text-slate-700 bg-transparent cursor-default',
+        badgeClass: 'hidden',
+        styling: 'border-transparent text-transparent bg-transparent cursor-default pointer-events-none opacity-0',
         clickable: false
       };
     }
@@ -510,36 +511,48 @@ export default function EmployeeAttendanceProfilePage() {
       if (status === 'WORKING') {
         return {
           label: 'WORKING',
-          styling: 'border-sky-500/30 text-sky-400 bg-sky-950/30 hover:border-sky-400 cursor-pointer shadow-sm',
+          badgeClass: 'bg-sky-950/80 text-sky-400 border border-sky-500/40 shadow-sm',
+          styling: 'border-sky-500/30 text-sky-400 bg-sky-950/20 hover:border-sky-400 hover:bg-sky-950/35 cursor-pointer shadow-sm hover:scale-[1.02] hover:-translate-y-0.5',
           clickable: true
         };
       }
       if (status === 'PRESENT' || status === 'ON_DUTY') {
         return {
           label: 'PRESENT',
-          styling: 'border-emerald-500/30 text-emerald-400 bg-emerald-950/30 hover:border-emerald-400 cursor-pointer shadow-sm',
+          badgeClass: 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 shadow-sm',
+          styling: 'border-emerald-500/30 text-emerald-400 bg-emerald-950/20 hover:border-emerald-400 hover:bg-emerald-950/35 cursor-pointer shadow-sm hover:scale-[1.02] hover:-translate-y-0.5',
           clickable: true
         };
       }
-      if (status === 'LATE' || status === 'HALF_DAY') {
+      if (status === 'LATE') {
         return {
-          label: status === 'HALF_DAY' ? 'HALF DAY' : 'LATE',
-          styling: 'border-amber-500/30 text-amber-400 bg-amber-950/30 hover:border-amber-400 cursor-pointer shadow-sm',
+          label: 'LATE',
+          badgeClass: 'bg-amber-950/80 text-amber-400 border border-amber-500/40 shadow-sm',
+          styling: 'border-amber-500/30 text-amber-400 bg-amber-950/20 hover:border-amber-400 hover:bg-amber-950/35 cursor-pointer shadow-sm hover:scale-[1.02] hover:-translate-y-0.5',
+          clickable: true
+        };
+      }
+      if (status === 'HALF_DAY') {
+        return {
+          label: 'HALF DAY',
+          badgeClass: 'bg-purple-950/80 text-purple-400 border border-purple-500/40 shadow-sm',
+          styling: 'border-purple-500/30 text-purple-400 bg-purple-950/20 hover:border-purple-400 hover:bg-purple-950/35 cursor-pointer shadow-sm hover:scale-[1.02] hover:-translate-y-0.5',
           clickable: true
         };
       }
       return {
         label: status,
-        styling: 'border-rose-500/30 text-rose-400 bg-rose-950/20 hover:border-rose-400 cursor-pointer shadow-sm',
+        badgeClass: 'bg-rose-950/80 text-rose-400 border border-rose-500/40 shadow-sm',
+        styling: 'border-rose-500/30 text-rose-400 bg-rose-950/20 hover:border-rose-400 hover:bg-rose-950/35 cursor-pointer shadow-sm hover:scale-[1.02] hover:-translate-y-0.5',
         clickable: true
       };
     }
 
-    // If no attendance log exists:
     if (day.isFuture) {
       return {
         label: 'FUTURE',
-        styling: 'border-slate-800 text-slate-500 bg-slate-950/20 cursor-default',
+        badgeClass: 'bg-slate-950/50 text-slate-500 border border-slate-800/80',
+        styling: 'border-slate-850 text-slate-500 bg-slate-950/15 cursor-default',
         clickable: false
       };
     }
@@ -547,15 +560,16 @@ export default function EmployeeAttendanceProfilePage() {
     if (day.isSunday) {
       return {
         label: 'WEEKLY OFF',
-        styling: 'border-indigo-500/30 text-indigo-350 bg-indigo-950/25 hover:border-indigo-400/50 cursor-pointer',
+        badgeClass: 'bg-indigo-950/60 text-indigo-300 border border-indigo-500/40 shadow-sm',
+        styling: 'border-indigo-500/30 text-indigo-300 bg-indigo-950/20 hover:border-indigo-400/50 hover:bg-indigo-950/30 cursor-pointer hover:scale-[1.02] hover:-translate-y-0.5',
         clickable: false
       };
     }
 
-    // Past weekday without attendance record -> ABSENT
     return {
       label: 'ABSENT',
-      styling: 'border-rose-500/30 text-rose-400 bg-rose-950/25 hover:border-rose-400/60 cursor-pointer',
+      badgeClass: 'bg-rose-950/60 text-rose-400 border border-rose-500/40 shadow-sm',
+      styling: 'border-rose-500/30 text-rose-400 bg-rose-950/20 hover:border-rose-400/60 hover:bg-rose-950/30 cursor-pointer hover:scale-[1.02] hover:-translate-y-0.5',
       clickable: false
     };
   };
@@ -759,16 +773,16 @@ export default function EmployeeAttendanceProfilePage() {
                 </div>
               </div>
 
-              {/* Calendar Grid Container with Responsive Spacing */}
-              <div className="overflow-x-auto pt-2 pb-1">
-                <div className="min-w-[420px] sm:min-w-0 space-y-3">
+              {/* Calendar Grid Container with SAP/GreytHR Enterprise Layout & Generous Spacing */}
+              <div className="overflow-x-auto overflow-y-visible pt-4 pb-2 px-1">
+                <div className="min-w-[440px] sm:min-w-0 space-y-4">
                   {/* 7-Column Days Header */}
-                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center text-[10px] sm:text-xs font-bold text-slate-400 border-b border-slate-800 pb-2.5">
+                  <div className="grid grid-cols-7 gap-2 sm:gap-3.5 text-center text-[10px] sm:text-xs font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-800/80 pb-3 mb-1">
                     <span className="text-indigo-400">Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
                   </div>
 
                   {/* 7-Column Calendar Cells Grid */}
-                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+                  <div className="grid grid-cols-7 gap-2 sm:gap-3.5 pt-2">
                     {getCalendarDays().map((day, idx) => {
                       const info = getDayStatusInfo(day);
                       const log = monthlyCalendarLogs[day.dateStr];
@@ -839,29 +853,45 @@ export default function EmployeeAttendanceProfilePage() {
                         <div
                           key={idx}
                           onClick={() => info.clickable && handleDayClick(day.dateStr)}
-                          className={`relative group min-h-[56px] sm:min-h-[64px] p-1.5 sm:p-2 rounded-lg border flex flex-col justify-between text-[10px] sm:text-xs transition-all ${info.styling}`}
+                          className={`relative group min-h-[66px] sm:min-h-[74px] p-2 sm:p-2.5 rounded-xl border flex flex-col justify-between transition-all duration-200 ease-out shadow-md ${info.styling}`}
                         >
                           {day.type === 'day' && (
                             <>
-                              <div className="flex items-center justify-between">
-                                <span className="font-extrabold text-[10px] sm:text-[12px] text-slate-100">{day.dayNum}</span>
-                                {day.isSunday && <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase">Sun</span>}
-                              </div>
-                              {info.label && (
-                                <span className="text-[8.5px] sm:text-[9.5px] font-mono font-extrabold uppercase tracking-tight truncate block leading-tight pt-1">
-                                  {info.label}
+                              {/* Top Row: Prominent Date Number & Sunday Pill */}
+                              <div className="flex items-center justify-between w-full">
+                                <span className="font-extrabold text-sm sm:text-base text-slate-100 font-sans tracking-tight">
+                                  {day.dayNum}
                                 </span>
+                                {day.isSunday && (
+                                  <span className="text-[7.5px] sm:text-[8.5px] font-extrabold text-indigo-300 bg-indigo-950/80 border border-indigo-500/40 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                                    Sun
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Bottom Row: Status Badge Pill */}
+                              {info.label && (
+                                <div className="pt-1">
+                                  <span className={`text-[8.5px] sm:text-[9.5px] font-mono font-extrabold uppercase tracking-tight px-1.5 sm:px-2 py-0.5 rounded-md inline-block max-w-full truncate ${info.badgeClass}`}>
+                                    {info.label === 'LATE' ? '🟠 LATE' :
+                                     info.label === 'PRESENT' ? '🟢 PRESENT' :
+                                     info.label === 'WORKING' ? '🔵 WORKING' :
+                                     info.label === 'HALF DAY' ? '🟣 HALF DAY' :
+                                     info.label === 'ABSENT' ? '🔴 ABSENT' :
+                                     info.label}
+                                  </span>
+                                </div>
                               )}
 
-                              {/* Modern Hover Tooltip */}
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-150 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
+                              {/* Modern Hover Tooltip Popover */}
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-60 p-3.5 bg-slate-900/95 border border-slate-750 rounded-xl shadow-2xl backdrop-blur-xl opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
                                 <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
                                   <span className="font-bold text-white text-xs">{day.dateStr}</span>
                                   <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
                                     statusLabel === 'PRESENT' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
                                     statusLabel === 'LATE' ? 'bg-amber-950 text-amber-400 border border-amber-800' :
                                     statusLabel === 'WORKING' ? 'bg-sky-950 text-sky-400 border border-sky-800' :
-                                    statusLabel === 'HALF DAY' ? 'bg-indigo-950 text-indigo-400 border border-indigo-800' :
+                                    statusLabel === 'HALF DAY' ? 'bg-purple-950 text-purple-400 border border-purple-800' :
                                     statusLabel === 'WEEKLY OFF' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800' :
                                     statusLabel === 'FUTURE DATE' ? 'bg-slate-950 text-slate-400 border border-slate-800' :
                                     'bg-rose-950 text-rose-400 border border-rose-800'
