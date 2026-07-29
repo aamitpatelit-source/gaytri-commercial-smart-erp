@@ -786,6 +786,21 @@ export default function EmployeeAttendanceProfilePage() {
                       const checkInStr = log?.check_in_time ? formatTo12Hour(log.check_in_time) : '--:--';
                       const checkOutStr = log?.check_out ? formatTo12Hour(log.check_out) : '--:--';
 
+                      const formatMinutesToHumanReadable = (totalMins: number): string => {
+                        if (!totalMins || totalMins <= 0) return '0 min';
+                        const hours = Math.floor(totalMins / 60);
+                        const mins = Math.round(totalMins % 60);
+                        if (hours > 0 && mins > 0) return `${hours} hr ${mins} min`;
+                        if (hours > 0 && mins === 0) return `${hours} hr`;
+                        return `${mins} min`;
+                      };
+
+                      const formatHoursToHumanReadable = (decimalHours: number): string => {
+                        if (!decimalHours || decimalHours <= 0) return '0 min';
+                        const totalMins = Math.round(decimalHours * 60);
+                        return formatMinutesToHumanReadable(totalMins);
+                      };
+
                       let workedHoursStr = '--';
                       let paidHoursStr = '--';
                       let lateByStr = 'No';
@@ -797,20 +812,20 @@ export default function EmployeeAttendanceProfilePage() {
                           const checkInMins = parseTimeToMinutes(log.check_in_time);
                           const shiftStartMins = 540;
                           if (checkInMins > 555) {
-                            lateByStr = `${checkInMins - shiftStartMins} mins`;
+                            lateByStr = formatMinutesToHumanReadable(checkInMins - shiftStartMins);
                           }
                         }
 
                         if (log.check_in_time && log.check_out) {
                           const workedH = calculateWorkedHours(log.check_in_time, log.check_out);
-                          workedHoursStr = `${workedH} hrs`;
+                          workedHoursStr = formatHoursToHumanReadable(workedH);
                           const paidH = Math.min(workedH, 9);
-                          paidHoursStr = `${paidH} hrs`;
+                          paidHoursStr = formatHoursToHumanReadable(paidH);
                           if (workedH > 9) {
-                            overtimeStr = `${(workedH - 9).toFixed(2)} hrs`;
+                            overtimeStr = formatHoursToHumanReadable(workedH - 9);
                           }
                           const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH);
-                          dailySalaryStr = `₹${dailyCalc.totalDailyEarnings.toLocaleString('en-IN')}`;
+                          dailySalaryStr = `₹${Math.round(dailyCalc.totalDailyEarnings).toLocaleString('en-IN')}`;
                         } else if (log.status === 'WORKING' || log.status === 'PRESENT' || log.status === 'LATE') {
                           workedHoursStr = 'Running';
                           paidHoursStr = 'Running';
@@ -839,7 +854,7 @@ export default function EmployeeAttendanceProfilePage() {
                               )}
 
                               {/* Modern Hover Tooltip */}
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-150 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-150 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
                                 <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
                                   <span className="font-bold text-white text-xs">{day.dateStr}</span>
                                   <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
@@ -862,7 +877,7 @@ export default function EmployeeAttendanceProfilePage() {
                                     <div className="flex justify-between"><span className="text-slate-400">Worked Hours:</span> <strong className="text-cyan-400">{workedHoursStr}</strong></div>
                                     <div className="flex justify-between"><span className="text-slate-400">Paid Hours:</span> <strong className="text-slate-200">{paidHoursStr}</strong></div>
                                     <div className="flex justify-between"><span className="text-slate-400">Late By:</span> <strong className={lateByStr !== 'No' ? 'text-amber-400' : 'text-slate-300'}>{lateByStr}</strong></div>
-                                    <div className="flex justify-between border-t border-slate-800 pt-1 mt-1"><span className="text-slate-400 font-bold">Daily Salary:</span> <strong className="text-emerald-400 font-bold">{dailySalaryStr}</strong></div>
+                                    <div className="flex justify-between border-t border-slate-800 pt-1 mt-1"><span className="text-slate-400 font-bold">Earned Today:</span> <strong className="text-emerald-400 font-bold">{dailySalaryStr}</strong></div>
                                     {overtimeStr !== '--' && <div className="flex justify-between"><span className="text-slate-400">Overtime:</span> <strong className="text-purple-400">{overtimeStr}</strong></div>}
                                   </div>
                                 ) : (
