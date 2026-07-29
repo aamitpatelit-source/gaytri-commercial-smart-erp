@@ -65,13 +65,20 @@ assert(t4.workedHours === 9, '10-hour span minus 1-hour lunch = 9 worked hours')
 const worked = calculateWorkedHours('09:00:00', '19:00:00', settings);
 assert(worked === 9.00, `Worked hours calculated as 9.00 (got ${worked})`);
 
-// Test 6: Non-zero Daily Salary calculation when attendance exists
+// Test 6: 03:49 PM to 05:44 PM (1 hr 55 mins / 115 mins) - Short shift after lunch window
+const shortWorked = calculateWorkedHours('03:49 PM', '05:44 PM', settings);
+assert(shortWorked === 1.92, `03:49 PM to 05:44 PM worked hours is 1.92 hrs (1 hr 55 min) (got ${shortWorked})`);
+
+const shortSalary = calculateDailySalary(26000, shortWorked, shortWorked, 0, settings);
+assert(shortSalary.totalDailyEarnings > 200, `03:49 PM to 05:44 PM earned salary is ~₹213 for full duration (got ₹${shortSalary.totalDailyEarnings.toFixed(2)})`);
+
+// Test 7: Non-zero Daily Salary calculation when attendance exists
 const monthlySalary = 26000;
 const dailyCalc = calculateDailySalary(monthlySalary, worked, worked, 0, settings);
 assert(dailyCalc.dailyRate === 1000, `Daily rate is ₹1000 (got ₹${dailyCalc.dailyRate})`);
 assert(dailyCalc.earnedSalary > 0, `Daily earned salary is non-zero (got ₹${dailyCalc.earnedSalary})`);
 
-// Test 7: Monthly Payroll calculation
+// Test 8: Monthly Payroll calculation
 const monthCalc = calculatePayrollSalary(monthlySalary, 26, 0, 234, 0, settings);
 assert(monthCalc.totalPay === 26000, `Full month payroll calculated as ₹26000 (got ₹${monthCalc.totalPay})`);
 

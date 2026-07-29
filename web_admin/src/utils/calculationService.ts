@@ -119,8 +119,13 @@ export function calculateWorkedHours(
 
   if (durMins <= 0) return 0;
 
-  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0 && durMins >= settings.lunch_break_duration) {
-    durMins = Math.max(0, durMins - settings.lunch_break_duration);
+  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0) {
+    const lunchStartMins = 13 * 60; // 13:00 (1:00 PM)
+    const lunchEndMins = lunchStartMins + settings.lunch_break_duration; // 14:00 (2:00 PM)
+    const overlapsLunch = checkInMins < lunchEndMins && checkOutMins > lunchStartMins;
+    if (overlapsLunch && durMins >= 240) {
+      durMins = Math.max(0, durMins - settings.lunch_break_duration);
+    }
   }
 
   return parseFloat((durMins / 60).toFixed(2));
@@ -160,8 +165,13 @@ export function evaluateCheckOut(
   if (totalSpanMinutes < 0) totalSpanMinutes += 24 * 60;
 
   let lunchDeductionMinutes = 0;
-  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0 && totalSpanMinutes >= settings.lunch_break_duration) {
-    lunchDeductionMinutes = settings.lunch_break_duration;
+  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0) {
+    const lunchStartMins = 13 * 60; // 13:00 (1:00 PM)
+    const lunchEndMins = lunchStartMins + settings.lunch_break_duration; // 14:00 (2:00 PM)
+    const overlapsLunch = checkInMins < lunchEndMins && checkOutMins > lunchStartMins;
+    if (overlapsLunch && totalSpanMinutes >= 240) {
+      lunchDeductionMinutes = settings.lunch_break_duration;
+    }
   }
 
   const netWorkedMinutes = Math.max(0, totalSpanMinutes - lunchDeductionMinutes);
