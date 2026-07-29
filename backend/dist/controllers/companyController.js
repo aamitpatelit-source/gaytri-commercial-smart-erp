@@ -290,33 +290,18 @@ const getCompanySettings = async (req, res) => {
 };
 exports.getCompanySettings = getCompanySettings;
 const updateCompanySettings = async (req, res) => {
-    const { company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end } = req.body;
+    const { company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end, attendance_payroll_config } = req.body;
     try {
+        // Ensure column exists
+        await (0, db_1.query)('ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS attendance_payroll_config JSONB');
         const check = await (0, db_1.query)('SELECT id FROM company_settings LIMIT 1');
         let finalQuery = '';
         let params = [];
+        const configJson = attendance_payroll_config ? JSON.stringify(attendance_payroll_config) : null;
         if (check.rows.length === 0) {
             finalQuery = `
-        INSERT INTO company_settings (company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING *
-      `;
-            params = [
-                company_name || 'Gaytri Commercial',
-                address || null,
-                contact_email || null,
-                contact_phone || null,
-                timezone || 'Asia/Kolkata',
-                business_hours_start || '09:00:00',
-                business_hours_end || '18:00:00'
-            ];
-        }
-        else {
-            finalQuery = `
-        UPDATE company_settings 
-        SET company_name = $1, address = $2, contact_email = $3, contact_phone = $4, timezone = $5, 
-            business_hours_start = $6, business_hours_end = $7, updated_at = NOW()
-        WHERE id = $8
+        INSERT INTO company_settings (company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end, attendance_payroll_config)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `;
             params = [
@@ -327,6 +312,33 @@ const updateCompanySettings = async (req, res) => {
                 timezone || 'Asia/Kolkata',
                 business_hours_start || '09:00:00',
                 business_hours_end || '18:00:00',
+                configJson
+            ];
+        }
+        else {
+            finalQuery = `
+        UPDATE company_settings 
+        SET company_name = COALESCE($1, company_name), 
+            address = COALESCE($2, address), 
+            contact_email = COALESCE($3, contact_email), 
+            contact_phone = COALESCE($4, contact_phone), 
+            timezone = COALESCE($5, timezone), 
+            business_hours_start = COALESCE($6, business_hours_start), 
+            business_hours_end = COALESCE($7, business_hours_end), 
+            attendance_payroll_config = COALESCE($8::jsonb, attendance_payroll_config),
+            updated_at = NOW()
+        WHERE id = $9
+        RETURNING *
+      `;
+            params = [
+                company_name || null,
+                address || null,
+                contact_email || null,
+                contact_phone || null,
+                timezone || null,
+                business_hours_start || null,
+                business_hours_end || null,
+                configJson,
                 check.rows[0].id
             ];
         }

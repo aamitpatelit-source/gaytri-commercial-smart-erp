@@ -314,14 +314,19 @@ export const updateCompanySettings = async (req: AuthRequest, res: Response) => 
   const { company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end, attendance_payroll_config } = req.body;
 
   try {
+    // Ensure column exists
+    await query('ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS attendance_payroll_config JSONB');
+
     const check = await query('SELECT id FROM company_settings LIMIT 1');
     let finalQuery = '';
     let params: any[] = [];
 
+    const configJson = attendance_payroll_config ? JSON.stringify(attendance_payroll_config) : null;
+
     if (check.rows.length === 0) {
       finalQuery = `
-        INSERT INTO company_settings (company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO company_settings (company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end, attendance_payroll_config)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `;
       params = [
@@ -331,7 +336,8 @@ export const updateCompanySettings = async (req: AuthRequest, res: Response) => 
         contact_phone || null,
         timezone || 'Asia/Kolkata',
         business_hours_start || '09:00:00',
-        business_hours_end || '18:00:00'
+        business_hours_end || '18:00:00',
+        configJson
       ];
     } else {
       finalQuery = `
@@ -343,8 +349,9 @@ export const updateCompanySettings = async (req: AuthRequest, res: Response) => 
             timezone = COALESCE($5, timezone), 
             business_hours_start = COALESCE($6, business_hours_start), 
             business_hours_end = COALESCE($7, business_hours_end), 
+            attendance_payroll_config = COALESCE($8::jsonb, attendance_payroll_config),
             updated_at = NOW()
-        WHERE id = $8
+        WHERE id = $9
         RETURNING *
       `;
       params = [
@@ -355,17 +362,13 @@ export const updateCompanySettings = async (req: AuthRequest, res: Response) => 
         timezone || null,
         business_hours_start || null,
         business_hours_end || null,
+        configJson,
         check.rows[0].id
       ];
     }
 
     const result = await query(finalQuery, params);
-    const updatedSettings = {
-      ...result.rows[0],
-      attendance_payroll_config: attendance_payroll_config || result.rows[0].attendance_payroll_config || null
-    };
-
-    return res.status(200).json({ success: true, message: 'Company settings updated successfully.', settings: updatedSettings });
+    return res.status(200).json({ success: true, message: 'Company settings updated successfully.', settings: result.rows[0] });
   } catch (error) {
     console.error('[Company API] Update settings failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });

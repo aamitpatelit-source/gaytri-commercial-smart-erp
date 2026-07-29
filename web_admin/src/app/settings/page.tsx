@@ -15,10 +15,12 @@ import {
   HelpCircle,
   Briefcase,
   Trash2,
-  X
+  X,
+  RefreshCw
 } from 'lucide-react';
 import { AttendancePayrollSettings, DEFAULT_ATTENDANCE_PAYROLL_SETTINGS } from '../../utils/calculationService';
-import { getActiveSettings, saveSettings, getSettingsAuditLogs, deleteSettingsAuditLog, SettingsAuditLog } from '../../utils/settingsConfig';
+import { getActiveSettings, saveSettings, getSettingsAuditLogs, SettingsAuditLog, deleteSettingsAuditLog } from '../../utils/settingsConfig';
+import { API_URL } from '../../config';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AttendancePayrollSettings>(DEFAULT_ATTENDANCE_PAYROLL_SETTINGS);
@@ -36,6 +38,12 @@ export default function SettingsPage() {
   // Delete Audit Log Modal State
   const [logToDelete, setLogToDelete] = useState<SettingsAuditLog | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Recalculate Historical Attendance Modal State (Super Admin Tool)
+  const [isRecalcModalOpen, setIsRecalcModalOpen] = useState(false);
+  const [recalcStartDate, setRecalcStartDate] = useState('');
+  const [recalcEndDate, setRecalcEndDate] = useState('');
+  const [recalcLoading, setRecalcLoading] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -124,6 +132,36 @@ export default function SettingsPage() {
       setLogToDelete(null);
       setToast({ type: 'success', message: 'Audit log entry deleted successfully.' });
       setTimeout(() => setToast(null), 4000);
+    }
+  };
+
+  const handleRecalculateHistory = async () => {
+    if (!recalcStartDate || !recalcEndDate) {
+      setToast({ type: 'error', message: 'Please select both start date and end date.' });
+      return;
+    }
+    setRecalcLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/attendance/recalculate-history`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ start_date: recalcStartDate, end_date: recalcEndDate })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setToast({ type: 'success', message: data.message });
+        setIsRecalcModalOpen(false);
+      } else {
+        setToast({ type: 'error', message: data.message || 'Recalculation failed.' });
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Connection to server failed.' });
+    } finally {
+      setRecalcLoading(false);
     }
   };
 
@@ -515,7 +553,7 @@ export default function SettingsPage() {
           {/* TAB 5: AUDIT LOG */}
           {activeTab === 'AUDIT' && (
             <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-6 animate-fade-in">
-              <div className="border-b border-slate-800 pb-3 flex justify-between items-center">
+              <div className="border-b border-slate-800 pb-3 flex flex-wrap justify-between items-center gap-3">
                 <div>
                   <h3 className="text-base font-extrabold text-white flex items-center space-x-2">
                     <History className="w-4 h-4 text-cyan-400" />
@@ -523,6 +561,21 @@ export default function SettingsPage() {
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">Immutable record of settings modifications, previous values, and user timestamps.</p>
                 </div>
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setRecalcStartDate(today);
+                      setRecalcEndDate(today);
+                      setIsRecalcModalOpen(true);
+                    }}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 text-xs font-bold transition-all cursor-pointer shadow-sm"
+                  >
+                    <RefreshCw className="w-4 h-4 text-amber-400" />
+                    <span>Recalculate Historical Attendance</span>
+                  </button>
+                )}
               </div>
 
               {auditLogs.length === 0 ? (
@@ -618,6 +671,69 @@ export default function SettingsPage() {
                 className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
               >
                 Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* RECALCULATE HISTORICAL ATTENDANCE MODAL (SUPER ADMIN ONLY) */}
+      {isRecalcModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel max-w-md w-full p-6 rounded-2xl border border-amber-500/30 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2 text-amber-400">
+                <RefreshCw className="w-5 h-5" />
+                <h4 className="text-sm font-extrabold text-white">Recalculate Historical Attendance</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecalcModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-amber-300/90 leading-relaxed font-medium bg-amber-950/30 p-3 rounded-xl border border-amber-500/20">
+              This operation will permanently recalculate attendance records for the selected date range using the current attendance settings. This may affect attendance status and future payroll generation for those records. Do you want to continue?
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={recalcStartDate}
+                  onChange={(e) => setRecalcStartDate(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white outline-none focus:border-amber-500/50"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={recalcEndDate}
+                  onChange={(e) => setRecalcEndDate(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white outline-none focus:border-amber-500/50"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsRecalcModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={recalcLoading}
+                onClick={handleRecalculateHistory}
+                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {recalcLoading ? 'Processing...' : 'Execute Recalculation'}
               </button>
             </div>
           </div>

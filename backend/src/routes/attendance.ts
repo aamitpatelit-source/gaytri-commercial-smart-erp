@@ -12,6 +12,7 @@ import {
   getEmployeeStats,
   deleteAttendanceRecord,
   getMonthlyPayrollReport,
+  recalculateHistoricalAttendance
 } from '../controllers/attendanceController';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -27,6 +28,7 @@ router.post('/check-in', requireRole(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAG
 router.post('/check-out', requireRole(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(employeeCheckOut));
 router.post('/checkout', requireRole(['EMPLOYEE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(employeeCheckOut));
 router.post('/correct', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(correctAttendance));
+router.post('/recalculate-history', requireRole(['SUPER_ADMIN', 'ADMIN']) as any, asyncHandler(recalculateHistoricalAttendance));
 router.get('/employee/:id/stats', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']) as any, asyncHandler(getEmployeeStats));
 router.get('/dashboard', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER']) as any, asyncHandler(getDashboardStats));
 router.get('/history', requireRole(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'EMPLOYEE']) as any, asyncHandler(getAttendanceHistory));

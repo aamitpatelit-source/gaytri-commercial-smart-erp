@@ -3,6 +3,28 @@ import poolProxy, { query } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 import moment from 'moment-timezone';
 import { canManageEmployee } from '../services/managerScopeService';
+import { 
+  AttendancePayrollSettings, 
+  DEFAULT_ATTENDANCE_PAYROLL_SETTINGS, 
+  evaluateAttendanceStatus,
+  calculateWorkedHours,
+  calculatePayrollSalary 
+} from '../services/calculationService';
+
+export const getBackendSettings = async (): Promise<AttendancePayrollSettings> => {
+  try {
+    const res = await query('SELECT attendance_payroll_config FROM company_settings LIMIT 1');
+    if (res.rows.length > 0 && res.rows[0].attendance_payroll_config) {
+      const config = typeof res.rows[0].attendance_payroll_config === 'string'
+        ? JSON.parse(res.rows[0].attendance_payroll_config)
+        : res.rows[0].attendance_payroll_config;
+      return { ...DEFAULT_ATTENDANCE_PAYROLL_SETTINGS, ...config };
+    }
+  } catch (err) {
+    console.warn('Failed to load company_settings in backend:', err);
+  }
+  return DEFAULT_ATTENDANCE_PAYROLL_SETTINGS;
+};
 
 // Typography / Timezone / Provider Core Domain Interfaces
 export interface AttendanceProviderPayload {
@@ -822,23 +844,10 @@ export const employeeCheckIn = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 2. Fetch shift details to detect late arrivals
-    const shiftRes = await client.query(
-      `SELECT s.late_after FROM employees e 
-       LEFT JOIN shifts s ON e.shift_id = s.id 
-       WHERE e.id = $1`,
-      [employeeId]
-    );
-    let status = 'WORKING'; // Initially set status to WORKING since they checked in but have not checked out
-    const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
-    if (nowTime > lateAfter) {
-      status = 'LATE'; // Wait, let's keep status as WORKING for now so they can checkout, or LATE?
-      // Wait! The user says "Present: Employee checked in and checked out. Working: Employee checked in but not checked out."
-      // So if they checked in but did not check out, they are in WORKING status! Let's keep it as WORKING so we can calculate checkout.
-      // Wait, is a late arrival still in WORKING status while working? Yes! A late arrival is WORKING until they checkout, then they become LATE or PRESENT.
-      // Let's use WORKING as the status for all active shifts to make check-out tracking simple!
-      status = 'WORKING';
-    }
+    // 2. Fetch active settings to detect late arrivals
+    const settings = await getBackendSettings();
+    const evaluated = evaluateAttendanceStatus(nowTime, null, settings);
+    const status = evaluated.isLate ? 'LATE' : 'WORKING';
 
     let attendanceId: string;
 
@@ -970,17 +979,11 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
       }
 
-      // Fetch shift details to check if late arrival was present
-      const shiftRes = await client.query(
-        `SELECT s.late_after FROM employees e 
-         LEFT JOIN shifts s ON e.shift_id = s.id 
-         WHERE e.id = $1`,
-        [employeeId]
-      );
-      const lateAfter = shiftRes.rows[0]?.late_after || '09:15:00';
+      // Fetch active settings to evaluate final status (Late, Present, Half Day, Absent)
+      const settings = await getBackendSettings();
       const checkInTime = record.check_in_time || record.time || '09:00:00';
-      
-      finalStatus = checkInTime > lateAfter ? 'LATE' : 'PRESENT';
+      const evaluated = evaluateAttendanceStatus(checkInTime, nowTime, settings);
+      finalStatus = evaluated.status;
 
       console.log('↓');
       console.log(`Updating Checkout: check_out_time=${nowTime}, finalStatus=${finalStatus}`);
@@ -1416,6 +1419,7 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
     const empRes = await query(empQueryStr, empParams);
     const employees = empRes.rows;
 
+    const settings = await getBackendSettings();
     const payrollReport: any[] = [];
 
     for (const emp of employees) {
@@ -1437,29 +1441,27 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
       const attRes = await query(attQueryStr, attParams);
       const records = attRes.rows;
 
-      let totalWorkedMs = 0;
+      let totalWorkedHoursSum = 0;
       let presentDays = 0;
+      let halfDays = 0;
 
       for (const rec of records) {
-        // Rule: Only completed attendance records (both check_in_time AND check_out_time present) are included in payroll.
-        // If check_out_time is missing (e.g., checkout pending or active working status), hours contributed is 0.
         if (rec.check_in_time && rec.check_out_time) {
-          const start = moment(rec.check_in_time, 'HH:mm:ss');
-          const end = moment(rec.check_out_time, 'HH:mm:ss');
-          if (start.isValid() && end.isValid()) {
-            let diff = end.diff(start);
-            if (diff < 0) diff += 24 * 60 * 60 * 1000;
-            totalWorkedMs += diff;
+          const hours = calculateWorkedHours(rec.check_in_time, rec.check_out_time, settings);
+          const evalRes = evaluateAttendanceStatus(rec.check_in_time, rec.check_out_time, settings);
+          totalWorkedHoursSum += hours;
+
+          if (evalRes.status === 'HALF_DAY') {
+            halfDays++;
+          } else if (evalRes.status !== 'ABSENT') {
             presentDays++;
           }
         }
       }
 
-      const totalWorkedHours = Math.round(totalWorkedMs / (1000 * 60 * 60));
+      totalWorkedHoursSum = parseFloat(totalWorkedHoursSum.toFixed(2));
       const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
-      const standardHours = 208; // 26 Days x 8 Hours
-      const hourlyRate = Math.round(monthlySalary / standardHours);
-      const payableSalary = Math.round(totalWorkedHours * hourlyRate);
+      const salaryCalc = calculatePayrollSalary(monthlySalary, presentDays, halfDays, totalWorkedHoursSum, 0, settings);
 
       payrollReport.push({
         employee_uuid: emp.id,
@@ -1471,13 +1473,13 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
         reporting_manager: emp.reporting_manager || 'N/A',
         month: selectedMonth,
         monthly_salary: monthlySalary,
-        standard_hours: standardHours,
-        hourly_rate: hourlyRate,
-        total_worked_hours: totalWorkedHours,
+        standard_hours: (settings.monthly_working_days || 26) * (settings.paid_working_hours || 9),
+        hourly_rate: salaryCalc.hourlyRate,
+        total_worked_hours: totalWorkedHoursSum,
         present_days: presentDays,
-        payable_salary: payableSalary,
-        gross_payable_salary: payableSalary,
-        net_pay: payableSalary,
+        payable_salary: salaryCalc.totalPay,
+        gross_payable_salary: salaryCalc.earnedSalary,
+        net_pay: salaryCalc.totalPay
       });
     }
 
@@ -1489,6 +1491,53 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
   } catch (error: any) {
     console.error('[Payroll Report API Error]', error);
     return res.status(500).json({ success: false, message: 'Failed to generate payroll report.' });
+  }
+};
+
+// POST /attendance/recalculate-history (SUPER_ADMIN / ADMIN explicit tool)
+export const recalculateHistoricalAttendance = async (req: AuthRequest, res: Response) => {
+  if (!req.user || (req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN')) {
+    return res.status(403).json({ success: false, message: 'Access denied. Administrator privileges required.' });
+  }
+
+  const { start_date, end_date } = req.body;
+
+  if (!start_date || !end_date) {
+    return res.status(400).json({ success: false, message: 'start_date and end_date are required.' });
+  }
+
+  try {
+    const settings = await getBackendSettings();
+    const records = await query(
+      `SELECT id, check_in_time, check_out_time, status, time
+       FROM attendance
+       WHERE date >= $1 AND date <= $2 AND is_deleted = FALSE`,
+      [start_date, end_date]
+    );
+
+    let updatedCount = 0;
+    for (const rec of records.rows) {
+      const checkInTime = rec.check_in_time || rec.time;
+      if (checkInTime) {
+        const evalRes = evaluateAttendanceStatus(checkInTime, rec.check_out_time, settings);
+        if (rec.status !== evalRes.status) {
+          await query(
+            `UPDATE attendance SET status = $1, updated_at = NOW() WHERE id = $2`,
+            [evalRes.status, rec.id]
+          );
+          updatedCount++;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully recalculated historical attendance for ${updatedCount} records between ${start_date} and ${end_date}.`,
+      updatedCount
+    });
+  } catch (error: any) {
+    console.error('[Recalculate Error] Failed to update historical records:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to recalculate historical records.' });
   }
 };
 
