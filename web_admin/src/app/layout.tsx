@@ -62,6 +62,49 @@ export default function RootLayout({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'loading'; message: string } | null>(null);
 
+  // Pull-To-Refresh State & Touch Handlers for Mobile
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const touchStartY = React.useRef(0);
+  const mainRef = React.useRef<HTMLElement | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (mainRef.current && mainRef.current.scrollTop === 0) {
+      touchStartY.current = e.touches[0].clientY;
+    } else {
+      touchStartY.current = 0;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartY.current || isPullRefreshing) return;
+    if (mainRef.current && mainRef.current.scrollTop > 0) return;
+
+    const currentY = e.touches[0].clientY;
+    const dy = currentY - touchStartY.current;
+    if (dy > 0) {
+      setPullDistance(Math.min(dy * 0.45, 75));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (pullDistance >= 55 && !isPullRefreshing) {
+      setIsPullRefreshing(true);
+      setPullDistance(60);
+
+      window.dispatchEvent(new Event('profileUpdate'));
+      router.refresh();
+
+      setTimeout(() => {
+        setIsPullRefreshing(false);
+        setPullDistance(0);
+      }, 800);
+    } else {
+      setPullDistance(0);
+    }
+    touchStartY.current = 0;
+  };
+
   // Forms states
   const [profileForm, setProfileForm] = useState({ full_name: '', email: '' });
   const [passwordForm, setPasswordForm] = useState({ old_password: '', new_password: '', confirm_password: '' });
@@ -660,7 +703,26 @@ export default function RootLayout({
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
+          <main 
+            ref={mainRef}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative overscroll-y-contain"
+          >
+            {/* Pull-To-Refresh Mobile HUD Indicator */}
+            {(pullDistance > 0 || isPullRefreshing) && (
+              <div 
+                className="flex items-center justify-center transition-all duration-150 pointer-events-none lg:hidden -mt-1 mb-3"
+                style={{ opacity: Math.min(pullDistance / 35, 1) }}
+              >
+                <div className="flex items-center space-x-2 bg-slate-900/95 border border-cyan-500/40 text-cyan-400 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(0,229,255,0.25)] text-xs font-bold animate-fade-in">
+                  <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isPullRefreshing || pullDistance >= 55 ? 'animate-spin' : ''}`} />
+                  <span>{isPullRefreshing ? 'Refreshing data...' : pullDistance >= 55 ? 'Release to refresh' : 'Pull down to refresh'}</span>
+                </div>
+              </div>
+            )}
+
             {children}
           </main>
         </div>
