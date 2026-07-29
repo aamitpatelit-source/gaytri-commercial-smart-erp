@@ -311,7 +311,7 @@ export const getCompanySettings = async (req: AuthRequest, res: Response) => {
 };
 
 export const updateCompanySettings = async (req: AuthRequest, res: Response) => {
-  const { company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end } = req.body;
+  const { company_name, address, contact_email, contact_phone, timezone, business_hours_start, business_hours_end, attendance_payroll_config } = req.body;
 
   try {
     const check = await query('SELECT id FROM company_settings LIMIT 1');
@@ -336,25 +336,36 @@ export const updateCompanySettings = async (req: AuthRequest, res: Response) => 
     } else {
       finalQuery = `
         UPDATE company_settings 
-        SET company_name = $1, address = $2, contact_email = $3, contact_phone = $4, timezone = $5, 
-            business_hours_start = $6, business_hours_end = $7, updated_at = NOW()
+        SET company_name = COALESCE($1, company_name), 
+            address = COALESCE($2, address), 
+            contact_email = COALESCE($3, contact_email), 
+            contact_phone = COALESCE($4, contact_phone), 
+            timezone = COALESCE($5, timezone), 
+            business_hours_start = COALESCE($6, business_hours_start), 
+            business_hours_end = COALESCE($7, business_hours_end), 
+            updated_at = NOW()
         WHERE id = $8
         RETURNING *
       `;
       params = [
-        company_name || 'Gaytri Commercial',
+        company_name || null,
         address || null,
         contact_email || null,
         contact_phone || null,
-        timezone || 'Asia/Kolkata',
-        business_hours_start || '09:00:00',
-        business_hours_end || '18:00:00',
+        timezone || null,
+        business_hours_start || null,
+        business_hours_end || null,
         check.rows[0].id
       ];
     }
 
     const result = await query(finalQuery, params);
-    return res.status(200).json({ success: true, message: 'Company settings updated successfully.', settings: result.rows[0] });
+    const updatedSettings = {
+      ...result.rows[0],
+      attendance_payroll_config: attendance_payroll_config || result.rows[0].attendance_payroll_config || null
+    };
+
+    return res.status(200).json({ success: true, message: 'Company settings updated successfully.', settings: updatedSettings });
   } catch (error) {
     console.error('[Company API] Update settings failed:', error);
     return res.status(500).json({ success: false, message: 'Server temporarily unavailable' });

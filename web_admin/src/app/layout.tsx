@@ -20,6 +20,7 @@ import {
   RefreshCw,
   X,
   BarChart2,
+  Sliders,
   Menu
 } from 'lucide-react';
 import { API_URL } from '../config';
@@ -351,6 +352,7 @@ export default function RootLayout({
     { name: 'Attendance', icon: Users, path: '/attendance' },
     { name: 'Reports', icon: BarChart2, path: '/attendance/reports' },
     { name: 'Manager Accounts', icon: Shield, path: '/managers' },
+    { name: 'Settings', icon: Sliders, path: '/settings' },
   ];
 
   if (isLoginPage) {
@@ -576,12 +578,13 @@ export default function RootLayout({
                 <Menu className="w-5 h-5" />
               </button>
 
-              <h1 className="text-base sm:text-xl font-bold text-slate-100 capitalize truncate">
+              <h1 className="text-lg sm:text-xl lg:text-xl font-extrabold text-slate-100 capitalize truncate">
                 {pathname === '/' ? 'Operational Overview' : 
                  pathname === '/attendance' ? 'Attendance Directory' : 
                  (pathname.startsWith('/attendance/') && pathname !== '/attendance/reports') ? 'Employee Attendance Profile' : 
                  pathname === '/attendance/reports' ? 'Attendance Reports' : 
                  pathname === '/managers' ? 'Manager Accounts' : 
+                 pathname === '/settings' ? 'Attendance & Payroll Settings' :
                  pathname.replace('/', '').replace(/-/g, ' ')}
               </h1>
             </div>
