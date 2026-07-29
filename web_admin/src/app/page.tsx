@@ -214,14 +214,14 @@ export default function DashboardPage() {
         <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(16,185,129,0.06)] border border-slate-800">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Present Employees</p>
+              <p className="text-xs sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Present Employees</p>
               <h3 className="text-3xl font-extrabold text-white mt-2 font-mono">{stats?.present || 0}</h3>
             </div>
             <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-emerald-400">
               <UserCheck className="w-6 h-6" />
             </div>
           </div>
-          <p className="text-[11px] text-emerald-400 mt-4 font-semibold">
+          <p className="text-xs lg:text-[11px] text-emerald-400 mt-4 font-semibold leading-relaxed">
             Active checked-in count ({stats?.working || 0} currently working)
           </p>
         </div>
@@ -230,14 +230,14 @@ export default function DashboardPage() {
         <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(244,63,94,0.06)] border border-slate-800">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Absent Employees</p>
+              <p className="text-xs sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Absent Employees</p>
               <h3 className="text-3xl font-extrabold text-white mt-2 font-mono">{stats?.absent || 0}</h3>
             </div>
             <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-rose-400">
               <UserX className="w-6 h-6" />
             </div>
           </div>
-          <p className="text-[11px] text-rose-400 mt-4 font-semibold">
+          <p className="text-xs lg:text-[11px] text-rose-400 mt-4 font-semibold leading-relaxed">
             Unmarked or absent on shift roster ({stats?.missedCheckout || 0} missed EOD checkout)
           </p>
         </div>
@@ -246,7 +246,7 @@ export default function DashboardPage() {
         <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.06)] border border-slate-800">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Last Checkout</p>
+              <p className="text-xs sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Last Checkout</p>
               {stats?.lastCheckout ? (
                 <>
                   <h4 className="text-lg font-bold text-slate-200 mt-2 truncate max-w-[190px]">{stats.lastCheckout.full_name}</h4>
@@ -260,7 +260,7 @@ export default function DashboardPage() {
               <Clock className="w-6 h-6" />
             </div>
           </div>
-          <p className="text-[11px] text-amber-400 mt-4 font-semibold">Latest EOD sync checkout</p>
+          <p className="text-xs lg:text-[11px] text-amber-400 mt-4 font-semibold leading-relaxed">Latest EOD sync checkout</p>
         </div>
       </div>
 
