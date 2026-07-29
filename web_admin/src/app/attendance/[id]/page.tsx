@@ -776,15 +776,15 @@ export default function EmployeeAttendanceProfilePage() {
               </div>
 
               {/* Calendar Grid Container with SAP/GreytHR Enterprise Layout & Generous Spacing */}
-              <div className="overflow-x-auto overflow-y-visible pt-5 pb-3 px-1">
-                <div className="min-w-[440px] sm:min-w-0 space-y-5">
+              <div className="overflow-x-auto overflow-y-visible pt-6 pb-4 px-1">
+                <div className="min-w-[440px] sm:min-w-0">
                   {/* 7-Column Days Header */}
-                  <div className="grid grid-cols-7 gap-3 sm:gap-4 text-center text-[11px] sm:text-xs font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-800/80 pb-3.5 mb-4">
+                  <div className="grid grid-cols-7 gap-3 sm:gap-4 text-center text-[11px] sm:text-xs font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-800/80 pb-3.5 mb-8 sm:mb-9">
                     <span className="text-indigo-400">Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
                   </div>
 
                   {/* 7-Column Calendar Cells Grid */}
-                  <div className="grid grid-cols-7 gap-3 sm:gap-4 pt-4">
+                  <div className="grid grid-cols-7 gap-3 sm:gap-4 pt-6 sm:pt-8">
                     {getCalendarDays().map((day, idx) => {
                       const info = getDayStatusInfo(day);
                       const log = monthlyCalendarLogs[day.dateStr];
