@@ -209,58 +209,58 @@ export default function DashboardPage() {
       )}
 
       {/* 2. Top Summary Cards (Section 1) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
         {/* Present Today */}
-        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(16,185,129,0.06)] border border-slate-800">
+        <div className="glass-panel p-4 sm:p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(16,185,129,0.06)] border border-slate-800">
           <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Present Employees</p>
-              <h3 className="text-3xl font-extrabold text-white mt-2 font-mono">{stats?.present || 0}</h3>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Present Employees</p>
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mt-1.5 font-mono">{stats?.present || 0}</h3>
             </div>
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-emerald-400">
-              <UserCheck className="w-6 h-6" />
+            <div className="p-2.5 sm:p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-emerald-400 shrink-0 ml-2">
+              <UserCheck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
           </div>
-          <p className="text-xs lg:text-[11px] text-emerald-400 mt-4 font-semibold leading-relaxed">
+          <p className="text-[11px] lg:text-[11px] text-emerald-400 mt-3 font-semibold leading-relaxed">
             Active checked-in count ({stats?.working || 0} currently working)
           </p>
         </div>
 
         {/* Absent Today */}
-        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(244,63,94,0.06)] border border-slate-800">
+        <div className="glass-panel p-4 sm:p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(244,63,94,0.06)] border border-slate-800">
           <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Absent Employees</p>
-              <h3 className="text-3xl font-extrabold text-white mt-2 font-mono">{stats?.absent || 0}</h3>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Absent Employees</p>
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mt-1.5 font-mono">{stats?.absent || 0}</h3>
             </div>
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-rose-400">
-              <UserX className="w-6 h-6" />
+            <div className="p-2.5 sm:p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-rose-400 shrink-0 ml-2">
+              <UserX className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
           </div>
-          <p className="text-xs lg:text-[11px] text-rose-400 mt-4 font-semibold leading-relaxed">
+          <p className="text-[11px] lg:text-[11px] text-rose-400 mt-3 font-semibold leading-relaxed">
             Unmarked or absent on shift roster ({stats?.missedCheckout || 0} missed EOD checkout)
           </p>
         </div>
 
         {/* Last Checkout Today */}
-        <div className="glass-panel p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.06)] border border-slate-800">
+        <div className="glass-panel p-4 sm:p-6 rounded-xl relative overflow-hidden shadow-[0_0_15px_rgba(245,158,11,0.06)] border border-slate-800">
           <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Last Checkout</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Last Checkout</p>
               {stats?.lastCheckout ? (
                 <>
-                  <h4 className="text-lg font-bold text-slate-200 mt-2 truncate max-w-[190px]">{stats.lastCheckout.full_name}</h4>
-                  <p className="text-xl font-extrabold text-amber-400 font-mono mt-0.5">{formatTo12Hour(stats.lastCheckout.check_out_time)}</p>
+                  <h4 className="text-base sm:text-lg font-bold text-slate-200 mt-1.5 truncate">{stats.lastCheckout.full_name}</h4>
+                  <p className="text-lg sm:text-xl font-extrabold text-amber-400 font-mono mt-0.5">{formatTo12Hour(stats.lastCheckout.check_out_time)}</p>
                 </>
               ) : (
-                <h3 className="text-xl font-bold text-slate-500 mt-3 italic font-sans">No checkouts yet</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-500 mt-2 italic font-sans">No checkouts yet</h3>
               )}
             </div>
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-amber-400">
-              <Clock className="w-6 h-6" />
+            <div className="p-2.5 sm:p-3 rounded-lg bg-slate-900/80 border border-slate-750 text-amber-400 shrink-0 ml-2">
+              <Clock className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
           </div>
-          <p className="text-xs lg:text-[11px] text-amber-400 mt-4 font-semibold leading-relaxed">Latest EOD sync checkout</p>
+          <p className="text-[11px] lg:text-[11px] text-amber-400 mt-3 font-semibold leading-relaxed">Latest EOD sync checkout</p>
         </div>
       </div>
 
@@ -470,14 +470,14 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full min-w-[500px] text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/20">
-                      <th className="px-4 py-3">Employee</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Check-In</th>
-                      <th className="px-4 py-3">Check-Out</th>
-                      <th className="px-4 py-3 text-right">Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Employee</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Status</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-In</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-Out</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Hours</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-850/50">
@@ -487,10 +487,10 @@ export default function DashboardPage() {
                         onClick={() => router.push(`/attendance/${item.employee_uuid}`)}
                         className="hover:bg-slate-900/30 transition-colors cursor-pointer group"
                       >
-                        <td className="px-4 py-3 font-semibold text-slate-200 group-hover:text-cyan-400 transition-colors">
+                        <td className="px-3.5 sm:px-4 py-2.5 sm:py-3 font-semibold text-slate-200 group-hover:text-cyan-400 transition-colors whitespace-nowrap">
                           {item.full_name}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3.5 sm:px-4 py-2.5 sm:py-3 whitespace-nowrap">
                           <span className={`text-[10px] font-bold ${
                             item.status === 'PRESENT' ? 'text-emerald-400' :
                             item.status === 'WORKING' ? 'text-sky-400' :
@@ -499,9 +499,9 @@ export default function DashboardPage() {
                             {item.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono text-slate-300">{formatTo12Hour(item.check_in_time)}</td>
-                        <td className="px-4 py-3 font-mono text-slate-300">{formatTo12Hour(item.check_out)}</td>
-                        <td className="px-4 py-3 font-mono text-cyan-400 font-bold text-right">{item.working_hours || '--'}</td>
+                        <td className="px-3.5 sm:px-4 py-2.5 sm:py-3 font-mono text-slate-300 whitespace-nowrap">{formatTo12Hour(item.check_in_time)}</td>
+                        <td className="px-3.5 sm:px-4 py-2.5 sm:py-3 font-mono text-slate-300 whitespace-nowrap">{formatTo12Hour(item.check_out)}</td>
+                        <td className="px-3.5 sm:px-4 py-2.5 sm:py-3 font-mono text-cyan-400 font-bold text-right whitespace-nowrap">{item.working_hours || '--'}</td>
                       </tr>
                     ))}
                   </tbody>

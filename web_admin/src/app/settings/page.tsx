@@ -13,32 +13,62 @@ import {
   CheckCircle2, 
   AlertCircle,
   HelpCircle,
-  Briefcase
+  Briefcase,
+  Trash2,
+  X
 } from 'lucide-react';
 import { AttendancePayrollSettings, DEFAULT_ATTENDANCE_PAYROLL_SETTINGS } from '../../utils/calculationService';
-import { getActiveSettings, saveSettings, getSettingsAuditLogs, SettingsAuditLog } from '../../utils/settingsConfig';
+import { getActiveSettings, saveSettings, getSettingsAuditLogs, deleteSettingsAuditLog, SettingsAuditLog } from '../../utils/settingsConfig';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AttendancePayrollSettings>(DEFAULT_ATTENDANCE_PAYROLL_SETTINGS);
+  const [initialSettings, setInitialSettings] = useState<AttendancePayrollSettings>(DEFAULT_ATTENDANCE_PAYROLL_SETTINGS);
+  const [hasPendingReset, setHasPendingReset] = useState(false);
   const [auditLogs, setAuditLogs] = useState<SettingsAuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'SHIFT' | 'GRACE' | 'ATTENDANCE' | 'PAYROLL' | 'AUDIT'>('SHIFT');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // User role state for Super Admin checks
+  const [userRole, setUserRole] = useState<string>('');
+
+  // Delete Audit Log Modal State
+  const [logToDelete, setLogToDelete] = useState<SettingsAuditLog | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       const active = await getActiveSettings();
       setSettings(active);
+      setInitialSettings(active);
       setAuditLogs(getSettingsAuditLogs());
+
+      // Read current logged-in user role
+      if (typeof window !== 'undefined') {
+        try {
+          const userStr = localStorage.getItem('user');
+          if (userStr) {
+            const u = JSON.parse(userStr);
+            setUserRole(u.role || '');
+          }
+        } catch (e) {
+          console.error('Failed to parse user role:', e);
+        }
+      }
       setLoading(false);
     }
     loadData();
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const isSuperAdmin = userRole === 'SUPER_ADMIN';
+
+  // Check if there are pending unsaved changes
+  const hasUnsavedChanges = hasPendingReset || JSON.stringify(settings) !== JSON.stringify(initialSettings);
+
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSaving(true);
     setToast(null);
 
@@ -65,8 +95,12 @@ export default function SettingsPage() {
       const userName = userObj?.full_name || 'Super Admin';
 
       const result = await saveSettings(settings, userName);
+      setInitialSettings(settings);
+      setHasPendingReset(false);
       setAuditLogs(getSettingsAuditLogs());
       setToast({ type: 'success', message: result.message });
+      
+      setTimeout(() => setToast(null), 4000);
     } catch (err: any) {
       setToast({ type: 'error', message: err.message || 'Failed to save settings.' });
     } finally {
@@ -77,7 +111,19 @@ export default function SettingsPage() {
   const handleResetDefaults = () => {
     if (confirm('Are you sure you want to reset all attendance & payroll settings to production defaults?')) {
       setSettings(DEFAULT_ATTENDANCE_PAYROLL_SETTINGS);
-      setToast({ type: 'success', message: 'Reset to default values. Click "Save Configuration" to apply.' });
+      setHasPendingReset(true);
+      setToast({ type: 'success', message: 'Reset to default values. Click "Save Configuration" to apply changes.' });
+    }
+  };
+
+  const handleDeleteAuditLog = () => {
+    if (logToDelete) {
+      deleteSettingsAuditLog(logToDelete.id);
+      setAuditLogs(getSettingsAuditLogs());
+      setIsDeleteModalOpen(false);
+      setLogToDelete(null);
+      setToast({ type: 'success', message: 'Audit log entry deleted successfully.' });
+      setTimeout(() => setToast(null), 4000);
     }
   };
 
@@ -109,7 +155,7 @@ export default function SettingsPage() {
 
           <button
             type="button"
-            onClick={handleSave}
+            onClick={() => handleSave()}
             disabled={saving}
             className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold text-xs flex items-center space-x-2 shadow-neon-glow border-0 cursor-pointer disabled:opacity-50"
           >
@@ -119,7 +165,29 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Toast Alert HUD */}
+      {/* Unsaved Changes / Reset Notification Banner (Shown ONLY when pending unsaved changes exist) */}
+      {hasUnsavedChanges && (
+        <div className="p-4 rounded-xl border bg-emerald-950/80 text-emerald-400 border-emerald-500/30 flex items-center justify-between space-x-3 text-xs font-bold transition-all shadow-md">
+          <div className="flex items-center space-x-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span>
+              {hasPendingReset
+                ? 'Settings reset to default values. Click "Save Configuration" to apply your changes.'
+                : 'You have unsaved configuration changes. Click "Save Configuration" to apply your modifications.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleSave()}
+            disabled={saving}
+            className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold transition-all cursor-pointer shrink-0 shadow-sm"
+          >
+            Save Now
+          </button>
+        </div>
+      )}
+
+      {/* Toast Alert HUD (Error toasts or action messages) */}
       {toast && (
         <div className={`p-4 rounded-xl border flex items-center space-x-3 text-xs font-bold transition-all ${
           toast.type === 'success'
@@ -276,7 +344,7 @@ export default function SettingsPage() {
                   />
                   <p className="text-[11px] text-slate-400 leading-relaxed">
                     Example: Shift starts at <strong>09:00 AM</strong>. With <strong>{settings.late_grace_period} min grace</strong>, check-ins up to 
-                    <strong className="text-emerald-400"> 09:{15} AM</strong> are On Time. From <strong className="text-rose-400">09:{16} AM</strong> onward are marked Late.
+                    <strong className="text-emerald-400"> 09:15 AM</strong> are On Time. From <strong className="text-rose-400">09:16 AM</strong> onward are marked Late.
                   </p>
                 </div>
 
@@ -463,14 +531,15 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
+                  <table className="w-full min-w-[640px] text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/40">
-                        <th className="px-4 py-3">Timestamp</th>
-                        <th className="px-4 py-3">Changed By</th>
-                        <th className="px-4 py-3">Setting Field</th>
-                        <th className="px-4 py-3">Previous Value</th>
-                        <th className="px-4 py-3">New Value</th>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider bg-slate-950/40">
+                        <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Timestamp</th>
+                        <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Changed By</th>
+                        <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Setting Field</th>
+                        <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Previous Value</th>
+                        <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">New Value</th>
+                        {isSuperAdmin && <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-850/60">
@@ -483,6 +552,22 @@ export default function SettingsPage() {
                           <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.field_name}</td>
                           <td className="px-4 py-3 font-mono text-rose-400 line-through text-[11px]">{log.previous_value}</td>
                           <td className="px-4 py-3 font-mono text-emerald-400 font-bold text-[11px]">{log.new_value}</td>
+                          {isSuperAdmin && (
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLogToDelete(log);
+                                  setIsDeleteModalOpen(true);
+                                }}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-rose-950/40 border border-rose-800/40 hover:bg-rose-900/40 text-rose-400 text-xs font-bold transition-all cursor-pointer"
+                                title="Delete audit log record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -492,6 +577,51 @@ export default function SettingsPage() {
             </div>
           )}
         </form>
+      )}
+
+      {/* Delete Audit Log Confirmation Modal */}
+      {isDeleteModalOpen && logToDelete && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="glass-panel p-6 rounded-2xl border border-slate-800 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2 text-rose-400">
+                <Trash2 className="w-5 h-5" />
+                <h3 className="font-extrabold text-white text-base">Delete Audit Log Entry</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to delete the audit log for <strong className="text-cyan-400">{logToDelete.field_name}</strong> changed by <strong className="text-white">{logToDelete.changed_by_user}</strong> on {new Date(logToDelete.created_at).toLocaleString()}?
+            </p>
+            <p className="text-[11px] text-rose-400 font-semibold bg-rose-950/30 p-2.5 rounded-lg border border-rose-500/20">
+              This action is permanent and restricted to Super Admins.
+            </p>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAuditLog}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

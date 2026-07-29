@@ -450,18 +450,18 @@ export default function EmployeeAttendanceDirectoryPage() {
       {/* Directory Data Table */}
       <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden shadow-lg">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full min-w-[880px] text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400 text-xs lg:text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/40">
-                <th className="px-4 py-3.5">Employee Info</th>
-                <th className="px-4 py-3.5">Designation & Shift</th>
-                <th className="px-4 py-3.5">Reporting Manager</th>
-                <th className="px-4 py-3.5">Today Status</th>
-                <th className="px-4 py-3.5">Check-In</th>
-                <th className="px-4 py-3.5">Check-Out</th>
-                <th className="px-4 py-3.5">Hours</th>
-                <th className="px-4 py-3.5">Last Attendance</th>
-                <th className="px-4 py-3.5 text-right">Action</th>
+              <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider bg-slate-950/40">
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Employee Info</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Designation & Shift</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Reporting Manager</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Today Status</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-In</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-Out</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Hours</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Last Attendance</th>
+                <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-850/60">

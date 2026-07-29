@@ -467,15 +467,15 @@ export default function ManagersPage() {
               No accounts registered.
             </div>
           ) : (
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[720px] text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-200 text-xs lg:text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                  <th className="pb-3 pt-4 pl-6 w-[20%]">Name</th>
-                  <th className="pb-3 pt-4 w-[25%]">Email</th>
-                  <th className="pb-3 pt-4 w-[15%]">Role</th>
-                  <th className="pb-3 pt-4 w-[20%] text-center">Assigned Employees Count</th>
-                  <th className="pb-3 pt-4 w-[10%] text-center">Status</th>
-                  <th className="pb-3 pt-4 pr-6 text-center w-[10%]">Actions</th>
+                <tr className="border-b border-slate-800 text-slate-200 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider bg-slate-950/30">
+                  <th className="py-3 px-3 pl-4 sm:pl-6">Name</th>
+                  <th className="py-3 px-3">Email</th>
+                  <th className="py-3 px-3">Role</th>
+                  <th className="py-3 px-3 text-center">Assigned Employees</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-3 pr-4 sm:pr-6 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850/50 text-xs text-slate-350">

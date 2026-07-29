@@ -144,3 +144,21 @@ export function getSettingsAuditLogs(): SettingsAuditLog[] {
     return [];
   }
 }
+
+/**
+ * Deletes a specific audit log entry by ID
+ */
+export function deleteSettingsAuditLog(logId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const logsStr = localStorage.getItem(AUDIT_LOGS_KEY);
+    if (!logsStr) return false;
+    const existingLogs: SettingsAuditLog[] = JSON.parse(logsStr);
+    const updatedLogs = existingLogs.filter(log => log.id !== logId);
+    localStorage.setItem(AUDIT_LOGS_KEY, JSON.stringify(updatedLogs));
+    return true;
+  } catch (e) {
+    console.error('Failed to delete audit log:', e);
+    return false;
+  }
+}

@@ -407,29 +407,29 @@ export default function ReportsPage() {
       </div>
 
       {/* FILTER PANEL */}
-      <div className="glass-panel p-6 rounded-xl border border-slate-700 space-y-4 no-print shadow-md">
+      <div className="glass-panel p-4 sm:p-6 rounded-xl border border-slate-700 space-y-4 no-print shadow-md">
         <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
-          <FileSpreadsheet className="w-5 h-5 text-cyan-400" />
+          <FileSpreadsheet className="w-5 h-5 text-cyan-400 shrink-0" />
           <h3 className="font-bold text-white text-sm">Monthly Payroll Report</h3>
         </div>
 
-        <form onSubmit={handleGeneratePayrollReport} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <form onSubmit={handleGeneratePayrollReport} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="space-y-1">
-            <label className="text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
+            <label className="text-[10px] sm:text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
             <input
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2.5 px-3 text-sm lg:text-xs text-white outline-none font-mono"
+              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Reporting Manager (Optional)</label>
+            <label className="text-[10px] sm:text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Reporting Manager (Optional)</label>
             <select
               value={reportingManager}
               onChange={(e) => setReportingManager(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2.5 px-3 text-sm lg:text-xs text-white outline-none"
+              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
             >
               <option value="">All Managers</option>
               {managers.map(m => (
@@ -439,11 +439,11 @@ export default function ReportsPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Status (Optional)</label>
+            <label className="text-[10px] sm:text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Status (Optional)</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2.5 px-3 text-sm lg:text-xs text-white outline-none"
+              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
             >
               <option value="">All Statuses</option>
               <option value="PRESENT">Present</option>
@@ -453,11 +453,11 @@ export default function ReportsPage() {
             </select>
           </div>
 
-          <div className="flex items-end gap-2 sm:gap-3 flex-wrap sm:flex-nowrap sm:col-span-2 lg:col-span-1">
+          <div className="flex items-end gap-2 sm:gap-3 flex-wrap sm:flex-nowrap sm:col-span-2 lg:col-span-1 pt-1 sm:pt-0">
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2.5 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm lg:text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 min-h-[40px] min-w-[120px]"
+              className="flex-1 py-2 px-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px] min-w-[110px]"
             >
               {loading ? (
                 <>
@@ -479,7 +479,7 @@ export default function ReportsPage() {
               className="py-2 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px]"
               title="Export CSV"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               <span>CSV</span>
             </button>
 
@@ -490,7 +490,7 @@ export default function ReportsPage() {
               className="py-2 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px]"
               title="Print Sheet"
             >
-              <Printer className="w-4 h-4" />
+              <Printer className="w-3.5 h-3.5" />
               <span>Print</span>
             </button>
           </div>
@@ -505,27 +505,27 @@ export default function ReportsPage() {
 
       {/* PAYROLL SUMMARY METRICS */}
       {payrollData.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-            <div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Staff Evaluated</span>
-              <h4 className="text-2xl font-extrabold mt-1 text-white font-mono">{summary.totalEmployees} Employees</h4>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-white font-mono truncate">{summary.totalEmployees} Employees</h4>
             </div>
-            <Users className="w-8 h-8 text-cyan-400/50" />
+            <Users className="w-7 h-7 sm:w-8 sm:h-8 text-cyan-400/50 shrink-0 ml-2" />
           </div>
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-            <div>
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Worked Hours</span>
-              <h4 className="text-2xl font-extrabold mt-1 text-sky-400 font-mono">{summary.totalWorkedHours} Hours</h4>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono truncate">{summary.totalWorkedHours} Hours</h4>
             </div>
-            <Calendar className="w-8 h-8 text-sky-400/50" />
+            <Calendar className="w-7 h-7 sm:w-8 sm:h-8 text-sky-400/50 shrink-0 ml-2" />
           </div>
-          <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-            <div>
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Payable Payroll</span>
-              <h4 className="text-2xl font-extrabold mt-1 text-emerald-400 font-mono">₹{summary.totalPayrollAmount.toLocaleString('en-IN')}</h4>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono truncate">₹{summary.totalPayrollAmount.toLocaleString('en-IN')}</h4>
             </div>
-            <DollarSign className="w-8 h-8 text-emerald-400/50" />
+            <DollarSign className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-400/50 shrink-0 ml-2" />
           </div>
         </div>
       )}
@@ -533,47 +533,47 @@ export default function ReportsPage() {
       {/* PAYROLL TABLE */}
       {payrollData.length > 0 && (
         <div className="glass-panel rounded-xl border border-slate-700 overflow-hidden shadow-lg">
-          <div className="p-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
+          <div className="p-3.5 sm:p-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
             <span className="text-xs font-extrabold text-slate-200 uppercase tracking-wider">
               Payroll Register - {selectedMonth}
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[760px] text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
-                  <th className="pb-3 pt-4 pl-6">Employee</th>
-                  <th className="pb-3 pt-4 font-mono text-center">Worked Hours</th>
-                  <th className="pb-3 pt-4 font-mono text-right">Monthly Salary</th>
-                  <th className="pb-3 pt-4 font-mono text-right">Hourly Rate</th>
-                  <th className="pb-3 pt-4 font-mono text-right">Payable Salary</th>
-                  <th className="pb-3 pt-4 pr-6 text-center">Payslip</th>
+                <tr className="border-b border-slate-800 text-slate-300 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider bg-slate-950/40">
+                  <th className="py-3 px-4 pl-4 sm:pl-6">Employee</th>
+                  <th className="py-3 px-3 font-mono text-center">Worked Hours</th>
+                  <th className="py-3 px-3 font-mono text-right">Monthly Salary</th>
+                  <th className="py-3 px-3 font-mono text-right">Hourly Rate</th>
+                  <th className="py-3 px-3 font-mono text-right">Payable Salary</th>
+                  <th className="py-3 px-4 pr-4 sm:pr-6 text-center">Payslip</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850/50 text-xs text-slate-300">
                 {payrollData.map((item) => (
                   <tr key={item.employee_uuid} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
-                    <td className="py-3.5 pl-6">
+                    <td className="py-3 px-4 pl-4 sm:pl-6">
                       <p className="font-bold text-white text-xs">{item.full_name}</p>
                       <p className="text-[10px] text-slate-400 font-mono">{item.employee_id}</p>
                     </td>
-                    <td className="py-3.5 font-mono font-bold text-sky-400 text-center">
+                    <td className="py-3 px-3 font-mono font-bold text-sky-400 text-center whitespace-nowrap">
                       {item.total_worked_hours}h
                     </td>
-                    <td className="py-3.5 font-mono text-slate-200 text-right">
+                    <td className="py-3 px-3 font-mono text-slate-200 text-right whitespace-nowrap">
                       ₹{item.monthly_salary.toLocaleString('en-IN')}
                     </td>
-                    <td className="py-3.5 font-mono text-cyan-400 text-right font-semibold">
+                    <td className="py-3 px-3 font-mono text-cyan-400 text-right font-semibold whitespace-nowrap">
                       ₹{item.hourly_rate}/hr
                     </td>
-                    <td className="py-3.5 font-mono font-extrabold text-emerald-400 text-right text-sm">
+                    <td className="py-3 px-3 font-mono font-extrabold text-emerald-400 text-right text-xs sm:text-sm whitespace-nowrap">
                       ₹{item.payable_salary.toLocaleString('en-IN')}
                     </td>
-                    <td className="py-3.5 pr-6 text-center">
+                    <td className="py-3 px-4 pr-4 sm:pr-6 text-center whitespace-nowrap">
                       <button
                         onClick={() => handleDownloadPayslipPDF(item)}
-                        className="px-3 py-1.5 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 hover:bg-cyan-950/20 text-cyan-400 hover:text-cyan-300 font-bold rounded-lg text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5 mx-auto"
+                        className="px-2.5 py-1 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 hover:bg-cyan-950/20 text-cyan-400 hover:text-cyan-300 font-bold rounded-lg text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5 mx-auto cursor-pointer"
                         title={`Download PDF Payslip for ${item.full_name}`}
                       >
                         <Download className="w-3.5 h-3.5" />

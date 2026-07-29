@@ -802,15 +802,15 @@ export default function EmployeeAttendanceProfilePage() {
           {activeTab === 'history' && (
             <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full min-w-[640px] text-left border-collapse text-xs">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 text-[10px] font-extrabold uppercase bg-slate-950/40">
-                      <th className="px-4 py-3">Date</th>
-                      <th className="px-4 py-3">Check-In</th>
-                      <th className="px-4 py-3">Check-Out</th>
-                      <th className="px-4 py-3">Working Hours</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
+                    <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-extrabold uppercase bg-slate-950/40">
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Date</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-In</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-Out</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Working Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Status</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-850/50">
