@@ -459,52 +459,68 @@ export default function RootLayout({
         )}
 
         {/* Mobile Drawer Sidebar */}
-        <aside className={`fixed inset-y-0 left-0 z-50 w-64 glass-panel border-r border-slate-800 flex flex-col bg-slate-950/95 transition-transform duration-300 transform lg:hidden ${
+        <aside className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-full glass-panel border-r border-slate-800 flex flex-col justify-between bg-slate-950/95 transition-transform duration-300 transform lg:hidden ${
           isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}>
-          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 font-bold shadow-neon-glow">
-                <Layers className="w-5 h-5 text-slate-950" />
+          <div>
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 font-bold shadow-neon-glow">
+                  <Layers className="w-5 h-5 text-slate-950" />
+                </div>
+                <div>
+                  <h2 className="font-extrabold text-lg text-white leading-none tracking-wide">GAYTRI</h2>
+                  <span className="text-[11px] text-cyan-400 font-bold tracking-widest uppercase">COMMERCIAL</span>
+                </div>
               </div>
-              <div>
-                <h2 className="font-extrabold text-lg text-white leading-none tracking-wide">GAYTRI</h2>
-                <span className="text-[10px] text-cyan-400 font-bold tracking-widest uppercase">COMMERCIAL</span>
-              </div>
+              <button 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                aria-label="Close Navigation Menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <button 
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+
+            <nav className="px-4 py-4 space-y-2">
+              {menuItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.path;
+                return (
+                  <Link
+                    key={item.path}
+                    href={item.path}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-base font-bold transition-all duration-200 ${
+                      isActive 
+                        ? 'bg-gradient-to-r from-cyan-950/60 to-blue-950/40 text-cyan-400 border border-cyan-500/30 shadow-neon-glow'
+                        : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
+                    }`}
+                  >
+                    <Icon className={`w-5 h-5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
 
-          <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                    isActive 
-                      ? 'bg-gradient-to-r from-cyan-950/40 to-blue-950/20 text-cyan-400 border border-cyan-500/20 shadow-neon-glow'
-                      : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-100 hover:border hover:border-slate-800'
-                  }`}
-                >
-                  <Icon className={`w-5 h-5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
-          </nav>
+          {/* Pinned Bottom User Info & Console Status */}
+          <div className="p-4 border-t border-slate-800 bg-slate-900/60 space-y-3">
+            <div className="flex items-center space-x-3 px-1">
+              <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-extrabold text-cyan-400 text-xs">
+                {userInitial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-sm text-white truncate">{userName}</p>
+                <p className="text-xs text-cyan-400 truncate font-semibold">{userRole}</p>
+              </div>
+            </div>
 
-          <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
-            <span>Management Console v4.0</span>
-            <span className="text-cyan-455 font-bold uppercase">Prod Mode</span>
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 font-medium">
+              <span>Management Console v4.0</span>
+              <span className="text-cyan-400 font-bold uppercase text-[11px]">Prod Mode</span>
+            </div>
           </div>
         </aside>
 

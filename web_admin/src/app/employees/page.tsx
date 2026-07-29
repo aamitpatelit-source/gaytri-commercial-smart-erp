@@ -424,7 +424,7 @@ export default function EmployeesPage() {
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
+                <tr className="border-b border-slate-800 text-slate-200 text-xs lg:text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
                   <th className="pb-3 pt-4 pl-6 w-[12%]">Employee ID</th>
                   <th className="pb-3 pt-4 w-[22%]">Name</th>
                   <th className="pb-3 pt-4 w-[18%]">Assigned Shift</th>

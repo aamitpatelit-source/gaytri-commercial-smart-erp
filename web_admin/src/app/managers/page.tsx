@@ -435,7 +435,7 @@ export default function ManagersPage() {
             setSelectedDepts([]);
             setShowAddModal(true);
           }}
-          className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold flex items-center space-x-2 shadow-neon-glow text-xs border-0 cursor-pointer"
+          className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-extrabold flex items-center justify-center space-x-2 shadow-neon-glow text-sm lg:text-xs border-0 cursor-pointer"
         >
           <UserPlus className="w-4 h-4 text-slate-950" />
           <span>Onboard Operator</span>
@@ -469,7 +469,7 @@ export default function ManagersPage() {
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
+                <tr className="border-b border-slate-800 text-slate-200 text-xs lg:text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/30">
                   <th className="pb-3 pt-4 pl-6 w-[20%]">Name</th>
                   <th className="pb-3 pt-4 w-[25%]">Email</th>
                   <th className="pb-3 pt-4 w-[15%]">Role</th>

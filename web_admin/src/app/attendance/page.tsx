@@ -410,13 +410,13 @@ export default function EmployeeAttendanceDirectoryPage() {
           
           {/* Search Box */}
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
             <input
               type="text"
               placeholder="Search Name, ID, Designation..."
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-9 pr-4 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition-colors"
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm lg:text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-400 transition-colors"
             />
           </div>
 
@@ -424,7 +424,7 @@ export default function EmployeeAttendanceDirectoryPage() {
           <select
             value={selectedShift}
             onChange={(e) => { setSelectedShift(e.target.value); setCurrentPage(1); }}
-            className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 transition-colors"
+            className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm lg:text-xs text-slate-300 focus:outline-none focus:border-cyan-400 transition-colors"
           >
             <option value="All">All Shifts</option>
             <option value="Morning Shift">Morning Shift</option>
@@ -435,7 +435,7 @@ export default function EmployeeAttendanceDirectoryPage() {
           <select
             value={selectedStatus}
             onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
-            className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 transition-colors"
+            className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm lg:text-xs text-slate-300 focus:outline-none focus:border-cyan-400 transition-colors"
           >
             <option value="All">All Today Statuses</option>
             <option value="PRESENT">Present</option>
@@ -452,7 +452,7 @@ export default function EmployeeAttendanceDirectoryPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/40">
+              <tr className="border-b border-slate-800 text-slate-400 text-xs lg:text-[10px] font-extrabold uppercase tracking-wider bg-slate-950/40">
                 <th className="px-4 py-3.5">Employee Info</th>
                 <th className="px-4 py-3.5">Designation & Shift</th>
                 <th className="px-4 py-3.5">Reporting Manager</th>

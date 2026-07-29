@@ -415,21 +415,21 @@ export default function ReportsPage() {
 
         <form onSubmit={handleGeneratePayrollReport} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
+            <label className="text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
             <input
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
+              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2.5 px-3 text-sm lg:text-xs text-white outline-none font-mono"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-400 font-bold uppercase">Reporting Manager (Optional)</label>
+            <label className="text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Reporting Manager (Optional)</label>
             <select
               value={reportingManager}
               onChange={(e) => setReportingManager(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
+              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2.5 px-3 text-sm lg:text-xs text-white outline-none"
             >
               <option value="">All Managers</option>
               {managers.map(m => (
@@ -439,11 +439,11 @@ export default function ReportsPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] text-slate-400 font-bold uppercase">Status (Optional)</label>
+            <label className="text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Status (Optional)</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
+              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2.5 px-3 text-sm lg:text-xs text-white outline-none"
             >
               <option value="">All Statuses</option>
               <option value="PRESENT">Present</option>
@@ -457,7 +457,7 @@ export default function ReportsPage() {
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 h-[38px] min-w-[120px]"
+              className="flex-1 py-2.5 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm lg:text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 disabled:opacity-50 min-h-[40px] min-w-[120px]"
             >
               {loading ? (
                 <>
