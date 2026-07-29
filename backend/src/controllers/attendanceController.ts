@@ -557,7 +557,7 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
       a.id, a.date, a.time, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks, 
       a.gps_lat_in, a.gps_lng_in, a.gps_lat_out, a.gps_lng_out, a.device_name, a.network_type, a.battery_percentage, a.face_image_url,
       a.created_device, a.source, a.is_locked,
-      e.id as employee_uuid, e.full_name, e.employee_id, e.mobile, d.name as department, s.name as shift
+      e.id as employee_uuid, e.full_name, e.employee_id, e.mobile, COALESCE(e.monthly_salary, 0.00) as monthly_salary, d.name as department, s.name as shift
     `;
     let queryStr = `
       FROM attendance a
@@ -630,11 +630,29 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
     const finalQuery = `SELECT ${selectFields} ${queryStr} ORDER BY a.date DESC, COALESCE(a.check_in_time, a.time) DESC LIMIT $${counter++} OFFSET $${counter++}`;
     const result = await query(finalQuery, [...params, limit, offset]);
 
-    // Map rows to dynamically calculate working hours
-    const logs = result.rows.map(row => ({
-      ...row,
-      working_hours: calculateWorkingHours(row.check_in_time, row.check_out, row.status)
-    }));
+    const settings = await getBackendSettings();
+
+    // Map rows to dynamically calculate working hours & earned salary using calculation service
+    const logs = result.rows.map(row => {
+      const monthlySalary = parseFloat(row.monthly_salary || '0');
+      let earnedSalary = 0;
+      if (row.check_in_time && row.check_out && row.status !== 'ABSENT') {
+        const workedH = calculateWorkedHours(row.check_in_time, row.check_out, settings);
+        const paidH = Math.min(workedH, settings.paid_working_hours || 9);
+        const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH, 0, settings);
+        earnedSalary = Math.round(dailyCalc.totalDailyEarnings);
+      } else if (row.status === 'WORKING' || row.status === 'PRESENT' || row.status === 'LATE') {
+        if (monthlySalary > 0) {
+          earnedSalary = Math.round(monthlySalary / (settings.monthly_working_days || 26));
+        }
+      }
+      return {
+        ...row,
+        working_hours: calculateWorkingHours(row.check_in_time, row.check_out, row.status),
+        earned_amount: earnedSalary,
+        daily_salary: earnedSalary
+      };
+    });
 
     return res.status(200).json({
       success: true,

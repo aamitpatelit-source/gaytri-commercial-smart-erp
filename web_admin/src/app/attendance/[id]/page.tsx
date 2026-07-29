@@ -55,6 +55,8 @@ interface AttendanceLog {
   check_out: string | null;
   working_hours: string | null;
   status: string;
+  earned_amount?: number;
+  daily_salary?: number;
   remarks: string | null;
   gps_lat_in: number | null;
   gps_lng_in: number | null;
@@ -931,13 +933,14 @@ export default function EmployeeAttendanceProfilePage() {
           {activeTab === 'history' && (
             <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left border-collapse text-xs">
+                <table className="w-full min-w-[680px] text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-extrabold uppercase bg-slate-950/40">
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Date</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-In</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-Out</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Working Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Earned</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Status</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Actions</th>
                     </tr>
@@ -945,16 +948,29 @@ export default function EmployeeAttendanceProfilePage() {
                   <tbody className="divide-y divide-slate-850/50">
                     {logs.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No attendance logs found for this month.</td>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">No attendance logs found for this month.</td>
                       </tr>
                     ) : (
                       logs.map((log) => (
                         <tr key={log.id} className="hover:bg-slate-900/30">
                           <td className="px-4 py-3 font-mono">{log.date.split('T')[0]}</td>
-                          <td className="px-4 py-3 font-mono">{formatTo12Hour(log.check_in_time)}</td>
-                          <td className="px-4 py-3 font-mono">{formatTo12Hour(log.check_out)}</td>
+                          <td className="px-4 py-3 font-mono text-emerald-400 font-semibold">{formatTo12Hour(log.check_in_time)}</td>
+                          <td className="px-4 py-3 font-mono text-amber-400 font-semibold">{formatTo12Hour(log.check_out)}</td>
                           <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.working_hours || '--'}</td>
-                          <td className="px-4 py-3 font-bold text-emerald-400">{log.status}</td>
+                          <td className="px-4 py-3 font-mono text-emerald-400 font-extrabold">
+                            {log.status === 'ABSENT' ? '₹0' : `₹${Math.round(log.earned_amount ?? log.daily_salary ?? 0).toLocaleString('en-IN')}`}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-slate-200">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase font-mono ${
+                              log.status === 'PRESENT' ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/40' :
+                              log.status === 'LATE' ? 'bg-amber-950/80 text-amber-400 border border-amber-500/40' :
+                              log.status === 'WORKING' ? 'bg-sky-950/80 text-sky-400 border border-sky-500/40' :
+                              log.status === 'HALF_DAY' ? 'bg-purple-950/80 text-purple-400 border border-purple-500/40' :
+                              'bg-rose-950/80 text-rose-400 border border-rose-500/40'
+                            }`}>
+                              {log.status}
+                            </span>
+                          </td>
                           <td className="px-4 py-3 text-right">
                             {(userRole === 'SUPER_ADMIN' || userRole === 'ADMIN') && (
                               <button
