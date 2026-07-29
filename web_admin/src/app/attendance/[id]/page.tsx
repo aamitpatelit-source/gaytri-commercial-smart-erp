@@ -759,16 +759,16 @@ export default function EmployeeAttendanceProfilePage() {
                 </div>
               </div>
 
-              {/* Calendar Grid Container with Responsive Overflow */}
-              <div className="overflow-x-auto">
-                <div className="min-w-[420px] sm:min-w-0 space-y-2">
+              {/* Calendar Grid Container with Responsive Spacing */}
+              <div className="overflow-x-auto pt-2 pb-1">
+                <div className="min-w-[420px] sm:min-w-0 space-y-3">
                   {/* 7-Column Days Header */}
-                  <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[10px] sm:text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
+                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center text-[10px] sm:text-xs font-bold text-slate-400 border-b border-slate-800 pb-2.5">
                     <span className="text-indigo-400">Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
                   </div>
 
                   {/* 7-Column Calendar Cells Grid */}
-                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
                     {getCalendarDays().map((day, idx) => {
                       const info = getDayStatusInfo(day);
                       const log = monthlyCalendarLogs[day.dateStr];
@@ -839,16 +839,16 @@ export default function EmployeeAttendanceProfilePage() {
                         <div
                           key={idx}
                           onClick={() => info.clickable && handleDayClick(day.dateStr)}
-                          className={`relative group h-12 sm:h-16 p-1 sm:p-2 rounded-lg border flex flex-col justify-between text-[10px] sm:text-xs transition-all ${info.styling}`}
+                          className={`relative group min-h-[56px] sm:min-h-[64px] p-1.5 sm:p-2 rounded-lg border flex flex-col justify-between text-[10px] sm:text-xs transition-all ${info.styling}`}
                         >
                           {day.type === 'day' && (
                             <>
                               <div className="flex items-center justify-between">
-                                <span className="font-extrabold text-[10px] sm:text-[12px]">{day.dayNum}</span>
+                                <span className="font-extrabold text-[10px] sm:text-[12px] text-slate-100">{day.dayNum}</span>
                                 {day.isSunday && <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase">Sun</span>}
                               </div>
                               {info.label && (
-                                <span className="text-[8px] sm:text-[9px] font-mono font-extrabold uppercase tracking-tight truncate block">
+                                <span className="text-[8.5px] sm:text-[9.5px] font-mono font-extrabold uppercase tracking-tight truncate block leading-tight pt-1">
                                   {info.label}
                                 </span>
                               )}
