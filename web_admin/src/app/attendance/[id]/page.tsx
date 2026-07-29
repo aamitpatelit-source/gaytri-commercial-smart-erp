@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 
 import { API_URL } from '../../../config';
+import { parseTimeToMinutes, calculateWorkedHours, calculateDailySalary } from '../../../utils/calculationService';
 
 interface EmployeeProfile {
   id: string;
@@ -770,11 +771,60 @@ export default function EmployeeAttendanceProfilePage() {
                   <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {getCalendarDays().map((day, idx) => {
                       const info = getDayStatusInfo(day);
+                      const log = monthlyCalendarLogs[day.dateStr];
+                      const monthlySalary = parseFloat((employee as any)?.monthly_salary || 0);
+
+                      let statusLabel = 'ABSENT';
+                      if (log) {
+                        statusLabel = log.status;
+                      } else if (day.isFuture) {
+                        statusLabel = 'FUTURE DATE';
+                      } else if (day.isSunday) {
+                        statusLabel = 'WEEKLY OFF';
+                      }
+
+                      const checkInStr = log?.check_in_time ? formatTo12Hour(log.check_in_time) : '--:--';
+                      const checkOutStr = log?.check_out ? formatTo12Hour(log.check_out) : '--:--';
+
+                      let workedHoursStr = '--';
+                      let paidHoursStr = '--';
+                      let lateByStr = 'No';
+                      let dailySalaryStr = '--';
+                      let overtimeStr = '--';
+
+                      if (log) {
+                        if (log.check_in_time) {
+                          const checkInMins = parseTimeToMinutes(log.check_in_time);
+                          const shiftStartMins = 540;
+                          if (checkInMins > 555) {
+                            lateByStr = `${checkInMins - shiftStartMins} mins`;
+                          }
+                        }
+
+                        if (log.check_in_time && log.check_out) {
+                          const workedH = calculateWorkedHours(log.check_in_time, log.check_out);
+                          workedHoursStr = `${workedH} hrs`;
+                          const paidH = Math.min(workedH, 9);
+                          paidHoursStr = `${paidH} hrs`;
+                          if (workedH > 9) {
+                            overtimeStr = `${(workedH - 9).toFixed(2)} hrs`;
+                          }
+                          const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH);
+                          dailySalaryStr = `₹${dailyCalc.totalDailyEarnings.toLocaleString('en-IN')}`;
+                        } else if (log.status === 'WORKING' || log.status === 'PRESENT' || log.status === 'LATE') {
+                          workedHoursStr = 'Running';
+                          paidHoursStr = 'Running';
+                          if (monthlySalary > 0) {
+                            dailySalaryStr = `₹${Math.round(monthlySalary / 26).toLocaleString('en-IN')}`;
+                          }
+                        }
+                      }
+
                       return (
                         <div
                           key={idx}
                           onClick={() => info.clickable && handleDayClick(day.dateStr)}
-                          className={`h-12 sm:h-16 p-1 sm:p-2 rounded-lg border flex flex-col justify-between text-[10px] sm:text-xs transition-all ${info.styling}`}
+                          className={`relative group h-12 sm:h-16 p-1 sm:p-2 rounded-lg border flex flex-col justify-between text-[10px] sm:text-xs transition-all ${info.styling}`}
                         >
                           {day.type === 'day' && (
                             <>
@@ -787,6 +837,40 @@ export default function EmployeeAttendanceProfilePage() {
                                   {info.label}
                                 </span>
                               )}
+
+                              {/* Modern Hover Tooltip */}
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl backdrop-blur-md opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-150 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
+                                  <span className="font-bold text-white text-xs">{day.dateStr}</span>
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                    statusLabel === 'PRESENT' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+                                    statusLabel === 'LATE' ? 'bg-amber-950 text-amber-400 border border-amber-800' :
+                                    statusLabel === 'WORKING' ? 'bg-sky-950 text-sky-400 border border-sky-800' :
+                                    statusLabel === 'HALF DAY' ? 'bg-indigo-950 text-indigo-400 border border-indigo-800' :
+                                    statusLabel === 'WEEKLY OFF' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800' :
+                                    statusLabel === 'FUTURE DATE' ? 'bg-slate-950 text-slate-400 border border-slate-800' :
+                                    'bg-rose-950 text-rose-400 border border-rose-800'
+                                  }`}>
+                                    {statusLabel}
+                                  </span>
+                                </div>
+
+                                {log ? (
+                                  <div className="space-y-1 font-mono text-[10px]">
+                                    <div className="flex justify-between"><span className="text-slate-400">Check-In:</span> <strong className="text-emerald-400">{checkInStr}</strong></div>
+                                    <div className="flex justify-between"><span className="text-slate-400">Check-Out:</span> <strong className="text-amber-400">{checkOutStr}</strong></div>
+                                    <div className="flex justify-between"><span className="text-slate-400">Worked Hours:</span> <strong className="text-cyan-400">{workedHoursStr}</strong></div>
+                                    <div className="flex justify-between"><span className="text-slate-400">Paid Hours:</span> <strong className="text-slate-200">{paidHoursStr}</strong></div>
+                                    <div className="flex justify-between"><span className="text-slate-400">Late By:</span> <strong className={lateByStr !== 'No' ? 'text-amber-400' : 'text-slate-300'}>{lateByStr}</strong></div>
+                                    <div className="flex justify-between border-t border-slate-800 pt-1 mt-1"><span className="text-slate-400 font-bold">Daily Salary:</span> <strong className="text-emerald-400 font-bold">{dailySalaryStr}</strong></div>
+                                    {overtimeStr !== '--' && <div className="flex justify-between"><span className="text-slate-400">Overtime:</span> <strong className="text-purple-400">{overtimeStr}</strong></div>}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-slate-400 text-center py-1 font-semibold">
+                                    Status: {statusLabel}
+                                  </div>
+                                )}
+                              </div>
                             </>
                           )}
                         </div>
