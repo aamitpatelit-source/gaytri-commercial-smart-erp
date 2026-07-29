@@ -43,6 +43,7 @@ const managerScopeService_1 = require("../services/managerScopeService");
 const calculationService_1 = require("../services/calculationService");
 const getBackendSettings = async () => {
     try {
+        await (0, db_1.query)('ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS attendance_payroll_config JSONB');
         const res = await (0, db_1.query)('SELECT attendance_payroll_config FROM company_settings LIMIT 1');
         if (res.rows.length > 0 && res.rows[0].attendance_payroll_config) {
             const config = typeof res.rows[0].attendance_payroll_config === 'string'
@@ -741,10 +742,10 @@ const employeeCheckIn = async (req, res) => {
                 message: `Already checked in today with status ${existing.rows[0].status}.`
             });
         }
-        // 2. Fetch active settings to detect late arrivals
+        // 2. Fetch active settings to detect late arrivals immediately at Check-In
         const settings = await (0, exports.getBackendSettings)();
-        const evaluated = (0, calculationService_1.evaluateAttendanceStatus)(nowTime, null, settings);
-        const status = evaluated.isLate ? 'LATE' : 'WORKING';
+        const checkInEval = (0, calculationService_1.evaluateCheckIn)(nowTime, settings);
+        const status = checkInEval.status; // 'LATE' or 'WORKING'
         let attendanceId;
         if (existing.rows.length > 0) {
             // Update the ABSENT record to WORKING
@@ -851,11 +852,15 @@ const employeeCheckOut = async (req, res) => {
                 console.log('Checkout API -> Employee already checked out today.');
                 return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
             }
-            // Fetch active settings to evaluate final status (Late, Present, Half Day, Absent)
+            // Fetch active settings to evaluate final status without recalculating Late status
             const settings = await (0, exports.getBackendSettings)();
             const checkInTime = record.check_in_time || record.time || '09:00:00';
-            const evaluated = (0, calculationService_1.evaluateAttendanceStatus)(checkInTime, nowTime, settings);
-            finalStatus = evaluated.status;
+            const existingIsLate = record.status === 'LATE';
+            const checkInMins = (0, calculationService_1.getMinutesFromInput)(checkInTime);
+            const shiftStartMins = (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00');
+            const existingLateMins = existingIsLate ? Math.max(0, checkInMins - shiftStartMins) : 0;
+            const checkOutEval = (0, calculationService_1.evaluateCheckOut)(checkInTime, nowTime, existingIsLate, existingLateMins, settings);
+            finalStatus = checkOutEval.status;
             console.log('↓');
             console.log(`Updating Checkout: check_out_time=${nowTime}, finalStatus=${finalStatus}`);
             // Update the existing record
@@ -1223,9 +1228,12 @@ const getMonthlyPayrollReport = async (req, res) => {
         const employees = empRes.rows;
         const settings = await (0, exports.getBackendSettings)();
         const payrollReport = [];
+        const tz = await (0, exports.getCompanyTimezone)();
+        const todayStr = (0, moment_timezone_1.default)().tz(tz).format('YYYY-MM-DD');
+        const nowTime = (0, moment_timezone_1.default)().tz(tz).format('HH:mm:ss');
         for (const emp of employees) {
             let attQueryStr = `
-        SELECT date, check_in_time, check_out_time, status
+        SELECT date, time, check_in_time, check_out_time, status
         FROM attendance
         WHERE employee_id = $1
           AND date >= $2
@@ -1240,24 +1248,74 @@ const getMonthlyPayrollReport = async (req, res) => {
             const attRes = await (0, db_1.query)(attQueryStr, attParams);
             const records = attRes.rows;
             let totalWorkedHoursSum = 0;
+            let totalPaidHoursSum = 0;
             let presentDays = 0;
             let halfDays = 0;
+            let lateCount = 0;
+            let absentCount = 0;
+            let overtimeHoursSum = 0;
+            let todayRecord = null;
             for (const rec of records) {
-                if (rec.check_in_time && rec.check_out_time) {
-                    const hours = (0, calculationService_1.calculateWorkedHours)(rec.check_in_time, rec.check_out_time, settings);
-                    const evalRes = (0, calculationService_1.evaluateAttendanceStatus)(rec.check_in_time, rec.check_out_time, settings);
-                    totalWorkedHoursSum += hours;
+                const dStr = typeof rec.date === 'string' ? rec.date.split('T')[0] : (0, moment_timezone_1.default)(rec.date).format('YYYY-MM-DD');
+                if (dStr === todayStr) {
+                    todayRecord = rec;
+                }
+                const checkIn = rec.check_in_time || rec.time;
+                const checkOut = rec.check_out_time;
+                if (checkIn && checkOut) {
+                    const isLate = rec.status === 'LATE';
+                    const lateMins = isLate ? Math.max(0, (0, calculationService_1.getMinutesFromInput)(checkIn) - (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00')) : 0;
+                    const evalRes = (0, calculationService_1.evaluateCheckOut)(checkIn, checkOut, isLate, lateMins, settings);
+                    totalWorkedHoursSum += evalRes.workedHours;
+                    totalPaidHoursSum += evalRes.paidHours;
+                    overtimeHoursSum += evalRes.overtimeHours;
+                    if (isLate)
+                        lateCount++;
                     if (evalRes.status === 'HALF_DAY') {
                         halfDays++;
                     }
-                    else if (evalRes.status !== 'ABSENT') {
+                    else if (evalRes.status === 'ABSENT') {
+                        absentCount++;
+                    }
+                    else {
                         presentDays++;
                     }
                 }
+                else if (rec.status === 'LATE' || rec.status === 'WORKING') {
+                    if (rec.status === 'LATE')
+                        lateCount++;
+                    presentDays++;
+                }
+                else if (rec.status === 'ABSENT') {
+                    absentCount++;
+                }
             }
             totalWorkedHoursSum = parseFloat(totalWorkedHoursSum.toFixed(2));
+            totalPaidHoursSum = parseFloat(totalPaidHoursSum.toFixed(2));
+            overtimeHoursSum = parseFloat(overtimeHoursSum.toFixed(2));
             const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
-            const salaryCalc = (0, calculationService_1.calculatePayrollSalary)(monthlySalary, presentDays, halfDays, totalWorkedHoursSum, 0, settings);
+            const salaryCalc = (0, calculationService_1.calculatePayrollSalary)(monthlySalary, presentDays, halfDays, totalWorkedHoursSum, overtimeHoursSum, settings);
+            let todayWorkedHours = 0;
+            let todayPaidHours = 0;
+            let todayLateMinutes = 0;
+            let todayDailySalary = 0;
+            if (todayRecord) {
+                const inT = todayRecord.check_in_time || todayRecord.time;
+                const outT = todayRecord.check_out_time || nowTime;
+                if (inT) {
+                    todayWorkedHours = (0, calculationService_1.calculateWorkedHours)(inT, outT, settings);
+                    todayPaidHours = Math.min(todayWorkedHours, settings.paid_working_hours || 9);
+                    if (todayRecord.status === 'LATE') {
+                        todayLateMinutes = Math.max(0, (0, calculationService_1.getMinutesFromInput)(inT) - (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00'));
+                    }
+                    const dailyCalc = (0, calculationService_1.calculateDailySalary)(monthlySalary, todayWorkedHours, todayPaidHours, 0, settings);
+                    todayDailySalary = dailyCalc.totalDailyEarnings;
+                }
+            }
+            const totalConsideredDays = presentDays + halfDays + absentCount;
+            const attendancePercentage = totalConsideredDays > 0
+                ? Math.round(((presentDays + halfDays * 0.5) / totalConsideredDays) * 100)
+                : 100;
             payrollReport.push({
                 employee_uuid: emp.id,
                 employee_id: emp.employee_id,
@@ -1268,8 +1326,26 @@ const getMonthlyPayrollReport = async (req, res) => {
                 reporting_manager: emp.reporting_manager || 'N/A',
                 month: selectedMonth,
                 monthly_salary: monthlySalary,
-                standard_hours: (settings.monthly_working_days || 26) * (settings.paid_working_hours || 9),
+                daily_rate: salaryCalc.dailyRate,
                 hourly_rate: salaryCalc.hourlyRate,
+                today_status: todayRecord?.status || 'NOT_MARKED',
+                today_check_in: todayRecord?.check_in_time || todayRecord?.time || null,
+                today_check_out: todayRecord?.check_out_time || null,
+                today_worked_hours: todayWorkedHours,
+                today_paid_hours: todayPaidHours,
+                today_late_minutes: todayLateMinutes,
+                today_daily_salary: todayDailySalary,
+                month_worked_hours: totalWorkedHoursSum,
+                month_paid_hours: totalPaidHoursSum,
+                month_payroll: salaryCalc.totalPay,
+                attendance_percentage: attendancePercentage,
+                late_count: lateCount,
+                half_day_count: halfDays,
+                absent_count: absentCount,
+                overtime_hours: overtimeHoursSum,
+                current_payroll_amount: salaryCalc.totalPay,
+                projected_salary: monthlySalary,
+                standard_hours: (settings.monthly_working_days || 26) * (settings.paid_working_hours || 9),
                 total_worked_hours: totalWorkedHoursSum,
                 present_days: presentDays,
                 payable_salary: salaryCalc.totalPay,

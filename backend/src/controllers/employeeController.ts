@@ -3,6 +3,14 @@ import poolProxy, { query } from '../config/db';
 import bcrypt from 'bcryptjs';
 import { AuthRequest } from '../middleware/auth';
 import { getAssignedEmployeeIds, canManageEmployee } from '../services/managerScopeService';
+import { 
+  DEFAULT_ATTENDANCE_PAYROLL_SETTINGS,
+  evaluateCheckOut,
+  calculateWorkedHours,
+  calculateDailySalary,
+  getMinutesFromInput,
+  parseTimeToMinutes
+} from '../services/calculationService';
 
 // Get all employees
 export const getEmployees = async (req: AuthRequest, res: Response) => {
@@ -477,9 +485,61 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
 
+    const emp = employeeRes.rows[0];
+    const settings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS;
+
+    const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
+    const workingDays = settings.monthly_working_days || 26;
+    const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;
+    const paidHoursPerDay = settings.paid_working_hours || 9;
+    const hourlyRate = dailyRate > 0 && paidHoursPerDay > 0 ? dailyRate / paidHoursPerDay : 0;
+
+    let todaysWorkedHours = 0;
+    let todaysPaidHours = 0;
+    let todaysLunchDeduction = 0;
+    let todaysLateMinutes = 0;
+    let isLate = emp.current_status === 'LATE';
+    let isEarlyDeparture = false;
+    let todaysDailySalary = 0;
+
+    if (emp.todays_check_in) {
+      const nowTime = new Date().toTimeString().split(' ')[0];
+      const checkOutTime = emp.todays_check_out || nowTime;
+
+      const checkInMins = getMinutesFromInput(emp.todays_check_in);
+      const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
+      isLate = isLate || checkInMins > (shiftStartMins + (settings.late_grace_period || 15));
+      if (isLate) {
+        todaysLateMinutes = Math.max(0, checkInMins - shiftStartMins);
+      }
+
+      const evalRes = evaluateCheckOut(emp.todays_check_in, checkOutTime, isLate, todaysLateMinutes, settings);
+      todaysWorkedHours = evalRes.workedHours;
+      todaysPaidHours = evalRes.paidHours;
+      todaysLunchDeduction = evalRes.lunchDeductionHours;
+      isEarlyDeparture = evalRes.isEarlyDeparture;
+
+      const dailyCalc = calculateDailySalary(monthlySalary, todaysWorkedHours, todaysPaidHours, evalRes.overtimeHours, settings);
+      todaysDailySalary = dailyCalc.totalDailyEarnings;
+    }
+
+    const enrichedEmployee = {
+      ...emp,
+      daily_rate: parseFloat(dailyRate.toFixed(2)),
+      hourly_rate: parseFloat(hourlyRate.toFixed(2)),
+      todays_worked_hours: todaysWorkedHours,
+      todays_paid_hours: todaysPaidHours,
+      todays_lunch_deduction: todaysLunchDeduction,
+      todays_late_minutes: todaysLateMinutes,
+      is_late: isLate,
+      is_early_departure: isEarlyDeparture,
+      todays_daily_salary: todaysDailySalary,
+      expected_end_time: settings.shift_end_time || '19:00'
+    };
+
     return res.status(200).json({
       success: true,
-      employee: employeeRes.rows[0]
+      employee: enrichedEmployee
     });
   } catch (error) {
     console.error('[Employee Error] Get employee by id failed:', error);

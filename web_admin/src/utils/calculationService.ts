@@ -80,7 +80,30 @@ export function getMinutesFromInput(input: string | Date | null): number {
 }
 
 /**
- * Calculates net worked hours considering lunch deduction and paid hours cap
+ * Evaluates Check-In immediately. Late status is set if Check-In > (Shift Start + Grace Period).
+ */
+export function evaluateCheckIn(
+  checkInIso: string | Date,
+  settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
+): {
+  isLate: boolean;
+  lateMinutes: number;
+  status: 'LATE' | 'WORKING';
+} {
+  const checkInMins = getMinutesFromInput(checkInIso);
+  const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
+  const lateGrace = settings.late_grace_period ?? 15;
+  const lateCutoffMins = shiftStartMins + lateGrace;
+
+  const isLate = checkInMins > lateCutoffMins;
+  const lateMinutes = isLate ? Math.max(0, checkInMins - shiftStartMins) : 0;
+  const status = isLate ? 'LATE' : 'WORKING';
+
+  return { isLate, lateMinutes, status };
+}
+
+/**
+ * Calculates net worked hours considering lunch deduction
  */
 export function calculateWorkedHours(
   checkInIso: string | Date | null,
@@ -89,35 +112,95 @@ export function calculateWorkedHours(
 ): number {
   if (!checkInIso || !checkOutIso) return 0;
 
-  const checkIn = new Date(checkInIso);
-  const checkOut = new Date(checkOutIso);
+  const checkInMins = getMinutesFromInput(checkInIso);
+  const checkOutMins = getMinutesFromInput(checkOutIso);
+  let durMins = checkOutMins - checkInMins;
+  if (durMins < 0) durMins += 24 * 60;
 
-  let diffMs = 0;
-  if (!isNaN(checkIn.getTime()) && !isNaN(checkOut.getTime())) {
-    diffMs = checkOut.getTime() - checkIn.getTime();
-  } else {
-    const inMins = getMinutesFromInput(checkInIso);
-    const outMins = getMinutesFromInput(checkOutIso);
-    let dur = outMins - inMins;
-    if (dur < 0) dur += 24 * 60;
-    diffMs = dur * 60 * 1000;
+  if (durMins <= 0) return 0;
+
+  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0 && durMins >= settings.lunch_break_duration) {
+    durMins = Math.max(0, durMins - settings.lunch_break_duration);
   }
 
-  if (diffMs <= 0) return 0;
-
-  let totalMinutes = Math.floor(diffMs / (1000 * 60));
-
-  // Subtract lunch break if auto lunch deduction is enabled
-  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0) {
-    totalMinutes = Math.max(0, totalMinutes - settings.lunch_break_duration);
-  }
-
-  const hours = parseFloat((totalMinutes / 60).toFixed(2));
-  return hours;
+  return parseFloat((durMins / 60).toFixed(2));
 }
 
 /**
- * Evaluates attendance status using configured grace periods and thresholds
+ * Evaluates Check-Out.
+ * CRITICAL: NEVER recalculates isLate. Late status determined during Check-In is preserved.
+ */
+export function evaluateCheckOut(
+  checkInIso: string | Date,
+  checkOutIso: string | Date,
+  existingIsLate: boolean,
+  existingLateMinutes: number = 0,
+  settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
+): {
+  status: string;
+  isLate: boolean;
+  lateMinutes: number;
+  isEarlyDeparture: boolean;
+  workedHours: number;
+  paidHours: number;
+  lunchDeductionHours: number;
+  overtimeHours: number;
+} {
+  const isLate = existingIsLate;
+  const lateMinutes = existingLateMinutes;
+
+  const checkInMins = getMinutesFromInput(checkInIso);
+  const checkOutMins = getMinutesFromInput(checkOutIso);
+  const shiftEndMins = parseTimeToMinutes(settings.shift_end_time || '19:00');
+  const earlyGrace = settings.early_checkout_grace_period ?? 15;
+  const earlyCutoffMins = shiftEndMins - earlyGrace;
+  const isEarlyDeparture = checkOutMins < earlyCutoffMins;
+
+  let totalSpanMinutes = checkOutMins - checkInMins;
+  if (totalSpanMinutes < 0) totalSpanMinutes += 24 * 60;
+
+  let lunchDeductionMinutes = 0;
+  if (settings.auto_lunch_deduction && settings.lunch_break_duration > 0 && totalSpanMinutes >= settings.lunch_break_duration) {
+    lunchDeductionMinutes = settings.lunch_break_duration;
+  }
+
+  const netWorkedMinutes = Math.max(0, totalSpanMinutes - lunchDeductionMinutes);
+  const workedHours = parseFloat((netWorkedMinutes / 60).toFixed(2));
+  const lunchDeductionHours = parseFloat((lunchDeductionMinutes / 60).toFixed(2));
+
+  const standardPaidHours = settings.paid_working_hours || 9;
+  const paidHours = parseFloat(Math.min(workedHours, standardPaidHours).toFixed(2));
+
+  let overtimeHours = 0;
+  if (settings.overtime_enabled && workedHours > standardPaidHours) {
+    overtimeHours = parseFloat((workedHours - standardPaidHours).toFixed(2));
+  }
+
+  let status = 'PRESENT';
+  if (workedHours < settings.absent_threshold_hours) {
+    status = 'ABSENT';
+  } else if (workedHours < settings.min_hours_half_day) {
+    status = 'HALF_DAY';
+  } else if (isLate) {
+    status = 'LATE';
+  } else {
+    status = 'PRESENT';
+  }
+
+  return {
+    status,
+    isLate,
+    lateMinutes,
+    isEarlyDeparture,
+    workedHours,
+    paidHours,
+    lunchDeductionHours,
+    overtimeHours
+  };
+}
+
+/**
+ * Standardized status evaluation function maintaining interface compatibility
  */
 export function evaluateAttendanceStatus(
   checkInIso: string | Date | null,
@@ -128,43 +211,102 @@ export function evaluateAttendanceStatus(
     return { status: 'ABSENT', isLate: false, isEarlyDeparture: false, workedHours: 0 };
   }
 
-  const checkInMins = getMinutesFromInput(checkInIso);
-  const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
-  const lateGrace = settings.late_grace_period ?? 15;
-  const lateCutoffMins = shiftStartMins + lateGrace;
-
-  // Late check-in evaluation: checkIn after shiftStart + grace period
-  const isLate = checkInMins > lateCutoffMins;
-
-  let isEarlyDeparture = false;
-  if (checkOutIso) {
-    const checkOutMins = getMinutesFromInput(checkOutIso);
-    const shiftEndMins = parseTimeToMinutes(settings.shift_end_time || '19:00');
-    const earlyGrace = settings.early_checkout_grace_period ?? 15;
-    const earlyCutoffMins = shiftEndMins - earlyGrace;
-    isEarlyDeparture = checkOutMins < earlyCutoffMins;
+  const checkInEval = evaluateCheckIn(checkInIso, settings);
+  if (!checkOutIso) {
+    return {
+      status: checkInEval.status,
+      isLate: checkInEval.isLate,
+      isEarlyDeparture: false,
+      workedHours: 0
+    };
   }
 
-  const workedHours = checkOutIso ? calculateWorkedHours(checkInIso, checkOutIso, settings) : 0;
-
-  let status = 'PRESENT';
-  if (isLate) {
-    status = 'LATE';
-  } else if (!checkOutIso) {
-    status = 'WORKING';
-  } else if (workedHours < settings.absent_threshold_hours) {
-    status = 'ABSENT';
-  } else if (workedHours < settings.min_hours_half_day) {
-    status = 'HALF_DAY';
-  } else {
-    status = 'PRESENT';
-  }
-
-  return { status, isLate, isEarlyDeparture, workedHours };
+  const checkOutEval = evaluateCheckOut(checkInIso, checkOutIso, checkInEval.isLate, checkInEval.lateMinutes, settings);
+  return {
+    status: checkOutEval.status,
+    isLate: checkOutEval.isLate,
+    isEarlyDeparture: checkOutEval.isEarlyDeparture,
+    workedHours: checkOutEval.workedHours
+  };
 }
 
 /**
- * Calculates payroll earnings based on configured calculation methods
+ * Calculates daily earnings for a single attendance session
+ */
+export function calculateDailySalary(
+  monthlySalary: number,
+  workedHours: number,
+  paidHours: number,
+  overtimeHours: number = 0,
+  settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
+): {
+  monthlySalary: number;
+  dailyRate: number;
+  hourlyRate: number;
+  earnedSalary: number;
+  overtimePay: number;
+  totalDailyEarnings: number;
+} {
+  const workingDays = settings.monthly_working_days || 26;
+  const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;
+  
+  const paidHoursPerDay = settings.paid_working_hours || 9;
+  const hourlyRate = dailyRate > 0 && paidHoursPerDay > 0 ? dailyRate / paidHoursPerDay : 0;
+
+  let earnedSalary = 0;
+
+  if (settings.payroll_calculation_method === 'HOURLY') {
+    earnedSalary = paidHours * hourlyRate;
+  } else if (settings.payroll_calculation_method === 'PER_MINUTE') {
+    const minuteRate = hourlyRate / 60;
+    earnedSalary = (workedHours * 60) * minuteRate;
+  } else {
+    // FIXED_MONTHLY
+    if (workedHours > 0) {
+      if (paidHours >= paidHoursPerDay || workedHours >= settings.min_hours_full_day) {
+        earnedSalary = dailyRate;
+      } else if (workedHours >= settings.min_hours_half_day) {
+        earnedSalary = dailyRate * 0.5;
+      } else {
+        earnedSalary = dailyRate * (paidHours / paidHoursPerDay);
+      }
+    }
+  }
+
+  let overtimePay = 0;
+  if (settings.overtime_enabled && overtimeHours > 0) {
+    const multiplier = settings.overtime_multiplier || 1.5;
+    overtimePay = overtimeHours * hourlyRate * multiplier;
+  }
+
+  let totalDailyEarnings = earnedSalary + overtimePay;
+
+  if (settings.salary_rounding_method === 'NEAREST') {
+    earnedSalary = Math.round(earnedSalary);
+    totalDailyEarnings = Math.round(totalDailyEarnings);
+  } else if (settings.salary_rounding_method === 'FLOOR') {
+    earnedSalary = Math.floor(earnedSalary);
+    totalDailyEarnings = Math.floor(totalDailyEarnings);
+  } else if (settings.salary_rounding_method === 'CEIL') {
+    earnedSalary = Math.ceil(earnedSalary);
+    totalDailyEarnings = Math.ceil(totalDailyEarnings);
+  } else {
+    earnedSalary = parseFloat(earnedSalary.toFixed(2));
+    totalDailyEarnings = parseFloat(totalDailyEarnings.toFixed(2));
+  }
+
+  return {
+    monthlySalary,
+    dailyRate: parseFloat(dailyRate.toFixed(2)),
+    hourlyRate: parseFloat(hourlyRate.toFixed(2)),
+    earnedSalary,
+    overtimePay: parseFloat(overtimePay.toFixed(2)),
+    totalDailyEarnings
+  };
+}
+
+/**
+ * Calculates monthly payroll summary
  */
 export function calculatePayrollSalary(
   monthlySalary: number,
@@ -174,26 +316,20 @@ export function calculatePayrollSalary(
   overtimeHours: number = 0,
   settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
 ): { baseSalary: number; earnedSalary: number; overtimePay: number; totalPay: number; dailyRate: number; hourlyRate: number } {
+  const dailyResult = calculateDailySalary(monthlySalary, totalWorkedHours, totalWorkedHours, overtimeHours, settings);
   const workingDays = settings.monthly_working_days || 26;
   const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;
-  
-  const paidHoursPerDay = settings.paid_working_hours || 9;
-  const hourlyRate = dailyRate > 0 && paidHoursPerDay > 0 ? dailyRate / paidHoursPerDay : 0;
 
-  // Calculate earned salary based on attendance days
   const effectiveDays = presentDays + (halfDays * 0.5);
   let earnedSalary = dailyRate * effectiveDays;
 
-  // Calculate overtime pay if enabled
   let overtimePay = 0;
   if (settings.overtime_enabled && overtimeHours > 0) {
-    const multiplier = settings.overtime_multiplier || 1.5;
-    overtimePay = overtimeHours * hourlyRate * multiplier;
+    overtimePay = overtimeHours * dailyResult.hourlyRate * (settings.overtime_multiplier || 1.5);
   }
 
   let totalPay = earnedSalary + overtimePay;
 
-  // Apply rounding
   if (settings.salary_rounding_method === 'NEAREST') {
     earnedSalary = Math.round(earnedSalary);
     totalPay = Math.round(totalPay);
@@ -214,6 +350,6 @@ export function calculatePayrollSalary(
     overtimePay: parseFloat(overtimePay.toFixed(2)),
     totalPay,
     dailyRate: parseFloat(dailyRate.toFixed(2)),
-    hourlyRate: parseFloat(hourlyRate.toFixed(2))
+    hourlyRate: dailyResult.hourlyRate
   };
 }

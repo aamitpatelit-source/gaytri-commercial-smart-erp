@@ -25,10 +25,28 @@ interface PayrollItem {
   reporting_manager: string;
   month: string;
   monthly_salary: number;
-  standard_hours: number;
+  daily_rate: number;
   hourly_rate: number;
+  today_status: string;
+  today_check_in: string | null;
+  today_check_out: string | null;
+  today_worked_hours: number;
+  today_paid_hours: number;
+  today_late_minutes: number;
+  today_daily_salary: number;
+  month_worked_hours: number;
+  month_paid_hours: number;
+  month_payroll: number;
   total_worked_hours: number;
   present_days: number;
+  standard_hours: number;
+  attendance_percentage: number;
+  late_count: number;
+  half_day_count: number;
+  absent_count: number;
+  overtime_hours: number;
+  current_payroll_amount: number;
+  projected_salary: number;
   payable_salary: number;
   gross_payable_salary: number;
   net_pay: number;
@@ -57,11 +75,17 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Summary Metrics
+  // Live Summary Metrics
   const [summary, setSummary] = useState({
     totalEmployees: 0,
-    totalWorkedHours: 0,
-    totalPayrollAmount: 0
+    presentToday: 0,
+    lateToday: 0,
+    workingNow: 0,
+    checkedOutToday: 0,
+    todayWorkedHours: 0,
+    todayPayrollEarned: 0,
+    currentMonthPayroll: 0,
+    avgAttendancePercentage: 0
   });
 
   const fetchManagers = async () => {
@@ -113,17 +137,46 @@ export default function ReportsPage() {
         const items: PayrollItem[] = data.payroll || [];
         setPayrollData(items);
 
-        let totalHours = 0;
-        let totalPay = 0;
+        let present = 0;
+        let late = 0;
+        let working = 0;
+        let checkedOut = 0;
+        let todayHours = 0;
+        let todayPay = 0;
+        let monthPay = 0;
+        let sumAttPct = 0;
+
         items.forEach(item => {
-          totalHours += item.total_worked_hours;
-          totalPay += item.payable_salary;
+          if (item.today_status === 'PRESENT' || item.today_status === 'LATE' || item.today_status === 'WORKING' || item.today_status === 'HALF_DAY') {
+            present++;
+          }
+          if (item.today_status === 'LATE' || item.today_late_minutes > 0) {
+            late++;
+          }
+          if (item.today_status === 'WORKING' || (!item.today_check_out && item.today_check_in)) {
+            working++;
+          }
+          if (item.today_check_out) {
+            checkedOut++;
+          }
+          todayHours += item.today_worked_hours || 0;
+          todayPay += item.today_daily_salary || 0;
+          monthPay += item.month_payroll || item.payable_salary || 0;
+          sumAttPct += item.attendance_percentage || 100;
         });
+
+        const avgPct = items.length > 0 ? Math.round(sumAttPct / items.length) : 100;
 
         setSummary({
           totalEmployees: items.length,
-          totalWorkedHours: totalHours,
-          totalPayrollAmount: totalPay
+          presentToday: present,
+          lateToday: late,
+          workingNow: working,
+          checkedOutToday: checkedOut,
+          todayWorkedHours: parseFloat(todayHours.toFixed(2)),
+          todayPayrollEarned: parseFloat(todayPay.toFixed(2)),
+          currentMonthPayroll: parseFloat(monthPay.toFixed(2)),
+          avgAttendancePercentage: avgPct
         });
       } else {
         setError(data.message || 'Payroll report compilation failed.');
@@ -638,51 +691,97 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* PAYROLL SUMMARY METRICS */}
+      {/* LIVE TOP REPORT SUMMARY CARDS */}
       {payrollData.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Staff Evaluated</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-white font-mono truncate">{summary.totalEmployees} Employees</h4>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Present Today</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono truncate">{summary.presentToday}</h4>
             </div>
-            <Users className="w-7 h-7 sm:w-8 sm:h-8 text-cyan-400/50 shrink-0 ml-2" />
+            <Users className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
           </div>
+
           <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Worked Hours</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono truncate">{summary.totalWorkedHours} Hours</h4>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Late Today</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-amber-400 font-mono truncate">{summary.lateToday}</h4>
             </div>
-            <Calendar className="w-7 h-7 sm:w-8 sm:h-8 text-sky-400/50 shrink-0 ml-2" />
+            <BarChart3 className="w-6 h-6 text-amber-400/50 shrink-0 ml-2" />
           </div>
+
           <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Payable Payroll</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono truncate">₹{summary.totalPayrollAmount.toLocaleString('en-IN')}</h4>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Working Now</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono truncate">{summary.workingNow}</h4>
             </div>
-            <DollarSign className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-400/50 shrink-0 ml-2" />
+            <RefreshCw className="w-6 h-6 text-sky-400/50 shrink-0 ml-2" />
+          </div>
+
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Checked Out</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-purple-400 font-mono truncate">{summary.checkedOutToday}</h4>
+            </div>
+            <Users className="w-6 h-6 text-purple-400/50 shrink-0 ml-2" />
+          </div>
+
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Today Worked Hours</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-cyan-400 font-mono truncate">{summary.todayWorkedHours}h</h4>
+            </div>
+            <Calendar className="w-6 h-6 text-cyan-400/50 shrink-0 ml-2" />
+          </div>
+
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Today Payroll Earned</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono truncate">₹{summary.todayPayrollEarned.toLocaleString('en-IN')}</h4>
+            </div>
+            <DollarSign className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
+          </div>
+
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Current Month Payroll</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-300 font-mono truncate">₹{summary.currentMonthPayroll.toLocaleString('en-IN')}</h4>
+            </div>
+            <DollarSign className="w-6 h-6 text-emerald-300/50 shrink-0 ml-2" />
+          </div>
+
+          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Attendance Rate</span>
+              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-amber-300 font-mono truncate">{summary.avgAttendancePercentage}%</h4>
+            </div>
+            <BarChart3 className="w-6 h-6 text-amber-300/50 shrink-0 ml-2" />
           </div>
         </div>
       )}
 
-      {/* PAYROLL TABLE */}
+      {/* REAL-TIME PAYROLL REGISTER TABLE */}
       {payrollData.length > 0 && (
         <div className="glass-panel rounded-xl border border-slate-700 overflow-hidden shadow-lg">
           <div className="p-3.5 sm:p-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
             <span className="text-xs font-extrabold text-slate-200 uppercase tracking-wider">
-              Payroll Register - {selectedMonth}
+              Real-Time Payroll Register & Attendance Dashboard ({selectedMonth})
             </span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left border-collapse">
+            <table className="w-full min-w-[1100px] text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-300 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider bg-slate-950/40">
                   <th className="py-3 px-4 pl-4 sm:pl-6">Employee</th>
-                  <th className="py-3 px-3 font-mono text-center">Worked Hours</th>
-                  <th className="py-3 px-3 font-mono text-right">Monthly Salary</th>
-                  <th className="py-3 px-3 font-mono text-right">Hourly Rate</th>
-                  <th className="py-3 px-3 font-mono text-right">Payable Salary</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-3 font-mono text-center">In / Out</th>
+                  <th className="py-3 px-3 font-mono text-center">Today Worked / Paid</th>
+                  <th className="py-3 px-3 font-mono text-right">Today Salary</th>
+                  <th className="py-3 px-3 font-mono text-center">Month Hours</th>
+                  <th className="py-3 px-3 font-mono text-right">Month Payroll</th>
+                  <th className="py-3 px-3 text-center font-mono">Att %</th>
+                  <th className="py-3 px-3 text-center font-mono">OT Hours</th>
                   <th className="py-3 px-4 pr-4 sm:pr-6 text-center">Payslip</th>
                 </tr>
               </thead>
@@ -691,19 +790,41 @@ export default function ReportsPage() {
                   <tr key={item.employee_uuid} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
                     <td className="py-3 px-4 pl-4 sm:pl-6">
                       <p className="font-bold text-white text-xs">{item.full_name}</p>
-                      <p className="text-[10px] text-slate-400 font-mono">{item.employee_id}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{item.employee_id} • {item.department}</p>
+                    </td>
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                        item.today_status === 'PRESENT' ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50' :
+                        item.today_status === 'LATE' ? 'bg-amber-950/60 text-amber-400 border border-amber-800/50' :
+                        item.today_status === 'WORKING' ? 'bg-sky-950/60 text-sky-400 border border-sky-800/50' :
+                        item.today_status === 'HALF_DAY' ? 'bg-indigo-950/60 text-indigo-400 border border-indigo-800/50' :
+                        'bg-rose-950/60 text-rose-400 border border-rose-800/50'
+                      }`}>
+                        {item.today_status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 font-mono text-center text-slate-300 text-[11px] whitespace-nowrap">
+                      <div>In: {item.today_check_in || '--:--'}</div>
+                      <div className="text-slate-400 text-[10px]">Out: {item.today_check_out || '--:--'}</div>
                     </td>
                     <td className="py-3 px-3 font-mono font-bold text-sky-400 text-center whitespace-nowrap">
-                      {item.total_worked_hours}h
+                      <div>{item.today_worked_hours || 0}h worked</div>
+                      <div className="text-slate-400 text-[10px] font-normal">{item.today_paid_hours || 0}h paid</div>
                     </td>
-                    <td className="py-3 px-3 font-mono text-slate-200 text-right whitespace-nowrap">
-                      ₹{item.monthly_salary.toLocaleString('en-IN')}
+                    <td className="py-3 px-3 font-mono font-extrabold text-emerald-400 text-right text-xs whitespace-nowrap">
+                      ₹{(item.today_daily_salary || 0).toLocaleString('en-IN')}
                     </td>
-                    <td className="py-3 px-3 font-mono text-cyan-400 text-right font-semibold whitespace-nowrap">
-                      ₹{item.hourly_rate}/hr
+                    <td className="py-3 px-3 font-mono text-slate-200 text-center whitespace-nowrap">
+                      {item.month_worked_hours || item.total_worked_hours || 0}h
                     </td>
-                    <td className="py-3 px-3 font-mono font-extrabold text-emerald-400 text-right text-xs sm:text-sm whitespace-nowrap">
-                      ₹{item.payable_salary.toLocaleString('en-IN')}
+                    <td className="py-3 px-3 font-mono font-extrabold text-emerald-300 text-right text-xs whitespace-nowrap">
+                      ₹{(item.month_payroll || item.payable_salary || 0).toLocaleString('en-IN')}
+                    </td>
+                    <td className="py-3 px-3 font-mono text-amber-400 text-center font-bold whitespace-nowrap">
+                      {item.attendance_percentage || 100}%
+                    </td>
+                    <td className="py-3 px-3 font-mono text-purple-400 text-center font-semibold whitespace-nowrap">
+                      {item.overtime_hours || 0}h
                     </td>
                     <td className="py-3 px-4 pr-4 sm:pr-6 text-center whitespace-nowrap">
                       <button
@@ -712,7 +833,7 @@ export default function ReportsPage() {
                         title={`Download PDF Payslip for ${item.full_name}`}
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>📄 Download</span>
+                        <span>Payslip</span>
                       </button>
                     </td>
                   </tr>
