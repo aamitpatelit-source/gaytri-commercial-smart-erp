@@ -3,19 +3,72 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
+  Activity,
+  Calendar, 
+  DollarSign, 
+  Users, 
+  Clock, 
   FileSpreadsheet, 
   Download, 
   Printer, 
   RefreshCw, 
-  BarChart3,
-  Calendar,
-  Users,
-  DollarSign
+  BarChart3, 
+  Search, 
+  Eye, 
+  X, 
+  ChevronRight, 
+  UserCheck, 
+  UserX, 
+  ShieldAlert, 
+  Briefcase,
+  SlidersHorizontal,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { API_URL } from '../../../config';
 
-interface PayrollItem {
+// Interface definitions
+interface Manager {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+interface LiveFeedItem {
+  log_id: string;
+  employee_uuid: string;
+  full_name: string;
+  employee_id: string;
+  department: string;
+  shift?: string;
+  status: string;
+  check_in_time: string | null;
+  check_out: string | null;
+  working_hours: number | string;
+  remarks?: string;
+}
+
+interface AttendanceReportItem {
+  employee_uuid: string;
+  employee_id: string;
+  full_name: string;
+  department: string;
+  designation: string;
+  shift: string;
+  reporting_manager: string;
+  month: string;
+  present_days: number;
+  absent_count: number;
+  late_count: number;
+  half_day_count: number;
+  month_worked_hours: number;
+  attendance_percentage: number;
+  monthly_working_days?: number;
+  half_day_weight?: number;
+}
+
+interface PayrollReportItem {
   employee_uuid: string;
   employee_id: string;
   full_name: string;
@@ -27,72 +80,84 @@ interface PayrollItem {
   monthly_salary: number;
   daily_rate: number;
   hourly_rate: number;
-  today_status: string;
-  today_check_in: string | null;
-  today_check_out: string | null;
-  today_worked_hours: number;
-  today_paid_hours: number;
-  today_late_minutes: number;
-  today_daily_salary: number;
+  monthly_working_days: number;
+  paid_days: number;
   month_worked_hours: number;
-  month_paid_hours: number;
-  month_payroll: number;
-  total_worked_hours: number;
-  present_days: number;
-  standard_hours: number;
-  attendance_percentage: number;
-  late_count: number;
-  half_day_count: number;
-  absent_count: number;
   overtime_hours: number;
-  current_payroll_amount: number;
-  projected_salary: number;
+  month_payroll: number;
   payable_salary: number;
-  gross_payable_salary: number;
   net_pay: number;
+  allowance?: number;
+  deduction?: number;
 }
 
-interface Manager {
+interface EmployeeDailyLog {
   id: string;
-  full_name: string;
-  email: string;
+  date: string;
+  check_in_time: string | null;
+  check_out: string | null;
+  working_hours: string | number | null;
+  status: string;
+  remarks: string | null;
 }
 
 export default function ReportsPage() {
   const router = useRouter();
 
+  // Navigation Tab State
+  const [activeTab, setActiveTab] = useState<'live' | 'attendance' | 'payroll'>('live');
+
+  // Shared Filters
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     return `${year}-${month}`;
   });
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [reportingManager, setReportingManager] = useState('');
-  const [status, setStatus] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
+  // Dropdown options
   const [managers, setManagers] = useState<Manager[]>([]);
-  const [payrollData, setPayrollData] = useState<PayrollItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [departments, setDepartments] = useState<string[]>([]);
 
-  // Live Summary Metrics
-  const [summary, setSummary] = useState({
-    totalEmployees: 0,
+  // Module 1: Live Dashboard Data
+  const [liveStats, setLiveStats] = useState({
     presentToday: 0,
-    lateToday: 0,
     workingNow: 0,
     checkedOutToday: 0,
-    todayWorkedHours: 0,
-    todayPayrollEarned: 0,
-    currentMonthPayroll: 0,
-    avgAttendancePercentage: 0
+    lateToday: 0,
+    activeEmployees: 0,
+    totalStaff: 0
   });
+  const [liveFeed, setLiveFeed] = useState<LiveFeedItem[]>([]);
+  const [loadingLive, setLoadingLive] = useState(false);
 
+  // Module 2 & 3: Report Data
+  const [reportData, setReportData] = useState<any[]>([]);
+  const [systemSettings, setSystemSettings] = useState({
+    monthly_working_days: 26,
+    half_day_weight: 0.5,
+    paid_working_hours: 9
+  });
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [error, setError] = useState('');
+
+  // Daily Detail Modal State (Module 2)
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<AttendanceReportItem | null>(null);
+  const [dailyLogs, setDailyLogs] = useState<EmployeeDailyLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // Fetch Managers
   const fetchManagers = async () => {
     try {
       const token = localStorage.getItem('access_token');
       if (!token) return;
-
       const mgrRes = await fetch(`${API_URL}/auth/managers`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -101,25 +166,72 @@ export default function ReportsPage() {
         setManagers(m.managers || []);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Failed to load managers:', e);
     }
   };
 
-  const handleGeneratePayrollReport = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Module 1: Fetch Live Dashboard Stats
+  const fetchLiveDashboard = async () => {
     try {
       const token = localStorage.getItem('access_token');
       if (!token) {
         router.push('/login');
         return;
       }
-      setLoading(true);
+      setLoadingLive(true);
+      setError('');
+
+      const res = await fetch(`${API_URL}/attendance/dashboard`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        localStorage.clear();
+        router.push('/login');
+        return;
+      }
+
+      const data = await res.json();
+      if (data.success && data.stats) {
+        setLiveStats({
+          presentToday: data.stats.present || 0,
+          workingNow: data.stats.working || 0,
+          checkedOutToday: data.stats.lastCheckout ? (data.stats.present - data.stats.working) : 0,
+          lateToday: data.stats.late || 0,
+          activeEmployees: data.stats.totalEmployees || data.stats.totalStaff || 0,
+          totalStaff: data.stats.totalStaff || 0
+        });
+
+        const feed: LiveFeedItem[] = data.feed || [];
+        setLiveFeed(feed);
+
+        // Extract departments for filter dropdown
+        const depts = Array.from(new Set(feed.map(f => f.department).filter(Boolean)));
+        if (depts.length > 0) setDepartments(depts);
+      }
+    } catch (err) {
+      console.error('Live Dashboard fetch error:', err);
+      setError('Unable to load live dashboard metrics.');
+    } finally {
+      setLoadingLive(false);
+    }
+  };
+
+  // Module 2 & 3: Fetch Report Data (Attendance & Payroll)
+  const fetchReportData = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+      setLoadingReport(true);
       setError('');
 
       const params = new URLSearchParams({
         month: selectedMonth,
         reporting_manager: reportingManager,
-        status: status,
+        status: statusFilter,
       });
 
       const res = await fetch(`${API_URL}/attendance/payroll-report?${params.toString()}`, {
@@ -134,65 +246,86 @@ export default function ReportsPage() {
 
       const data = await res.json();
       if (data.success) {
-        const items: PayrollItem[] = data.payroll || [];
-        setPayrollData(items);
-
-        let present = 0;
-        let late = 0;
-        let working = 0;
-        let checkedOut = 0;
-        let todayHours = 0;
-        let todayPay = 0;
-        let monthPay = 0;
-        let sumAttPct = 0;
-
-        items.forEach(item => {
-          if (item.today_status === 'PRESENT' || item.today_status === 'LATE' || item.today_status === 'WORKING' || item.today_status === 'HALF_DAY') {
-            present++;
-          }
-          if (item.today_status === 'LATE' || item.today_late_minutes > 0) {
-            late++;
-          }
-          if (item.today_status === 'WORKING' || (!item.today_check_out && item.today_check_in)) {
-            working++;
-          }
-          if (item.today_check_out) {
-            checkedOut++;
-          }
-          todayHours += item.today_worked_hours || 0;
-          todayPay += item.today_daily_salary || 0;
-          monthPay += item.month_payroll || item.payable_salary || 0;
-          sumAttPct += item.attendance_percentage || 100;
-        });
-
-        const avgPct = items.length > 0 ? Math.round(sumAttPct / items.length) : 100;
-
-        setSummary({
-          totalEmployees: items.length,
-          presentToday: present,
-          lateToday: late,
-          workingNow: working,
-          checkedOutToday: checkedOut,
-          todayWorkedHours: parseFloat(todayHours.toFixed(2)),
-          todayPayrollEarned: parseFloat(todayPay.toFixed(2)),
-          currentMonthPayroll: parseFloat(monthPay.toFixed(2)),
-          avgAttendancePercentage: avgPct
-        });
+        setReportData(data.payroll || []);
+        if (data.settings) {
+          setSystemSettings({
+            monthly_working_days: data.settings.monthly_working_days || 26,
+            half_day_weight: data.settings.half_day_weight !== undefined ? data.settings.half_day_weight : 0.5,
+            paid_working_hours: data.settings.paid_working_hours || 9
+          });
+        }
+        // Extract departments
+        const depts = Array.from(new Set((data.payroll || []).map((i: any) => i.department).filter(Boolean)));
+        if (depts.length > 0) setDepartments(depts as string[]);
       } else {
-        setError(data.message || 'Payroll report compilation failed.');
+        setError(data.message || 'Report compilation failed.');
       }
-    } catch (err: any) {
+    } catch (err) {
+      console.error('Report fetch error:', err);
       setError('Connection to server lost. Please retry.');
-      console.error(err);
     } finally {
-      setLoading(false);
+      setLoadingReport(false);
+    }
+  };
+
+  // Open Employee Daily History Modal (Module 2)
+  const handleOpenEmployeeDetails = async (emp: AttendanceReportItem) => {
+    setSelectedEmployee(emp);
+    setDetailModalOpen(true);
+    setLoadingLogs(true);
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+
+      const [year, month] = selectedMonth.split('-');
+      const start = startDate || `${selectedMonth}-01`;
+      const end = endDate || `${year}-${month}-31`;
+
+      const params = new URLSearchParams({
+        employee_id: emp.employee_uuid,
+        start_date: start,
+        end_date: end,
+        limit: '100'
+      });
+
+      const res = await fetch(`${API_URL}/attendance/history?${params.toString()}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setDailyLogs(data.logs || []);
+      }
+    } catch (err) {
+      console.error('Failed to load employee daily logs:', err);
+    } finally {
+      setLoadingLogs(false);
     }
   };
 
   useEffect(() => {
     fetchManagers();
-    handleGeneratePayrollReport();
-  }, []);
+    if (activeTab === 'live') {
+      fetchLiveDashboard();
+    } else {
+      fetchReportData();
+    }
+  }, [activeTab, selectedMonth]);
+
+  // Formatter helpers
+  const formatTime = (timeStr: string | null) => {
+    if (!timeStr) return '-';
+    let str = timeStr.trim();
+    if (str.includes('T')) str = str.split('T')[1];
+    str = str.replace(/Z|\+\d{2}:\d{2}|-\d{2}:\d{2}|\.\d+/g, '').trim();
+    const parts = str.split(':');
+    if (parts.length < 2) return str;
+    let hrs = parseInt(parts[0], 10);
+    const mins = parts[1];
+    const ampm = hrs >= 12 ? 'PM' : 'AM';
+    hrs = hrs % 12 || 12;
+    return `${String(hrs).padStart(2, '0')}:${mins} ${ampm}`;
+  };
 
   const numberToWords = (num: number): string => {
     if (num <= 0) return 'Rupees Zero Only';
@@ -211,80 +344,59 @@ export default function ReportsPage() {
     return `Rupees ${inWords(Math.floor(num))} Only`;
   };
 
-  const handleDownloadPayslipPDF = (item: PayrollItem) => {
+  // Module 3: PDF Payslip Generator
+  const handleDownloadPayslipPDF = (item: PayrollReportItem) => {
     const doc = new jsPDF('p', 'mm', 'a4');
-    
-    // Format Month and Year
     const [yearStr, monthStr] = item.month.split('-');
     const dateObj = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
     const monthName = dateObj.toLocaleString('en-US', { month: 'long' });
     const year = yearStr;
-
-    // File Name: Payslip_<EmployeeID>_<Month>_<Year>.pdf
     const cleanEmpId = item.employee_id.replace(/[^a-zA-Z0-9_-]/g, '');
     const fileName = `Payslip_${cleanEmpId}_${monthName}_${year}.pdf`;
 
-    // -------------------------------------------------------------
-    // BASE PAGE & FADED WATERMARK
-    // -------------------------------------------------------------
+    // Background Watermark
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, 210, 297, 'F');
-
-    // Faded Center Watermark (5-8% Opacity #F1F5F9 - Clean Faded Text Watermark)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(32);
+    doc.setFontSize(30);
     doc.setTextColor(241, 245, 249);
     doc.text('GAYTRI COMMERCIAL', 105, 148, { align: 'center' });
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.text('ENTERPRISE PAYROLL SYSTEM', 105, 156, { align: 'center' });
 
-    // -------------------------------------------------------------
-    // TOP ACCENT & CORPORATE HEADER
-    // -------------------------------------------------------------
-    // Primary Navy Accent Bar (Top Edge)
-    doc.setFillColor(15, 23, 42); // Navy #0F172A
+    // Top Header
+    doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, 210, 3, 'F');
-
-    // Company Name (Top Left - Clean Official Text Header, NO "GC" circle placeholder)
-    doc.setTextColor(15, 23, 42); // Dark Navy #0F172A
+    doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
     doc.text('GAYTRI COMMERCIAL', 14, 16);
-
-    // Subtitle
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139); // Slate Gray #64748B
+    doc.setTextColor(100, 116, 139);
     doc.text('Smart Enterprise Resource Planning System', 14, 21.5);
 
-    // --- Payslip Title & Period (Top Right) ---
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
     doc.text('MONTHLY SALARY PAYSLIP', 196, 16, { align: 'right' });
-
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139);
-    doc.text(`Payroll Month: ${monthName} ${year}`, 196, 21.5, { align: 'right' });
+    doc.text(`Payroll Period: ${monthName} ${year}`, 196, 21.5, { align: 'right' });
 
-    // Thin Premium Teal Divider Line Underneath Header
-    doc.setDrawColor(6, 182, 212); // Accent Teal #06B6D4
+    doc.setDrawColor(6, 182, 212);
     doc.setLineWidth(0.4);
     doc.line(14, 28, 196, 28);
 
-    // -------------------------------------------------------------
-    // EMPLOYEE INFORMATION (Floating White Card)
-    // -------------------------------------------------------------
-    doc.setFillColor(255, 255, 255); // White background
+    // Employee Box
+    doc.setFillColor(255, 255, 255);
     doc.roundedRect(14, 34, 182, 34, 2.5, 2.5, 'F');
-    doc.setDrawColor(229, 231, 235); // Border #E5E7EB
+    doc.setDrawColor(229, 231, 235);
     doc.setLineWidth(0.4);
     doc.roundedRect(14, 34, 182, 34, 2.5, 2.5, 'D');
 
     doc.setFontSize(8.5);
-
-    // Column 1 (Left: Label x=20, Value x=54)
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139);
     doc.text('Employee Name:', 20, 42);
@@ -296,7 +408,7 @@ export default function ReportsPage() {
     doc.setTextColor(100, 116, 139);
     doc.text('Employee ID:', 20, 49);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(6, 182, 212); // Teal Accent for ID
+    doc.setTextColor(6, 182, 212);
     doc.text(item.employee_id, 54, 49);
 
     doc.setFont('helvetica', 'normal');
@@ -313,7 +425,6 @@ export default function ReportsPage() {
     doc.setTextColor(15, 23, 42);
     doc.text(item.department || 'General', 54, 63);
 
-    // Column 2 (Right: Label x=110, Value x=148)
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139);
     doc.text('Assigned Shift:', 110, 42);
@@ -335,17 +446,12 @@ export default function ReportsPage() {
     doc.setTextColor(15, 23, 42);
     doc.text(`${monthName} ${year}`, 148, 56);
 
-    // -------------------------------------------------------------
-    // ATTENDANCE SUMMARY (Three Elegant Statistic Cards)
-    // -------------------------------------------------------------
+    // Cards
     const cardW = 58;
     const cardH = 20;
-
-    // Card 1: Worked Hours (x=14)
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, 72, cardW, cardH, 2, 2, 'F');
     doc.setDrawColor(229, 231, 235);
-    doc.setLineWidth(0.4);
     doc.roundedRect(14, 72, cardW, cardH, 2, 2, 'D');
 
     doc.setFont('helvetica', 'bold');
@@ -354,45 +460,37 @@ export default function ReportsPage() {
     doc.text('WORKED HOURS', 20, 79);
     doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
-    doc.text(`${item.total_worked_hours} Hours`, 20, 87);
+    doc.text(`${item.month_worked_hours} Hours`, 20, 87);
 
-    // Card 2: Worked Days (x=76)
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(76, 72, cardW, cardH, 2, 2, 'F');
     doc.setDrawColor(229, 231, 235);
-    doc.setLineWidth(0.4);
     doc.roundedRect(76, 72, cardW, cardH, 2, 2, 'D');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('WORKED DAYS', 82, 79);
+    doc.text('PAID DAYS', 82, 79);
     doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
-    doc.text(`${item.present_days} Days`, 82, 87);
+    doc.text(`${item.paid_days} / ${item.monthly_working_days || 26} Days`, 82, 87);
 
-    // Card 3: Late Days (x=138)
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(138, 72, cardW, cardH, 2, 2, 'F');
     doc.setDrawColor(229, 231, 235);
-    doc.setLineWidth(0.4);
     doc.roundedRect(138, 72, cardW, cardH, 2, 2, 'D');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('LATE DAYS', 144, 79);
+    doc.text('OVERTIME HOURS', 144, 79);
     doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
-    doc.text('0 Days', 144, 87);
+    doc.text(`${item.overtime_hours || 0} Hours`, 144, 87);
 
-    // -------------------------------------------------------------
-    // SALARY BREAKDOWN TABLE (Luxury Executive Table)
-    // -------------------------------------------------------------
-    // Table Header Bar (Dark Navy #0F172A)
+    // Salary Table
     doc.setFillColor(15, 23, 42);
     doc.roundedRect(14, 96, 182, 8.5, 1.5, 1.5, 'F');
-
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(255, 255, 255);
@@ -400,15 +498,15 @@ export default function ReportsPage() {
     doc.text('AMOUNT', 190, 101.5, { align: 'right' });
 
     let y = 111;
-
-    // Format numbers with "INR " prefix for clean rendering without superscript "¹" bug!
     const rows = [
       { label: 'Monthly Salary Rate', value: `INR ${item.monthly_salary.toLocaleString('en-IN')}`, bold: false },
-      { label: 'Standard Working Hours', value: `${item.standard_hours} Hours`, bold: false },
-      { label: 'Hourly Rate', value: `INR ${item.hourly_rate} / hr`, bold: false },
-      { label: 'Worked Hours Recorded', value: `${item.total_worked_hours} Hours`, bold: false },
-      { label: 'Gross Salary', value: `INR ${item.payable_salary.toLocaleString('en-IN')}`, bold: true },
-      { label: 'Total Deductions', value: `INR 0.00`, bold: false },
+      { label: 'Configured Working Days', value: `${item.monthly_working_days || 26} Days`, bold: false },
+      { label: 'Daily Salary Rate', value: `INR ${item.daily_rate.toLocaleString('en-IN')}`, bold: false },
+      { label: 'Hourly Salary Rate', value: `INR ${item.hourly_rate} / hr`, bold: false },
+      { label: 'Total Paid Days Earned', value: `${item.paid_days} Days`, bold: false },
+      { label: 'Overtime Pay', value: `INR 0.00`, bold: false },
+      { label: 'Gross Payable Salary', value: `INR ${item.payable_salary.toLocaleString('en-IN')}`, bold: true },
+      { label: 'Deductions / Penalties', value: `INR 0.00`, bold: false },
     ];
 
     rows.forEach((r, idx) => {
@@ -416,8 +514,6 @@ export default function ReportsPage() {
         doc.setFillColor(248, 250, 252);
         doc.rect(14, y - 5.5, 182, 9.5, 'F');
       }
-
-      // Soft row border
       doc.setDrawColor(241, 245, 249);
       doc.setLineWidth(0.3);
       doc.line(14, y + 4, 196, y + 4);
@@ -430,416 +526,930 @@ export default function ReportsPage() {
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(r.value, 190, y, { align: 'right' });
-
       y += 9.5;
     });
 
-    // -------------------------------------------------------------
-    // NET PAY HERO SECTION (Full Width Premium Hero Card)
-    // -------------------------------------------------------------
+    // Net Pay Card
     const heroY = y + 5;
-    doc.setFillColor(15, 23, 42); // Solid Dark Navy #0F172A Card
+    doc.setFillColor(15, 23, 42);
     doc.roundedRect(14, heroY, 182, 25, 3, 3, 'F');
-    doc.setDrawColor(6, 182, 212); // Soft Teal Accent Border #06B6D4
+    doc.setDrawColor(6, 182, 212);
     doc.setLineWidth(0.5);
     doc.roundedRect(14, heroY, 182, 25, 3, 3, 'D');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.setTextColor(255, 255, 255);
-    doc.text('NET PAY', 22, heroY + 11);
+    doc.text('NET SALARY PAYABLE', 22, heroY + 11);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(56, 189, 248);
     doc.text('(Take Home Salary)', 22, heroY + 17);
 
-    // Large Amount
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(19);
-    doc.setTextColor(56, 189, 248); // Sky Blue / Teal Highlight
+    doc.setTextColor(56, 189, 248);
     doc.text(`INR ${item.net_pay.toLocaleString('en-IN')}`, 188, heroY + 12.5, { align: 'right' });
 
-    // Amount in Words
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.setTextColor(203, 213, 225); // Slate-300
+    doc.setTextColor(203, 213, 225);
     doc.text(numberToWords(item.net_pay), 188, heroY + 19, { align: 'right' });
 
-    // -------------------------------------------------------------
-    // FOOTER SECTION (3 Equal Sections + Slim Dark Navy Bottom Strip)
-    // -------------------------------------------------------------
+    // Footer
     const footerY = 234;
-
-    // Container Card
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, footerY, 182, 34, 3, 3, 'F');
     doc.setDrawColor(229, 231, 235);
-    doc.setLineWidth(0.4);
     doc.roundedRect(14, footerY, 182, 34, 3, 3, 'D');
 
     const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const fullYear = now.getFullYear();
-    const hoursStr = String(now.getHours()).padStart(2, '0');
-    const minsStr = String(now.getMinutes()).padStart(2, '0');
-    const generatedTimeStr = `${day}/${month}/${fullYear} ${hoursStr}:${minsStr}`;
+    const generatedTimeStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    // --- LEFT COLUMN: Generated Date & Version ---
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('Generated Date & Time:', 20, footerY + 12);
+    doc.text('Generated Date:', 20, footerY + 12);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
     doc.text(generatedTimeStr, 20, footerY + 18);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(148, 163, 184);
-    doc.text('Payroll Version: v2.4 Enterprise', 20, footerY + 26);
-
-    // --- CENTER COLUMN: System Generated Document Notice ---
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
-    doc.text('GAYTRI COMMERCIAL', 105, footerY + 13, { align: 'center' });
+    doc.text('GAYTRI COMMERCIAL ERP', 105, footerY + 13, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Official System Generated Document', 105, footerY + 19, { align: 'center' });
-    doc.setFontSize(7);
-    doc.setTextColor(148, 163, 184);
-    doc.text('No Signature Required', 105, footerY + 26, { align: 'center' });
+    doc.text('System Generated Payroll Document', 105, footerY + 19, { align: 'center' });
 
-    // --- RIGHT COLUMN: Authorized Signatory ---
     doc.setDrawColor(203, 213, 225);
-    doc.setLineWidth(0.4);
     doc.line(152, footerY + 17, 190, footerY + 17);
-
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(15, 23, 42);
     doc.text('Authorized Signatory', 190, footerY + 22, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Gaytri Commercial ERP', 190, footerY + 26.5, { align: 'right' });
 
-    // --- SLIM DARK NAVY STRIP ACROSS FULL PAGE WIDTH ---
-    doc.setFillColor(15, 23, 42); // Solid Dark Navy #0F172A
+    doc.setFillColor(15, 23, 42);
     doc.rect(0, 284, 210, 13, 'F');
-    doc.setFillColor(6, 182, 212); // Accent Teal #06B6D4
+    doc.setFillColor(6, 182, 212);
     doc.rect(0, 284, 210, 0.8, 'F');
-
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(56, 189, 248);
-    doc.text('Gaytri Commercial ERP  •  Official Payroll Statement  •  Confidential Document', 105, 291, { align: 'center' });
+    doc.text('Gaytri Commercial ERP  •  Official Payroll Statement  •  Confidential', 105, 291, { align: 'center' });
 
-    // Download PDF
     doc.save(fileName);
   };
 
+  // CSV Export for Module 2 or Module 3
   const handleExportCSV = () => {
-    if (payrollData.length === 0) return;
-    
-    const headers = [
-      'Employee Name', 'Employee ID', 'Department', 'Shift', 'Reporting Manager',
-      'Month', 'Worked Hours', 'Monthly Salary (INR)', 'Hourly Rate (INR)', 'Payable Salary (INR)'
-    ];
-    
-    const csvContent = [
-      headers.join(','),
-      ...payrollData.map(item => [
-        `"${item.full_name}"`,
-        `"${item.employee_id}"`,
-        `"${item.department}"`,
-        `"${item.shift}"`,
-        `"${item.reporting_manager}"`,
-        `"${item.month}"`,
-        `"${item.total_worked_hours}h"`,
-        `"${item.monthly_salary}"`,
-        `"${item.hourly_rate}"`,
-        `"${item.payable_salary}"`
-      ].join(','))
-    ].join('\n');
+    if (activeTab === 'attendance') {
+      const filtered = getFilteredAttendanceReport();
+      if (filtered.length === 0) return;
+      const headers = ['Employee Name', 'Employee ID', 'Department', 'Designation', 'Present Days', 'Absent Days', 'Late Days', 'Half Days', 'Worked Hours', 'Attendance %'];
+      const csv = [
+        headers.join(','),
+        ...filtered.map(i => [
+          `"${i.full_name}"`, `"${i.employee_id}"`, `"${i.department}"`, `"${i.designation}"`,
+          i.present_days, i.absent_count, i.late_count, i.half_day_count, `"${i.month_worked_hours}h"`, `"${i.attendance_percentage}%"`
+        ].join(','))
+      ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Gaytri_ERP_Payroll_Report_${selectedMonth}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Attendance_Report_${selectedMonth}.csv`;
+      link.click();
+    } else if (activeTab === 'payroll') {
+      const filtered = getFilteredPayrollReport();
+      if (filtered.length === 0) return;
+      const headers = ['Employee Name', 'Employee ID', 'Department', 'Designation', 'Monthly Salary (INR)', 'Working Days', 'Paid Days', 'Worked Hours', 'Overtime Hours', 'Net Salary (INR)'];
+      const csv = [
+        headers.join(','),
+        ...filtered.map(i => [
+          `"${i.full_name}"`, `"${i.employee_id}"`, `"${i.department}"`, `"${i.designation}"`,
+          i.monthly_salary, i.monthly_working_days || 26, i.paid_days, `"${i.month_worked_hours}h"`, i.overtime_hours || 0, i.net_pay
+        ].join(','))
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Payroll_Report_${selectedMonth}.csv`;
+      link.click();
+    }
   };
 
+  // Filtered List Computations
+  const getFilteredLiveFeed = () => {
+    return liveFeed.filter(item => {
+      const matchSearch = !searchQuery || 
+        item.full_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        item.employee_id.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchDept = !departmentFilter || item.department === departmentFilter;
+      const matchStatus = !statusFilter || item.status === statusFilter;
+      return matchSearch && matchDept && matchStatus;
+    });
+  };
+
+  const getFilteredAttendanceReport = (): AttendanceReportItem[] => {
+    return reportData.filter(item => {
+      const matchSearch = !searchQuery || 
+        item.full_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        item.employee_id.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchDept = !departmentFilter || item.department === departmentFilter;
+      const matchStatus = !statusFilter || (
+        statusFilter === 'PRESENT' ? item.present_days > 0 :
+        statusFilter === 'ABSENT' ? item.absent_count > 0 :
+        statusFilter === 'LATE' ? item.late_count > 0 :
+        statusFilter === 'HALF_DAY' ? item.half_day_count > 0 : true
+      );
+      return matchSearch && matchDept && matchStatus;
+    });
+  };
+
+  const getFilteredPayrollReport = (): PayrollReportItem[] => {
+    return reportData.filter(item => {
+      const matchSearch = !searchQuery || 
+        item.full_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        item.employee_id.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchDept = !departmentFilter || item.department === departmentFilter;
+      return matchSearch && matchDept;
+    });
+  };
+
+  // Summary Metrics for Module 2 (Attendance Report)
+  const calculateAttendanceSummary = () => {
+    const items = getFilteredAttendanceReport();
+    let totalEmp = items.length;
+    let totalPresent = 0;
+    let totalAbsent = 0;
+    let totalLate = 0;
+    let totalHalfDays = 0;
+    let totalHours = 0;
+    let sumAttPct = 0;
+
+    items.forEach(i => {
+      totalPresent += i.present_days || 0;
+      totalAbsent += i.absent_count || 0;
+      totalLate += i.late_count || 0;
+      totalHalfDays += i.half_day_count || 0;
+      totalHours += i.month_worked_hours || 0;
+      sumAttPct += i.attendance_percentage || 0;
+    });
+
+    const avgAttPct = totalEmp > 0 ? Math.round(sumAttPct / totalEmp) : 100;
+
+    return {
+      totalEmp,
+      totalPresent,
+      totalAbsent,
+      totalLate,
+      totalHalfDays,
+      totalHours: parseFloat(totalHours.toFixed(2)),
+      avgAttPct
+    };
+  };
+
+  // Summary Metrics for Module 3 (Payroll Report)
+  const calculatePayrollSummary = () => {
+    const items = getFilteredPayrollReport();
+    let totalPayroll = 0;
+    let totalPaidDays = 0;
+    let totalOT = 0;
+    let sumDailyRate = 0;
+
+    items.forEach(i => {
+      totalPayroll += i.net_pay || i.payable_salary || 0;
+      totalPaidDays += i.paid_days || 0;
+      totalOT += i.overtime_hours || 0;
+      sumDailyRate += i.daily_rate || 0;
+    });
+
+    const avgDailyRate = items.length > 0 ? Math.round(sumDailyRate / items.length) : 0;
+
+    return {
+      totalPayroll: parseFloat(totalPayroll.toFixed(2)),
+      totalPaidDays: parseFloat(totalPaidDays.toFixed(1)),
+      totalOT: parseFloat(totalOT.toFixed(2)),
+      avgDailyRate
+    };
+  };
+
+  const attSummary = calculateAttendanceSummary();
+  const paySummary = calculatePayrollSummary();
+
   return (
-    <div className="space-y-8 animate-fade-in text-slate-100">
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body, html, main { background: white !important; color: black !important; padding: 0 !important; margin: 0 !important; }
-          .glass-panel { border: none !important; background: transparent !important; box-shadow: none !important; }
-          tr { page-break-inside: avoid; }
-          table { border-collapse: collapse !important; width: 100% !important; }
-          th, td { border: 1px solid #ddd !important; padding: 8px !important; color: black !important; font-size: 9pt !important; }
-          .print-title { display: block !important; margin-bottom: 20px !important; color: black !important; }
-        }
-      `}</style>
-
-      <div className="print-title hidden text-black text-center font-bold text-xl">
-        Gaytri Commercial - Monthly Payroll Summary Sheet ({selectedMonth})
-      </div>
-
-      {/* FILTER PANEL */}
-      <div className="glass-panel p-4 sm:p-6 rounded-xl border border-slate-700 space-y-4 no-print shadow-md">
-        <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
-          <FileSpreadsheet className="w-5 h-5 text-cyan-400 shrink-0" />
-          <h3 className="font-bold text-white text-sm">Monthly Payroll Report</h3>
+    <div className="space-y-6 animate-fade-in text-slate-100 pb-12">
+      {/* HEADER TITLE */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800 pb-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white flex items-center gap-2 tracking-tight">
+            <BarChart3 className="w-6 h-6 text-cyan-400" />
+            Attendance & Payroll Reports
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Enterprise Activity Dashboard, Historical Attendance Metrics & Salary Registers
+          </p>
         </div>
 
-        <form onSubmit={handleGeneratePayrollReport} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <div className="space-y-1">
-            <label className="text-[10px] sm:text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
-            />
-          </div>
+        {/* TOP MODULE TABS SWITCHER */}
+        <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800 self-start sm:self-auto shrink-0 shadow-lg">
+          <button
+            onClick={() => setActiveTab('live')}
+            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'live'
+                ? 'bg-cyan-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Live Dashboard</span>
+          </button>
 
-          <div className="space-y-1">
-            <label className="text-[10px] sm:text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Reporting Manager (Optional)</label>
-            <select
-              value={reportingManager}
-              onChange={(e) => setReportingManager(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
-            >
-              <option value="">All Managers</option>
-              {managers.map(m => (
-                <option key={m.id} value={m.id}>{m.full_name}</option>
-              ))}
-            </select>
-          </div>
+          <button
+            onClick={() => setActiveTab('attendance')}
+            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'attendance'
+                ? 'bg-cyan-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Attendance Report</span>
+          </button>
 
-          <div className="space-y-1">
-            <label className="text-[10px] sm:text-xs lg:text-[10px] text-slate-400 font-bold uppercase">Status (Optional)</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500/35 rounded-lg py-2 px-3 text-xs text-white outline-none"
-            >
-              <option value="">All Statuses</option>
-              <option value="PRESENT">Present</option>
-              <option value="WORKING">Working (Active)</option>
-              <option value="LATE">Late</option>
-              <option value="HALF_DAY">Half Day</option>
-            </select>
-          </div>
-
-          <div className="flex items-end gap-2 sm:gap-3 flex-wrap sm:flex-nowrap sm:col-span-2 lg:col-span-1 pt-1 sm:pt-0">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 py-2 px-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px] min-w-[110px]"
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Compiling...</span>
-                </>
-              ) : (
-                <>
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <span>Compile Report</span>
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              disabled={payrollData.length === 0}
-              className="py-2 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px]"
-              title="Export CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>CSV</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              disabled={payrollData.length === 0}
-              className="py-2 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50 h-[38px]"
-              title="Print Sheet"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
-            </button>
-          </div>
-        </form>
+          <button
+            onClick={() => setActiveTab('payroll')}
+            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'payroll'
+                ? 'bg-cyan-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>Payroll Report</span>
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="p-4 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-350 text-xs font-semibold no-print">
-          {error}
+        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs font-semibold flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* LIVE TOP REPORT SUMMARY CARDS */}
-      {payrollData.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Present Today</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono truncate">{summary.presentToday}</h4>
+      {/* ========================================================================= */}
+      {/* MODULE 1: LIVE ATTENDANCE DASHBOARD                                      */}
+      {/* ========================================================================= */}
+      {activeTab === 'live' && (
+        <div className="space-y-6">
+          {/* KPI CARDS (NO PAYROLL INFORMATION HERE) */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Present Today</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono">{liveStats.presentToday}</h4>
+              </div>
+              <UserCheck className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
             </div>
-            <Users className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
-          </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Late Today</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-amber-400 font-mono truncate">{summary.lateToday}</h4>
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Working Now</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono">{liveStats.workingNow}</h4>
+              </div>
+              <Activity className="w-6 h-6 text-sky-400/50 shrink-0 ml-2" />
             </div>
-            <BarChart3 className="w-6 h-6 text-amber-400/50 shrink-0 ml-2" />
-          </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Working Now</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono truncate">{summary.workingNow}</h4>
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Checked Out</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-purple-400 font-mono">{liveStats.checkedOutToday}</h4>
+              </div>
+              <Clock className="w-6 h-6 text-purple-400/50 shrink-0 ml-2" />
             </div>
-            <RefreshCw className="w-6 h-6 text-sky-400/50 shrink-0 ml-2" />
-          </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Checked Out</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-purple-400 font-mono truncate">{summary.checkedOutToday}</h4>
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Late Today</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-amber-400 font-mono">{liveStats.lateToday}</h4>
+              </div>
+              <AlertTriangle className="w-6 h-6 text-amber-400/50 shrink-0 ml-2" />
             </div>
-            <Users className="w-6 h-6 text-purple-400/50 shrink-0 ml-2" />
-          </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Today Worked Hours</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-cyan-400 font-mono truncate">{summary.todayWorkedHours}h</h4>
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between col-span-2 md:col-span-1">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Active Employees</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-slate-200 font-mono">{liveStats.activeEmployees}</h4>
+              </div>
+              <Users className="w-6 h-6 text-slate-400/50 shrink-0 ml-2" />
             </div>
-            <Calendar className="w-6 h-6 text-cyan-400/50 shrink-0 ml-2" />
           </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Today Payroll Earned</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono truncate">₹{summary.todayPayrollEarned.toLocaleString('en-IN')}</h4>
+          {/* LIVE STATUS TABLE & FILTERS */}
+          <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden shadow-lg space-y-4 p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center space-x-2">
+                <Activity className="w-5 h-5 text-cyan-400 shrink-0 animate-pulse" />
+                <div>
+                  <h3 className="font-bold text-white text-sm">Today Live Activity Monitor</h3>
+                  <p className="text-[11px] text-slate-400">Real-time check-in and active shift status</p>
+                </div>
+              </div>
+
+              <button
+                onClick={fetchLiveDashboard}
+                disabled={loadingLive}
+                className="py-1.5 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 self-start sm:self-auto"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingLive ? 'animate-spin' : ''}`} />
+                <span>Refresh Live</span>
+              </button>
             </div>
-            <DollarSign className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
-          </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Current Month Payroll</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-300 font-mono truncate">₹{summary.currentMonthPayroll.toLocaleString('en-IN')}</h4>
+            {/* LIVE FILTERS */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search employee..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-3 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500/40"
+                />
+              </div>
+
+              <div>
+                <select
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-cyan-500/40"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-cyan-500/40"
+                >
+                  <option value="">All Live Statuses</option>
+                  <option value="WORKING">Working (Active Now)</option>
+                  <option value="PRESENT">Present</option>
+                  <option value="LATE">Late</option>
+                  <option value="HALF_DAY">Half Day</option>
+                  <option value="ABSENT">Absent</option>
+                </select>
+              </div>
             </div>
-            <DollarSign className="w-6 h-6 text-emerald-300/50 shrink-0 ml-2" />
-          </div>
 
-          <div className="glass-panel p-3.5 sm:p-4 rounded-xl border border-slate-800 flex items-center justify-between min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Attendance Rate</span>
-              <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-amber-300 font-mono truncate">{summary.avgAttendancePercentage}%</h4>
-            </div>
-            <BarChart3 className="w-6 h-6 text-amber-300/50 shrink-0 ml-2" />
-          </div>
-        </div>
-      )}
-
-      {/* REAL-TIME PAYROLL REGISTER TABLE */}
-      {payrollData.length > 0 && (
-        <div className="glass-panel rounded-xl border border-slate-700 overflow-hidden shadow-lg">
-          <div className="p-3.5 sm:p-4 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
-            <span className="text-xs font-extrabold text-slate-200 uppercase tracking-wider">
-              Real-Time Payroll Register & Attendance Dashboard ({selectedMonth})
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-300 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider bg-slate-950/40">
-                  <th className="py-3 px-4 pl-4 sm:pl-6">Employee</th>
-                  <th className="py-3 px-3 text-center">Status</th>
-                  <th className="py-3 px-3 font-mono text-center">In / Out</th>
-                  <th className="py-3 px-3 font-mono text-center">Today Worked / Paid</th>
-                  <th className="py-3 px-3 font-mono text-right">Today Salary</th>
-                  <th className="py-3 px-3 font-mono text-center">Month Hours</th>
-                  <th className="py-3 px-3 font-mono text-right">Month Payroll</th>
-                  <th className="py-3 px-3 text-center font-mono">Att %</th>
-                  <th className="py-3 px-3 text-center font-mono">OT Hours</th>
-                  <th className="py-3 px-4 pr-4 sm:pr-6 text-center">Payslip</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-850/50 text-xs text-slate-300">
-                {payrollData.map((item) => (
-                  <tr key={item.employee_uuid} className="hover:bg-slate-900/30 transition-colors border-b border-slate-800">
-                    <td className="py-3 px-4 pl-4 sm:pl-6">
-                      <p className="font-bold text-white text-xs">{item.full_name}</p>
-                      <p className="text-[10px] text-slate-400 font-mono">{item.employee_id} • {item.department}</p>
-                    </td>
-                    <td className="py-3 px-3 text-center whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
-                        item.today_status === 'PRESENT' ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50' :
-                        item.today_status === 'LATE' ? 'bg-amber-950/60 text-amber-400 border border-amber-800/50' :
-                        item.today_status === 'WORKING' ? 'bg-sky-950/60 text-sky-400 border border-sky-800/50' :
-                        item.today_status === 'HALF_DAY' ? 'bg-indigo-950/60 text-indigo-400 border border-indigo-800/50' :
-                        'bg-rose-950/60 text-rose-400 border border-rose-800/50'
-                      }`}>
-                        {item.today_status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 font-mono text-center text-slate-300 text-[11px] whitespace-nowrap">
-                      <div>In: {item.today_check_in || '--:--'}</div>
-                      <div className="text-slate-400 text-[10px]">Out: {item.today_check_out || '--:--'}</div>
-                    </td>
-                    <td className="py-3 px-3 font-mono font-bold text-sky-400 text-center whitespace-nowrap">
-                      <div>{item.today_worked_hours || 0}h worked</div>
-                      <div className="text-slate-400 text-[10px] font-normal">{item.today_paid_hours || 0}h paid</div>
-                    </td>
-                    <td className="py-3 px-3 font-mono font-extrabold text-emerald-400 text-right text-xs whitespace-nowrap">
-                      ₹{(item.today_daily_salary || 0).toLocaleString('en-IN')}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-slate-200 text-center whitespace-nowrap">
-                      {item.month_worked_hours || item.total_worked_hours || 0}h
-                    </td>
-                    <td className="py-3 px-3 font-mono font-extrabold text-emerald-300 text-right text-xs whitespace-nowrap">
-                      ₹{(item.month_payroll || item.payable_salary || 0).toLocaleString('en-IN')}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-amber-400 text-center font-bold whitespace-nowrap">
-                      {item.attendance_percentage || 100}%
-                    </td>
-                    <td className="py-3 px-3 font-mono text-purple-400 text-center font-semibold whitespace-nowrap">
-                      {item.overtime_hours || 0}h
-                    </td>
-                    <td className="py-3 px-4 pr-4 sm:pr-6 text-center whitespace-nowrap">
-                      <button
-                        onClick={() => handleDownloadPayslipPDF(item)}
-                        className="px-2.5 py-1 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 hover:bg-cyan-950/20 text-cyan-400 hover:text-cyan-300 font-bold rounded-lg text-xs transition-all shadow-sm flex items-center justify-center space-x-1.5 mx-auto cursor-pointer"
-                        title={`Download PDF Payslip for ${item.full_name}`}
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Payslip</span>
-                      </button>
-                    </td>
+            {/* LIVE TABLE */}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-slate-950/60">
+                    <th className="py-3 px-4">Employee</th>
+                    <th className="py-3 px-3">Department</th>
+                    <th className="py-3 px-3 text-center">Live Status</th>
+                    <th className="py-3 px-3 font-mono text-center">Check-In</th>
+                    <th className="py-3 px-3 font-mono text-center">Check-Out</th>
+                    <th className="py-3 px-3 font-mono text-center">Hours Worked</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-xs text-slate-300">
+                  {loadingLive ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-cyan-400" />
+                        Fetching live attendance feed...
+                      </td>
+                    </tr>
+                  ) : getFilteredLiveFeed().length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-500">
+                        No live activity records found for today matching your search.
+                      </td>
+                    </tr>
+                  ) : (
+                    getFilteredLiveFeed().map((item) => (
+                      <tr key={item.log_id || item.employee_uuid} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3 px-4">
+                          <p className="font-bold text-white">{item.full_name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{item.employee_id}</p>
+                        </td>
+                        <td className="py-3 px-3 text-slate-400">{item.department || 'General'}</td>
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                          <span className={`px-2.5 py-1 rounded text-[10px] font-extrabold uppercase tracking-wide ${
+                            item.status === 'WORKING' ? 'bg-sky-950/70 text-sky-400 border border-sky-800/60' :
+                            item.status === 'PRESENT' ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/60' :
+                            item.status === 'LATE' ? 'bg-amber-950/70 text-amber-400 border border-amber-800/60' :
+                            item.status === 'HALF_DAY' ? 'bg-indigo-950/70 text-indigo-400 border border-indigo-800/60' :
+                            'bg-rose-950/70 text-rose-400 border border-rose-800/60'
+                          }`}>
+                            {item.status === 'WORKING' ? 'Working Now' : item.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-center text-slate-200">
+                          {item.status === 'ABSENT' ? '-' : formatTime(item.check_in_time)}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-center text-slate-200">
+                          {item.status === 'ABSENT' ? '-' : formatTime(item.check_out)}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-center font-bold text-cyan-400">
+                          {item.status === 'ABSENT' ? '0h' : `${item.working_hours || 0}h`}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODULE 2: ATTENDANCE REPORT (HISTORICAL)                                 */}
+      {/* ========================================================================= */}
+      {activeTab === 'attendance' && (
+        <div className="space-y-6">
+          {/* FILTERS PANEL */}
+          <div className="glass-panel p-4 sm:p-6 rounded-xl border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-5 h-5 text-cyan-400 shrink-0" />
+                <h3 className="font-bold text-white text-sm">Historical Attendance Report Filters</h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                disabled={reportData.length === 0}
+                className="py-1.5 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 disabled:opacity-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/40 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Reporting Manager</label>
+                <select
+                  value={reportingManager}
+                  onChange={(e) => setReportingManager(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/40 rounded-lg py-2 px-3 text-xs text-white outline-none"
+                >
+                  <option value="">All Managers</option>
+                  {managers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Department</label>
+                <select
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/40 rounded-lg py-2 px-3 text-xs text-white outline-none"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Search Employee</label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Search name or ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-3 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500/40"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SUMMARY CARDS */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Employees</span>
+              <h4 className="text-lg font-mono font-extrabold text-white mt-0.5">{attSummary.totalEmp}</h4>
+            </div>
+
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Present Days</span>
+              <h4 className="text-lg font-mono font-extrabold text-emerald-400 mt-0.5">{attSummary.totalPresent}</h4>
+            </div>
+
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Absent Days</span>
+              <h4 className="text-lg font-mono font-extrabold text-rose-400 mt-0.5">{attSummary.totalAbsent}</h4>
+            </div>
+
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Late Days</span>
+              <h4 className="text-lg font-mono font-extrabold text-amber-400 mt-0.5">{attSummary.totalLate}</h4>
+            </div>
+
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Half Days</span>
+              <h4 className="text-lg font-mono font-extrabold text-indigo-400 mt-0.5">{attSummary.totalHalfDays}</h4>
+            </div>
+
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Attendance %</span>
+              <h4 className="text-lg font-mono font-extrabold text-cyan-400 mt-0.5">{attSummary.avgAttPct}%</h4>
+            </div>
+
+            <div className="glass-panel p-3.5 rounded-xl border border-slate-800 text-center col-span-2 lg:col-span-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase block">Worked Hours</span>
+              <h4 className="text-lg font-mono font-extrabold text-sky-400 mt-0.5">{attSummary.totalHours}h</h4>
+            </div>
+          </div>
+
+          {/* ATTENDANCE REPORT TABLE */}
+          <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden shadow-lg">
+            <div className="p-4 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                Historical Employee Attendance Summary ({selectedMonth})
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Working Days: <strong className="text-cyan-400 font-mono">{systemSettings.monthly_working_days}</strong> (System Setting)
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-slate-950/60">
+                    <th className="py-3 px-4">Employee</th>
+                    <th className="py-3 px-3 text-center">Present</th>
+                    <th className="py-3 px-3 text-center">Absent</th>
+                    <th className="py-3 px-3 text-center">Late</th>
+                    <th className="py-3 px-3 text-center">Half Day</th>
+                    <th className="py-3 px-3 font-mono text-center">Worked Hours</th>
+                    <th className="py-3 px-3 font-mono text-center">Attendance %</th>
+                    <th className="py-3 px-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-xs text-slate-300">
+                  {loadingReport ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-cyan-400" />
+                        Compiling attendance summary...
+                      </td>
+                    </tr>
+                  ) : getFilteredAttendanceReport().length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-500">
+                        No historical attendance records found for selected month.
+                      </td>
+                    </tr>
+                  ) : (
+                    getFilteredAttendanceReport().map((item) => (
+                      <tr key={item.employee_uuid} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3 px-4">
+                          <p className="font-bold text-white">{item.full_name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{item.employee_id} • {item.department}</p>
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono text-emerald-400 font-bold">{item.present_days}</td>
+                        <td className="py-3 px-3 text-center font-mono text-rose-400 font-bold">{item.absent_count}</td>
+                        <td className="py-3 px-3 text-center font-mono text-amber-400 font-bold">{item.late_count}</td>
+                        <td className="py-3 px-3 text-center font-mono text-indigo-400 font-bold">{item.half_day_count}</td>
+                        <td className="py-3 px-3 font-mono text-center text-slate-200">{item.month_worked_hours}h</td>
+                        <td className="py-3 px-3 font-mono text-center">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                            item.attendance_percentage >= 85 ? 'bg-emerald-950/60 text-emerald-400' :
+                            item.attendance_percentage >= 70 ? 'bg-amber-950/60 text-amber-400' :
+                            'bg-rose-950/60 text-rose-400'
+                          }`}>
+                            {item.attendance_percentage}%
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => handleOpenEmployeeDetails(item)}
+                            className="py-1 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/40 text-cyan-400 rounded-md text-[11px] font-bold transition-all flex items-center space-x-1 mx-auto"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>View Details</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODULE 3: PAYROLL REPORT (SALARY CALCULATION)                            */}
+      {/* ========================================================================= */}
+      {activeTab === 'payroll' && (
+        <div className="space-y-6">
+          {/* FILTERS PANEL */}
+          <div className="glass-panel p-4 sm:p-6 rounded-xl border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <DollarSign className="w-5 h-5 text-emerald-400 shrink-0" />
+                <h3 className="font-bold text-white text-sm">Monthly Payroll Register & Salary Filters</h3>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  disabled={reportData.length === 0}
+                  className="py-1.5 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>CSV</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  disabled={reportData.length === 0}
+                  className="py-1.5 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Select Month</label>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/40 rounded-lg py-2 px-3 text-xs text-white outline-none font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Reporting Manager</label>
+                <select
+                  value={reportingManager}
+                  onChange={(e) => setReportingManager(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/40 rounded-lg py-2 px-3 text-xs text-white outline-none"
+                >
+                  <option value="">All Managers</option>
+                  {managers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Search Employee</label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Search name or ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-3 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500/40"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SUMMARY CARDS */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Monthly Payroll</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono">₹{paySummary.totalPayroll.toLocaleString('en-IN')}</h4>
+              </div>
+              <DollarSign className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
+            </div>
+
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Paid Days</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono">{paySummary.totalPaidDays}</h4>
+              </div>
+              <Calendar className="w-6 h-6 text-sky-400/50 shrink-0 ml-2" />
+            </div>
+
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Overtime Hours</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-purple-400 font-mono">{paySummary.totalOT}h</h4>
+              </div>
+              <Clock className="w-6 h-6 text-purple-400/50 shrink-0 ml-2" />
+            </div>
+
+            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Avg Daily Rate</span>
+                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-slate-200 font-mono">₹{paySummary.avgDailyRate.toLocaleString('en-IN')}</h4>
+              </div>
+              <Briefcase className="w-6 h-6 text-slate-400/50 shrink-0 ml-2" />
+            </div>
+          </div>
+
+          {/* PAYROLL REGISTER TABLE */}
+          <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden shadow-lg">
+            <div className="p-4 border-b border-slate-800 bg-slate-950/40 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                Salary Computation Register ({selectedMonth})
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Monthly Working Days: <strong className="text-cyan-400 font-mono">{systemSettings.monthly_working_days}</strong>
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1000px] text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-slate-950/60">
+                    <th className="py-3 px-4">Employee</th>
+                    <th className="py-3 px-3 font-mono text-center">Working Days</th>
+                    <th className="py-3 px-3 font-mono text-center">Paid Days</th>
+                    <th className="py-3 px-3 font-mono text-center">Worked Hours</th>
+                    <th className="py-3 px-3 font-mono text-center">Overtime</th>
+                    <th className="py-3 px-3 font-mono text-right">Allowance</th>
+                    <th className="py-3 px-3 font-mono text-right">Deduction</th>
+                    <th className="py-3 px-3 font-mono text-right">Net Salary</th>
+                    <th className="py-3 px-4 text-center">Payslip</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-xs text-slate-300">
+                  {loadingReport ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-cyan-400" />
+                        Calculating monthly payroll...
+                      </td>
+                    </tr>
+                  ) : getFilteredPayrollReport().length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-slate-500">
+                        No payroll data found for selected month.
+                      </td>
+                    </tr>
+                  ) : (
+                    getFilteredPayrollReport().map((item) => (
+                      <tr key={item.employee_uuid} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3 px-4">
+                          <p className="font-bold text-white">{item.full_name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{item.employee_id} • {item.department}</p>
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono text-slate-300 font-bold">
+                          {item.monthly_working_days || systemSettings.monthly_working_days || 26}
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono text-emerald-400 font-bold">{item.paid_days}</td>
+                        <td className="py-3 px-3 text-center font-mono text-slate-200">{item.month_worked_hours}h</td>
+                        <td className="py-3 px-3 text-center font-mono text-purple-400">{item.overtime_hours || 0}h</td>
+                        <td className="py-3 px-3 text-right font-mono text-slate-400">₹0.00</td>
+                        <td className="py-3 px-3 text-right font-mono text-slate-400">₹0.00</td>
+                        <td className="py-3 px-3 text-right font-mono font-bold text-emerald-400 text-sm">
+                          ₹{(item.net_pay || item.payable_salary || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => handleDownloadPayslipPDF(item)}
+                            className="py-1 px-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 rounded-md text-[11px] font-bold transition-all flex items-center space-x-1 mx-auto shadow-sm"
+                          >
+                            <FileSpreadsheet className="w-3 h-3" />
+                            <span>Payslip</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DAILY ATTENDANCE HISTORY MODAL (MODULE 2)                                */}
+      {/* ========================================================================= */}
+      {detailModalOpen && selectedEmployee && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl space-y-4 p-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">{selectedEmployee.full_name}</h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  {selectedEmployee.employee_id} • {selectedEmployee.department} • {selectedEmployee.designation}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetailModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono">
+              <span>Present: <strong className="text-emerald-400">{selectedEmployee.present_days}</strong></span>
+              <span>Absent: <strong className="text-rose-400">{selectedEmployee.absent_count}</strong></span>
+              <span>Late: <strong className="text-amber-400">{selectedEmployee.late_count}</strong></span>
+              <span>Half Day: <strong className="text-indigo-400">{selectedEmployee.half_day_count}</strong></span>
+              <span>Att Rate: <strong className="text-cyan-400">{selectedEmployee.attendance_percentage}%</strong></span>
+            </div>
+
+            <div className="max-h-[350px] overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-950 border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px]">
+                  <tr>
+                    <th className="py-2.5 px-3">Date</th>
+                    <th className="py-2.5 px-3 text-center">Status</th>
+                    <th className="py-2.5 px-3 font-mono text-center">Check-In</th>
+                    <th className="py-2.5 px-3 font-mono text-center">Check-Out</th>
+                    <th className="py-2.5 px-3 font-mono text-center">Hours</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                  {loadingLogs ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400">
+                        <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-cyan-400" />
+                        Loading daily logs...
+                      </td>
+                    </tr>
+                  ) : dailyLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-500">
+                        No daily logs found for this period.
+                      </td>
+                    </tr>
+                  ) : (
+                    dailyLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-950/40">
+                        <td className="py-2.5 px-3 font-mono text-slate-200">
+                          {log.date ? new Date(log.date).toLocaleDateString('en-GB') : '-'}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            log.status === 'PRESENT' ? 'bg-emerald-950/70 text-emerald-400' :
+                            log.status === 'LATE' ? 'bg-amber-950/70 text-amber-400' :
+                            log.status === 'HALF_DAY' ? 'bg-indigo-950/70 text-indigo-400' :
+                            'bg-rose-950/70 text-rose-400'
+                          }`}>
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-center">
+                          {log.status === 'ABSENT' ? '-' : formatTime(log.check_in_time)}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-center">
+                          {log.status === 'ABSENT' ? '-' : formatTime(log.check_out)}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-center text-cyan-400 font-bold">
+                          {log.status === 'ABSENT' ? '0h' : `${log.working_hours || 0}h`}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setDetailModalOpen(false)}
+                className="py-1.5 px-4 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

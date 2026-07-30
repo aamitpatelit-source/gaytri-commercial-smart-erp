@@ -52,15 +52,17 @@ export class ManagerManualProvider implements AttendanceProvider {
   readonly sourceName = 'MANAGER_MANUAL';
 
   async processAttendance(client: any, payload: AttendanceProviderPayload): Promise<{ success: boolean; id: string }> {
+    const checkIn = payload.status === 'ABSENT' ? null : payload.time;
     const res = await client.query(
-      `INSERT INTO attendance (employee_id, manager_id, date, time, status, remarks, created_device, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO attendance (employee_id, manager_id, date, time, check_in_time, status, remarks, created_device, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
       [
         payload.employeeId,
         payload.managerId,
         payload.date,
         payload.time,
+        checkIn,
         payload.status,
         payload.remarks || null,
         payload.createdDevice || null,
@@ -172,8 +174,12 @@ export const markAttendance = async (req: AuthRequest, res: Response) => {
 
     await client.query('BEGIN');
 
+    let savedCount = 0;
+    let skippedCount = 0;
+    const duplicateEmployeeIds: string[] = [];
+
     for (const record of records) {
-      const { employee_id, status, remarks, reason } = record;
+      const { employee_id, status, remarks } = record;
 
       if (!employee_id || !status) {
         throw new Error('Each record must include employee_id and status.');
@@ -189,68 +195,58 @@ export const markAttendance = async (req: AuthRequest, res: Response) => {
         throw new Error('You cannot mark attendance for this employee. Please contact the administrator.');
       }
 
-      // SELECT existing row FOR UPDATE to capture database-read old values
+      // SELECT existing row FOR UPDATE to check for pre-existing records for today
       const existingRes = await client.query(
-        'SELECT id, status, remarks, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
+        'SELECT id, status, remarks, check_out_time FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
         [employee_id, date]
       );
 
       const timeStr = moment().tz(tz).format('HH:mm:ss');
 
-      if (existingRes.rows.length === 0) {
-        // Create new record using extensible AttendanceProvider
-        const provider = providers['MANAGER_MANUAL'];
-        await provider.processAttendance(client, {
-          employeeId: employee_id,
-          managerId: changedBy || null,
-          date,
-          time: timeStr,
-          status,
-          remarks,
-          createdDevice: deviceId || undefined
-        });
-      } else {
+      if (existingRes.rows.length > 0) {
         const row = existingRes.rows[0];
-
-        // Verify edit locking rules
-        if (row.is_locked && userRole !== 'ADMIN' && userRole !== 'SUPER_ADMIN') {
-          throw new Error(`Attendance for employee ${employee_id} on date ${date} is locked.`);
+        if (row.check_out_time) {
+          throw new Error('409_LOCKED:Attendance is locked because the employee has already checked out.');
         }
 
-        // Verify mandatory reason
-        if (!reason || reason.trim() === '') {
-          throw new Error('A mandatory reason is required to modify existing attendance records.');
-        }
-
-        // Capture authoritative old values from DB (preventing client spoofing)
-        const oldStatus = row.status;
-        const oldRemarks = row.remarks;
-
-        // Perform transactional update
-        await client.query(
-          `UPDATE attendance 
-           SET status = $1, remarks = $2, manager_id = $3, updated_at = NOW() 
-           WHERE id = $4`,
-          [status, remarks || null, changedBy, row.id]
-        );
-
-        // Insert immutable audit log record
-        await client.query(
-          `INSERT INTO attendance_audit_logs (attendance_id, changed_by, old_status, new_status, old_remarks, new_remarks, reason, ip_address, device_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [row.id, changedBy, oldStatus, status, oldRemarks, remarks || null, reason.trim(), ipAddress, deviceId]
-        );
+        // Attendance already exists for today's date (and check_out_time is null).
+        // Skip existing record to support incremental attendance marking without error or duplication.
+        skippedCount++;
+        duplicateEmployeeIds.push(employee_id);
+        console.log(`[Attendance Mark] Existing record found for employee ${employee_id} on ${date}. Skipping.`);
+        continue;
       }
+
+      // Create new record using extensible AttendanceProvider
+      const provider = providers['MANAGER_MANUAL'];
+      await provider.processAttendance(client, {
+        employeeId: employee_id,
+        managerId: changedBy || null,
+        date,
+        time: timeStr,
+        status,
+        remarks,
+        createdDevice: deviceId || undefined
+      });
+      savedCount++;
     }
 
     await client.query('COMMIT');
-    return res.status(200).json({ success: true, message: 'Attendance records saved successfully.' });
+    return res.status(200).json({
+      success: true,
+      message: 'Attendance records processed successfully.',
+      saved: savedCount,
+      skipped: skippedCount,
+      duplicate_employee_ids: duplicateEmployeeIds
+    });
   } catch (error: any) {
     await client.query('ROLLBACK');
     console.error('[Attendance API Error] Transaction aborted:', error.message);
-    return res.status(error.message.includes('scope') || error.message.includes('locked') ? 403 : 400).json({
+    const isLocked = error.message && error.message.includes('409_LOCKED');
+    const cleanMsg = isLocked ? error.message.replace('409_LOCKED:', '') : error.message;
+    return res.status(isLocked ? 409 : (error.message && error.message.includes('scope') ? 403 : 400)).json({
       success: false,
-      message: error.message || 'Transaction failed.'
+      message: cleanMsg || 'Transaction failed.'
     });
   } finally {
     client.release();
@@ -1003,45 +999,36 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
 
     // 1. Get current check-in record
     const existing = await client.query(
-      'SELECT id, status, check_in_time, time, is_locked FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
+      'SELECT id, status, check_in_time, check_out_time, time FROM attendance WHERE employee_id = $1 AND date = $2 FOR UPDATE',
       [employeeId, today]
     );
 
-    let record: any;
-    let finalStatus = 'PRESENT';
-
     if (existing.rows.length === 0) {
-      console.log('↓');
-      console.log('Attendance Not Found -> Creating Open Attendance Session & Checkout');
-      // If no check-in record exists yet, create one for today with status PRESENT and checkout time
-      const insRes = await client.query(
-        `INSERT INTO attendance (employee_id, date, time, check_in_time, check_out_time, status, remarks, source, created_by)
-         VALUES ($1, $2, $3, $3, $4, 'PRESENT', $5, 'MOBILE_APP', $6)
-         RETURNING id, status, check_in_time, check_out_time`,
-        [employeeId, today, '09:00:00', nowTime, remarks || 'Mobile App Check-Out', req.user?.id || null]
-      );
-      record = insRes.rows[0];
-    } else {
-      record = existing.rows[0];
-      console.log('↓');
-      console.log(`Attendance Found: record_id=${record.id}, current_status=${record.status}`);
+      await client.query('ROLLBACK');
+      console.log('Checkout API -> Employee has not checked in today.');
+      return res.status(400).json({ success: false, message: 'Employee has not checked in today.' });
+    }
 
-      if (record.status === 'PRESENT' && record.check_out_time) {
-        await client.query('ROLLBACK');
-        console.log('Checkout API -> Employee already checked out today.');
-        return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
-      }
+    const record = existing.rows[0];
+    console.log('↓');
+    console.log(`Attendance Found: record_id=${record.id}, current_status=${record.status}, check_out_time=${record.check_out_time}`);
 
-      // Fetch active settings to evaluate final status preserving Late status
-      const settings = await getBackendSettings();
-      const checkInTime = record.check_in_time || record.time || '09:00:00';
-      const existingIsLate = record.status === 'LATE' || evaluateCheckIn(checkInTime, settings).isLate;
-      const checkInMins = getMinutesFromInput(checkInTime);
-      const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
-      const existingLateMins = existingIsLate ? Math.max(0, checkInMins - shiftStartMins) : 0;
+    if (record.check_out_time) {
+      await client.query('ROLLBACK');
+      console.log('Checkout API -> Employee already checked out today.');
+      return res.status(409).json({ success: false, message: 'Employee has already checked out today.' });
+    }
 
-      const checkOutEval = evaluateCheckOut(checkInTime, nowTime, existingIsLate, existingLateMins, settings);
-      finalStatus = checkOutEval.status;
+    // Fetch active settings to evaluate final status preserving Late status
+    const settings = await getBackendSettings();
+    const checkInTime = record.check_in_time || record.time || '09:00:00';
+    const existingIsLate = record.status === 'LATE' || evaluateCheckIn(checkInTime, settings).isLate;
+    const checkInMins = getMinutesFromInput(checkInTime);
+    const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
+    const existingLateMins = existingIsLate ? Math.max(0, checkInMins - shiftStartMins) : 0;
+
+    const checkOutEval = evaluateCheckOut(checkInTime, nowTime, existingIsLate, existingLateMins, settings);
+    const finalStatus = checkOutEval.status;
 
       console.log('↓');
       console.log(`Updating Checkout: check_out_time=${nowTime}, finalStatus=${finalStatus}`);
@@ -1061,7 +1048,6 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
           record.id
         ]
       );
-    }
 
     const checkInStr = record.check_in_time || '09:00:00';
     const hoursWorked = calculateWorkingHours(checkInStr, nowTime, finalStatus);
@@ -1513,6 +1499,9 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
 
       let todayRecord: any = null;
 
+      const halfDayWeight = (settings as any).half_day_weight !== undefined ? parseFloat((settings as any).half_day_weight) : 0.5;
+      const monthlyWorkingDays = settings.monthly_working_days || 26;
+
       for (const rec of records) {
         const dStr = typeof rec.date === 'string' ? rec.date.split('T')[0] : moment(rec.date).format('YYYY-MM-DD');
         if (dStr === todayStr) {
@@ -1522,16 +1511,21 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
         const checkIn = rec.check_in_time || rec.time;
         const checkOut = rec.check_out_time;
 
+        const checkInMins = checkIn ? getMinutesFromInput(checkIn) : 0;
+        const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
+        const lateGrace = settings.late_grace_period ?? 15;
+        const isLateCheckIn = checkIn ? (checkInMins > (shiftStartMins + lateGrace)) : false;
+
+        if (rec.status === 'LATE' || isLateCheckIn) {
+          lateCount++;
+        }
+
         if (checkIn && checkOut) {
-          const isLate = rec.status === 'LATE';
-          const lateMins = isLate ? Math.max(0, getMinutesFromInput(checkIn) - parseTimeToMinutes(settings.shift_start_time || '09:00')) : 0;
-          const evalRes = evaluateCheckOut(checkIn, checkOut, isLate, lateMins, settings);
+          const evalRes = evaluateCheckOut(checkIn, checkOut, isLateCheckIn, isLateCheckIn ? Math.max(0, checkInMins - shiftStartMins) : 0, settings);
 
           totalWorkedHoursSum += evalRes.workedHours;
           totalPaidHoursSum += evalRes.paidHours;
           overtimeHoursSum += evalRes.overtimeHours;
-
-          if (isLate) lateCount++;
 
           if (evalRes.status === 'HALF_DAY') {
             halfDays++;
@@ -1540,8 +1534,9 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
           } else {
             presentDays++;
           }
-        } else if (rec.status === 'LATE' || rec.status === 'WORKING') {
-          if (rec.status === 'LATE') lateCount++;
+        } else if (rec.status === 'HALF_DAY') {
+          halfDays++;
+        } else if (rec.status === 'LATE' || rec.status === 'WORKING' || rec.status === 'PRESENT') {
           presentDays++;
         } else if (rec.status === 'ABSENT') {
           absentCount++;
@@ -1574,9 +1569,12 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
         }
       }
 
-      const totalConsideredDays = presentDays + halfDays + absentCount;
+      const recordedDays = presentDays + halfDays;
+      const computedAbsentCount = Math.max(absentCount, Math.max(0, monthlyWorkingDays - recordedDays));
+      const totalConsideredDays = Math.max(monthlyWorkingDays, presentDays + halfDays + computedAbsentCount);
+      const effectivePaidDays = presentDays + (halfDays * halfDayWeight);
       const attendancePercentage = totalConsideredDays > 0 
-        ? Math.round(((presentDays + halfDays * 0.5) / totalConsideredDays) * 100)
+        ? Math.min(100, Math.round((effectivePaidDays / totalConsideredDays) * 100))
         : 100;
 
       payrollReport.push({
@@ -1604,13 +1602,16 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
         attendance_percentage: attendancePercentage,
         late_count: lateCount,
         half_day_count: halfDays,
-        absent_count: absentCount,
+        absent_count: computedAbsentCount,
         overtime_hours: overtimeHoursSum,
         current_payroll_amount: salaryCalc.totalPay,
         projected_salary: monthlySalary,
-        standard_hours: (settings.monthly_working_days || 26) * (settings.paid_working_hours || 9),
+        monthly_working_days: monthlyWorkingDays,
+        half_day_weight: halfDayWeight,
+        standard_hours: monthlyWorkingDays * (settings.paid_working_hours || 9),
         total_worked_hours: totalWorkedHoursSum,
         present_days: presentDays,
+        paid_days: effectivePaidDays,
         payable_salary: salaryCalc.totalPay,
         gross_payable_salary: salaryCalc.earnedSalary,
         net_pay: salaryCalc.totalPay
@@ -1620,6 +1621,11 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
     return res.status(200).json({
       success: true,
       month: selectedMonth,
+      settings: {
+        monthly_working_days: settings.monthly_working_days || 26,
+        half_day_weight: (settings as any).half_day_weight !== undefined ? parseFloat((settings as any).half_day_weight) : 0.5,
+        paid_working_hours: settings.paid_working_hours || 9
+      },
       payroll: payrollReport,
     });
   } catch (error: any) {
