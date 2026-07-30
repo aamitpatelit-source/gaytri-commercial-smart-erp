@@ -43,6 +43,19 @@ assert(t2.lateMinutes === 20, '09:20 Check-In late minutes is 20');
 const t3 = (0, calculationService_1.evaluateCheckIn)('03:49 PM', settings);
 assert(t3.isLate, '03:49 PM Check-In is late immediately');
 assert(t3.status === 'LATE', '03:49 PM Check-In status is LATE immediately');
+// Test 3b: 12:51 PM Check-In (Time string, ISO string, and Space string) -> Late immediately (231 mins late)
+const t3b1 = (0, calculationService_1.evaluateCheckIn)('12:51 PM', settings);
+assert(t3b1.isLate, '12:51 PM Check-In is late immediately');
+assert(t3b1.status === 'LATE', '12:51 PM Check-In status is LATE immediately');
+assert(t3b1.lateMinutes === 231, '12:51 PM Check-In late minutes is 231');
+const t3b2 = (0, calculationService_1.evaluateCheckIn)('2026-07-30 12:51:00', settings);
+assert(t3b2.isLate, '2026-07-30 12:51:00 Check-In is late immediately');
+assert(t3b2.status === 'LATE', '2026-07-30 12:51:00 Check-In status is LATE immediately');
+assert(t3b2.lateMinutes === 231, '2026-07-30 12:51:00 Check-In late minutes is 231');
+const t3b3 = (0, calculationService_1.evaluateCheckIn)('2026-07-30T12:51:00.000Z', settings);
+assert(t3b3.isLate, '2026-07-30T12:51:00.000Z Check-In is late immediately');
+assert(t3b3.status === 'LATE', '2026-07-30T12:51:00.000Z Check-In status is LATE immediately');
+assert(t3b3.lateMinutes === 231, '2026-07-30T12:51:00.000Z Check-In late minutes is 231');
 // Test 4: Check-Out does not change Late status
 const t4 = (0, calculationService_1.evaluateCheckOut)('09:00:00', '19:00:00', true, 20, settings);
 assert(t4.isLate, 'Check-Out preserves isLate = true');

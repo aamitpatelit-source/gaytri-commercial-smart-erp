@@ -69,13 +69,16 @@ export function getMinutesFromInput(input: string | Date | null): number {
   if (input instanceof Date) {
     return input.getHours() * 60 + input.getMinutes();
   }
-  const str = String(input).trim();
-  if (str.includes('T') || str.includes('-')) {
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) {
-      return d.getHours() * 60 + d.getMinutes();
+  let str = String(input).trim();
+  if (str.includes('T')) {
+    str = str.split('T')[1];
+  } else if (str.includes(' ')) {
+    const parts = str.split(/\s+/);
+    if (parts[0].includes('-')) {
+      str = parts.slice(1).join(' ');
     }
   }
+  str = str.replace(/Z|\+\d{2}:\d{2}|-\d{2}:\d{2}|\.\d+/g, '').trim();
   return parseTimeToMinutes(str);
 }
 

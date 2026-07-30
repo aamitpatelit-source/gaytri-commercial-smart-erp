@@ -41,6 +41,7 @@ const db_1 = __importStar(require("../config/db"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const managerScopeService_1 = require("../services/managerScopeService");
 const calculationService_1 = require("../services/calculationService");
+const attendanceController_1 = require("./attendanceController");
 // Get all employees
 const getEmployees = async (req, res) => {
     if (!req.user) {
@@ -417,7 +418,7 @@ const getEmployeeById = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Employee not found.' });
         }
         const emp = employeeRes.rows[0];
-        const settings = calculationService_1.DEFAULT_ATTENDANCE_PAYROLL_SETTINGS;
+        const settings = await (0, attendanceController_1.getBackendSettings)();
         const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
         const workingDays = settings.monthly_working_days || 26;
         const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;

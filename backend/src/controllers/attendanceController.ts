@@ -873,10 +873,15 @@ export const employeeCheckIn = async (req: AuthRequest, res: Response) => {
     const checkInEval = evaluateCheckIn(nowTime, settings);
     const status = checkInEval.status; // 'LATE' or 'WORKING'
 
+    const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
+    const lateGrace = settings.late_grace_period ?? 15;
+    const lateCutoffMins = shiftStartMins + lateGrace;
+    const checkInMins = getMinutesFromInput(nowTime);
+
     let attendanceId: string;
 
     if (existing.rows.length > 0) {
-      // Update the ABSENT record to WORKING
+      // Update the ABSENT record
       attendanceId = existing.rows[0].id;
       await client.query(
         `UPDATE attendance 
@@ -929,8 +934,30 @@ export const employeeCheckIn = async (req: AuthRequest, res: Response) => {
       [attendanceId, status, remarks || 'Mobile App Check-In', req.ip || null, device_name || null]
     );
 
+    // Immediate Database Verification after persistence
+    const dbCheckRes = await client.query(
+      'SELECT id, check_in_time, status FROM attendance WHERE id = $1',
+      [attendanceId]
+    );
+    const dbRecord = dbCheckRes.rows[0];
+
+    const lateCutoffHours = Math.floor(lateCutoffMins / 60).toString().padStart(2, '0');
+    const lateCutoffMinutes = (lateCutoffMins % 60).toString().padStart(2, '0');
+    const lateCutoffStr = `${lateCutoffHours}:${lateCutoffMinutes}`;
+
+    console.log('[Check-In Pipeline Verification]', {
+      check_in_time: nowTime,
+      shift_start_time: settings.shift_start_time || '09:00',
+      late_grace_minutes: lateGrace,
+      calculated_late_cutoff: lateCutoffStr,
+      calculated_check_in_minutes: checkInMins,
+      is_late: checkInEval.isLate,
+      late_minutes: checkInEval.lateMinutes,
+      persisted_status: dbRecord?.status
+    });
+
     await client.query('COMMIT');
-    console.log(`[Mobile App] Employee ${employeeId} checked in successfully at ${nowTime}.`);
+    console.log(`[Mobile App] Employee ${employeeId} checked in successfully at ${nowTime} with status ${dbRecord.status}.`);
     
     return res.status(200).json({
       success: true,
@@ -938,7 +965,9 @@ export const employeeCheckIn = async (req: AuthRequest, res: Response) => {
       attendance: {
         id: attendanceId,
         check_in_time: nowTime,
-        status
+        status: dbRecord.status,
+        is_late: checkInEval.isLate,
+        late_minutes: checkInEval.lateMinutes
       }
     });
   } catch (error: any) {
@@ -1003,10 +1032,10 @@ export const employeeCheckOut = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ success: false, message: 'Employee already checked out today.' });
       }
 
-      // Fetch active settings to evaluate final status without recalculating Late status
+      // Fetch active settings to evaluate final status preserving Late status
       const settings = await getBackendSettings();
       const checkInTime = record.check_in_time || record.time || '09:00:00';
-      const existingIsLate = record.status === 'LATE';
+      const existingIsLate = record.status === 'LATE' || evaluateCheckIn(checkInTime, settings).isLate;
       const checkInMins = getMinutesFromInput(checkInTime);
       const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
       const existingLateMins = existingIsLate ? Math.max(0, checkInMins - shiftStartMins) : 0;

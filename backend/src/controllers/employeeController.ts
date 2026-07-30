@@ -11,6 +11,7 @@ import {
   getMinutesFromInput,
   parseTimeToMinutes
 } from '../services/calculationService';
+import { getBackendSettings } from './attendanceController';
 
 // Get all employees
 export const getEmployees = async (req: AuthRequest, res: Response) => {
@@ -486,7 +487,7 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
     }
 
     const emp = employeeRes.rows[0];
-    const settings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS;
+    const settings = await getBackendSettings();
 
     const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
     const workingDays = settings.monthly_working_days || 26;

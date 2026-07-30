@@ -184,12 +184,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
             _checkOutTime = todayLog['check_out'] != null 
                 ? _formatTimestampTo12Hour(todayLog['check_out']) 
                 : '--:--';
-            _workingHours = todayLog['working_hours'] ?? '0h 0m';
             _attendanceStatus = todayLog['status'] ?? 'PRESENT';
-            
-            if (todayLog['check_out'] == null) {
-              _attendanceStatus = 'Checked In';
-            }
           } else {
             _checkInTime = '--:--';
             _checkOutTime = '--:--';
@@ -467,7 +462,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  if (_attendanceStatus == 'WORKING' || _attendanceStatus == 'Checked In')
+                  if (_checkInTime != '--:--' && _checkOutTime == '--:--')
                     SizedBox(
                       width: double.infinity,
                       height: 48,
