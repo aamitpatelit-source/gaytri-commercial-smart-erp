@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  Activity,
   Calendar, 
   DollarSign, 
   Users, 
@@ -16,13 +15,7 @@ import {
   Search, 
   Eye, 
   X, 
-  ChevronRight, 
-  UserCheck, 
-  UserX, 
-  ShieldAlert, 
   Briefcase,
-  SlidersHorizontal,
-  CheckCircle2,
   AlertTriangle
 } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -33,20 +26,6 @@ interface Manager {
   id: string;
   full_name: string;
   email: string;
-}
-
-interface LiveFeedItem {
-  log_id: string;
-  employee_uuid: string;
-  full_name: string;
-  employee_id: string;
-  department: string;
-  shift?: string;
-  status: string;
-  check_in_time: string | null;
-  check_out: string | null;
-  working_hours: number | string;
-  remarks?: string;
 }
 
 interface AttendanceReportItem {
@@ -104,8 +83,8 @@ interface EmployeeDailyLog {
 export default function ReportsPage() {
   const router = useRouter();
 
-  // Navigation Tab State
-  const [activeTab, setActiveTab] = useState<'live' | 'attendance' | 'payroll'>('live');
+  // Navigation Tab State (Historical Reports Only)
+  const [activeTab, setActiveTab] = useState<'attendance' | 'payroll'>('attendance');
 
   // Shared Filters
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -125,19 +104,7 @@ export default function ReportsPage() {
   const [managers, setManagers] = useState<Manager[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
 
-  // Module 1: Live Dashboard Data
-  const [liveStats, setLiveStats] = useState({
-    presentToday: 0,
-    workingNow: 0,
-    checkedOutToday: 0,
-    lateToday: 0,
-    activeEmployees: 0,
-    totalStaff: 0
-  });
-  const [liveFeed, setLiveFeed] = useState<LiveFeedItem[]>([]);
-  const [loadingLive, setLoadingLive] = useState(false);
-
-  // Module 2 & 3: Report Data
+  // Report Data
   const [reportData, setReportData] = useState<any[]>([]);
   const [systemSettings, setSystemSettings] = useState({
     monthly_working_days: 26,
@@ -147,7 +114,7 @@ export default function ReportsPage() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [error, setError] = useState('');
 
-  // Daily Detail Modal State (Module 2)
+  // Daily Detail Modal State
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<AttendanceReportItem | null>(null);
   const [dailyLogs, setDailyLogs] = useState<EmployeeDailyLog[]>([]);
@@ -170,54 +137,7 @@ export default function ReportsPage() {
     }
   };
 
-  // Module 1: Fetch Live Dashboard Stats
-  const fetchLiveDashboard = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-      setLoadingLive(true);
-      setError('');
-
-      const res = await fetch(`${API_URL}/attendance/dashboard`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        localStorage.clear();
-        router.push('/login');
-        return;
-      }
-
-      const data = await res.json();
-      if (data.success && data.stats) {
-        setLiveStats({
-          presentToday: data.stats.present || 0,
-          workingNow: data.stats.working || 0,
-          checkedOutToday: data.stats.lastCheckout ? (data.stats.present - data.stats.working) : 0,
-          lateToday: data.stats.late || 0,
-          activeEmployees: data.stats.totalEmployees || data.stats.totalStaff || 0,
-          totalStaff: data.stats.totalStaff || 0
-        });
-
-        const feed: LiveFeedItem[] = data.feed || [];
-        setLiveFeed(feed);
-
-        // Extract departments for filter dropdown
-        const depts = Array.from(new Set(feed.map(f => f.department).filter(Boolean)));
-        if (depts.length > 0) setDepartments(depts);
-      }
-    } catch (err) {
-      console.error('Live Dashboard fetch error:', err);
-      setError('Unable to load live dashboard metrics.');
-    } finally {
-      setLoadingLive(false);
-    }
-  };
-
-  // Module 2 & 3: Fetch Report Data (Attendance & Payroll)
+  // Fetch Report Data (Attendance & Payroll)
   const fetchReportData = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -254,7 +174,6 @@ export default function ReportsPage() {
             paid_working_hours: data.settings.paid_working_hours || 9
           });
         }
-        // Extract departments
         const depts = Array.from(new Set((data.payroll || []).map((i: any) => i.department).filter(Boolean)));
         if (depts.length > 0) setDepartments(depts as string[]);
       } else {
@@ -268,7 +187,7 @@ export default function ReportsPage() {
     }
   };
 
-  // Open Employee Daily History Modal (Module 2)
+  // Open Employee Daily History Modal
   const handleOpenEmployeeDetails = async (emp: AttendanceReportItem) => {
     setSelectedEmployee(emp);
     setDetailModalOpen(true);
@@ -305,12 +224,8 @@ export default function ReportsPage() {
 
   useEffect(() => {
     fetchManagers();
-    if (activeTab === 'live') {
-      fetchLiveDashboard();
-    } else {
-      fetchReportData();
-    }
-  }, [activeTab, selectedMonth]);
+    fetchReportData();
+  }, [selectedMonth]);
 
   // Formatter helpers
   const formatTime = (timeStr: string | null) => {
@@ -344,7 +259,7 @@ export default function ReportsPage() {
     return `Rupees ${inWords(Math.floor(num))} Only`;
   };
 
-  // Module 3: PDF Payslip Generator
+  // PDF Payslip Generator
   const handleDownloadPayslipPDF = (item: PayrollReportItem) => {
     const doc = new jsPDF('p', 'mm', 'a4');
     const [yearStr, monthStr] = item.month.split('-');
@@ -602,7 +517,7 @@ export default function ReportsPage() {
     doc.save(fileName);
   };
 
-  // CSV Export for Module 2 or Module 3
+  // CSV Export for Module 1 (Attendance) or Module 2 (Payroll)
   const handleExportCSV = () => {
     if (activeTab === 'attendance') {
       const filtered = getFilteredAttendanceReport();
@@ -644,17 +559,6 @@ export default function ReportsPage() {
   };
 
   // Filtered List Computations
-  const getFilteredLiveFeed = () => {
-    return liveFeed.filter(item => {
-      const matchSearch = !searchQuery || 
-        item.full_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        item.employee_id.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchDept = !departmentFilter || item.department === departmentFilter;
-      const matchStatus = !statusFilter || item.status === statusFilter;
-      return matchSearch && matchDept && matchStatus;
-    });
-  };
-
   const getFilteredAttendanceReport = (): AttendanceReportItem[] => {
     return reportData.filter(item => {
       const matchSearch = !searchQuery || 
@@ -681,7 +585,7 @@ export default function ReportsPage() {
     });
   };
 
-  // Summary Metrics for Module 2 (Attendance Report)
+  // Summary Metrics for Attendance Report
   const calculateAttendanceSummary = () => {
     const items = getFilteredAttendanceReport();
     let totalEmp = items.length;
@@ -714,7 +618,7 @@ export default function ReportsPage() {
     };
   };
 
-  // Summary Metrics for Module 3 (Payroll Report)
+  // Summary Metrics for Payroll Report
   const calculatePayrollSummary = () => {
     const items = getFilteredPayrollReport();
     let totalPayroll = 0;
@@ -752,27 +656,15 @@ export default function ReportsPage() {
             Attendance & Payroll Reports
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Enterprise Activity Dashboard, Historical Attendance Metrics & Salary Registers
+            Historical Attendance Metrics, Period Audits & Monthly Payroll Registers
           </p>
         </div>
 
-        {/* TOP MODULE TABS SWITCHER */}
+        {/* TWO REPORT MODULE TABS SWITCHER */}
         <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800 self-start sm:self-auto shrink-0 shadow-lg">
           <button
-            onClick={() => setActiveTab('live')}
-            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'live'
-                ? 'bg-cyan-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Live Dashboard</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('attendance')}
-            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'attendance'
                 ? 'bg-cyan-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -784,7 +676,7 @@ export default function ReportsPage() {
 
           <button
             onClick={() => setActiveTab('payroll')}
-            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'payroll'
                 ? 'bg-cyan-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -804,181 +696,7 @@ export default function ReportsPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODULE 1: LIVE ATTENDANCE DASHBOARD                                      */}
-      {/* ========================================================================= */}
-      {activeTab === 'live' && (
-        <div className="space-y-6">
-          {/* KPI CARDS (NO PAYROLL INFORMATION HERE) */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
-            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Present Today</span>
-                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-emerald-400 font-mono">{liveStats.presentToday}</h4>
-              </div>
-              <UserCheck className="w-6 h-6 text-emerald-400/50 shrink-0 ml-2" />
-            </div>
-
-            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Working Now</span>
-                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-sky-400 font-mono">{liveStats.workingNow}</h4>
-              </div>
-              <Activity className="w-6 h-6 text-sky-400/50 shrink-0 ml-2" />
-            </div>
-
-            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Checked Out</span>
-                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-purple-400 font-mono">{liveStats.checkedOutToday}</h4>
-              </div>
-              <Clock className="w-6 h-6 text-purple-400/50 shrink-0 ml-2" />
-            </div>
-
-            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Late Today</span>
-                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-amber-400 font-mono">{liveStats.lateToday}</h4>
-              </div>
-              <AlertTriangle className="w-6 h-6 text-amber-400/50 shrink-0 ml-2" />
-            </div>
-
-            <div className="glass-panel p-4 rounded-xl border border-slate-800 flex items-center justify-between col-span-2 md:col-span-1">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Active Employees</span>
-                <h4 className="text-xl sm:text-2xl font-extrabold mt-1 text-slate-200 font-mono">{liveStats.activeEmployees}</h4>
-              </div>
-              <Users className="w-6 h-6 text-slate-400/50 shrink-0 ml-2" />
-            </div>
-          </div>
-
-          {/* LIVE STATUS TABLE & FILTERS */}
-          <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden shadow-lg space-y-4 p-4 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-800">
-              <div className="flex items-center space-x-2">
-                <Activity className="w-5 h-5 text-cyan-400 shrink-0 animate-pulse" />
-                <div>
-                  <h3 className="font-bold text-white text-sm">Today Live Activity Monitor</h3>
-                  <p className="text-[11px] text-slate-400">Real-time check-in and active shift status</p>
-                </div>
-              </div>
-
-              <button
-                onClick={fetchLiveDashboard}
-                disabled={loadingLive}
-                className="py-1.5 px-3 bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 self-start sm:self-auto"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingLive ? 'animate-spin' : ''}`} />
-                <span>Refresh Live</span>
-              </button>
-            </div>
-
-            {/* LIVE FILTERS */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  placeholder="Search employee..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-3 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500/40"
-                />
-              </div>
-
-              <div>
-                <select
-                  value={departmentFilter}
-                  onChange={(e) => setDepartmentFilter(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-cyan-500/40"
-                >
-                  <option value="">All Departments</option>
-                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-cyan-500/40"
-                >
-                  <option value="">All Live Statuses</option>
-                  <option value="WORKING">Working (Active Now)</option>
-                  <option value="PRESENT">Present</option>
-                  <option value="LATE">Late</option>
-                  <option value="HALF_DAY">Half Day</option>
-                  <option value="ABSENT">Absent</option>
-                </select>
-              </div>
-            </div>
-
-            {/* LIVE TABLE */}
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-slate-950/60">
-                    <th className="py-3 px-4">Employee</th>
-                    <th className="py-3 px-3">Department</th>
-                    <th className="py-3 px-3 text-center">Live Status</th>
-                    <th className="py-3 px-3 font-mono text-center">Check-In</th>
-                    <th className="py-3 px-3 font-mono text-center">Check-Out</th>
-                    <th className="py-3 px-3 font-mono text-center">Hours Worked</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 text-xs text-slate-300">
-                  {loadingLive ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
-                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-cyan-400" />
-                        Fetching live attendance feed...
-                      </td>
-                    </tr>
-                  ) : getFilteredLiveFeed().length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-500">
-                        No live activity records found for today matching your search.
-                      </td>
-                    </tr>
-                  ) : (
-                    getFilteredLiveFeed().map((item) => (
-                      <tr key={item.log_id || item.employee_uuid} className="hover:bg-slate-900/40 transition-colors">
-                        <td className="py-3 px-4">
-                          <p className="font-bold text-white">{item.full_name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{item.employee_id}</p>
-                        </td>
-                        <td className="py-3 px-3 text-slate-400">{item.department || 'General'}</td>
-                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                          <span className={`px-2.5 py-1 rounded text-[10px] font-extrabold uppercase tracking-wide ${
-                            item.status === 'WORKING' ? 'bg-sky-950/70 text-sky-400 border border-sky-800/60' :
-                            item.status === 'PRESENT' ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/60' :
-                            item.status === 'LATE' ? 'bg-amber-950/70 text-amber-400 border border-amber-800/60' :
-                            item.status === 'HALF_DAY' ? 'bg-indigo-950/70 text-indigo-400 border border-indigo-800/60' :
-                            'bg-rose-950/70 text-rose-400 border border-rose-800/60'
-                          }`}>
-                            {item.status === 'WORKING' ? 'Working Now' : item.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-mono text-center text-slate-200">
-                          {item.status === 'ABSENT' ? '-' : formatTime(item.check_in_time)}
-                        </td>
-                        <td className="py-3 px-3 font-mono text-center text-slate-200">
-                          {item.status === 'ABSENT' ? '-' : formatTime(item.check_out)}
-                        </td>
-                        <td className="py-3 px-3 font-mono text-center font-bold text-cyan-400">
-                          {item.status === 'ABSENT' ? '0h' : `${item.working_hours || 0}h`}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODULE 2: ATTENDANCE REPORT (HISTORICAL)                                 */}
+      {/* MODULE 1: ATTENDANCE REPORT (HISTORICAL)                                 */}
       {/* ========================================================================= */}
       {activeTab === 'attendance' && (
         <div className="space-y-6">
@@ -1170,7 +888,7 @@ export default function ReportsPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODULE 3: PAYROLL REPORT (SALARY CALCULATION)                            */}
+      {/* MODULE 2: PAYROLL REPORT (SALARY CALCULATION)                            */}
       {/* ========================================================================= */}
       {activeTab === 'payroll' && (
         <div className="space-y-6">
@@ -1357,7 +1075,7 @@ export default function ReportsPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* DAILY ATTENDANCE HISTORY MODAL (MODULE 2)                                */}
+      {/* DAILY ATTENDANCE HISTORY MODAL                                            */}
       {/* ========================================================================= */}
       {detailModalOpen && selectedEmployee && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
