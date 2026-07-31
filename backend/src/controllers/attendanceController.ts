@@ -262,7 +262,7 @@ export const calculateWorkingHours = (
   settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
 ): string => {
   if (status === 'WORKING') return 'Running';
-  if (status === 'ABSENT' || !checkIn || !checkOut) return '00h 00m';
+  if (!checkIn || !checkOut) return '00h 00m';
   
   const workedH = calculateWorkedHours(checkIn, checkOut, settings);
   const totalMins = Math.round(workedH * 60);
@@ -634,7 +634,7 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
       let paidH = 0;
       let otH = 0;
 
-      if (row.check_in_time && row.check_out && row.status !== 'ABSENT') {
+      if (row.check_in_time && row.check_out) {
         const checkInMins = getMinutesFromInput(row.check_in_time);
         const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
         const isLateCheckIn = checkInMins > (shiftStartMins + (settings.late_grace_period || 15));
@@ -642,8 +642,13 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
 
         const evalRes = evaluateCheckOut(row.check_in_time, row.check_out, isLateCheckIn, lateMins, settings);
         workedH = evalRes.workedHours;
-        paidH = evalRes.paidHours;
-        otH = evalRes.overtimeHours;
+        if (row.status === 'ABSENT') {
+          paidH = 0;
+          otH = 0;
+        } else {
+          paidH = evalRes.paidHours;
+          otH = evalRes.overtimeHours;
+        }
       } else if (row.status === 'WORKING' || row.status === 'PRESENT' || row.status === 'LATE') {
         paidH = settings.paid_working_hours || 9;
         workedH = paidH;

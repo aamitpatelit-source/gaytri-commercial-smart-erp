@@ -182,16 +182,17 @@ export function evaluateCheckOut(
   const lunchDeductionHours = parseFloat((lunchDeductionMinutes / 60).toFixed(2));
 
   const standardPaidHours = settings.paid_working_hours || 9;
-  const paidHours = parseFloat(Math.min(workedHours, standardPaidHours).toFixed(2));
-
+  let status = 'PRESENT';
+  let paidHours = parseFloat(Math.min(workedHours, standardPaidHours).toFixed(2));
   let overtimeHours = 0;
   if (settings.overtime_enabled && workedHours > standardPaidHours) {
     overtimeHours = parseFloat((workedHours - standardPaidHours).toFixed(2));
   }
 
-  let status = 'PRESENT';
   if (workedHours < settings.absent_threshold_hours) {
     status = 'ABSENT';
+    paidHours = 0;
+    overtimeHours = 0;
   } else if (workedHours < settings.min_hours_half_day) {
     status = 'HALF_DAY';
   } else if (isLate) {
