@@ -1277,6 +1277,13 @@ const getMonthlyPayrollReport = async (req, res) => {
         const tz = await (0, exports.getCompanyTimezone)();
         const todayStr = (0, moment_timezone_1.default)().tz(tz).format('YYYY-MM-DD');
         const nowTime = (0, moment_timezone_1.default)().tz(tz).format('HH:mm:ss');
+        // Fetch holidays for the selected month to compute dynamic working days
+        const holidaysRes = await (0, db_1.query)('SELECT date FROM holiday_calendar WHERE date >= $1 AND date <= $2', [startDate, endDate]);
+        const holidayDatesSet = new Set(holidaysRes.rows.map(h => (0, moment_timezone_1.default)(h.date).format('YYYY-MM-DD')));
+        const [selYearStr, selMonthStr] = selectedMonth.split('-');
+        const selYear = parseInt(selYearStr, 10);
+        const selMonth = parseInt(selMonthStr, 10);
+        const fullMonthlyWorkingDays = (0, calculationService_1.calculateWorkingDaysInMonth)(selYear, selMonth, settings.weekly_off_days || ['Sunday'], holidayDatesSet);
         for (const emp of employees) {
             let attQueryStr = `
         SELECT date, time, check_in_time, check_out_time, status
@@ -1302,7 +1309,29 @@ const getMonthlyPayrollReport = async (req, res) => {
             let overtimeHoursSum = 0;
             let todayRecord = null;
             const halfDayWeight = settings.half_day_weight !== undefined ? parseFloat(settings.half_day_weight) : 0.5;
-            const monthlyWorkingDays = settings.monthly_working_days || 26;
+            // Part 4: Joining Date Boundary Check
+            const empJoiningDateStr = emp.joining_date ? (0, moment_timezone_1.default)(emp.joining_date).format('YYYY-MM-DD') : startDate;
+            const effectiveStartDateStr = empJoiningDateStr > startDate ? empJoiningDateStr : startDate;
+            let effectiveWorkingDays = fullMonthlyWorkingDays;
+            if (effectiveStartDateStr > endDate) {
+                effectiveWorkingDays = 0;
+            }
+            else if (effectiveStartDateStr > startDate) {
+                // Calculate working days from effectiveStartDateStr to endDate
+                let nonWorkingCount = 0;
+                const startM = (0, moment_timezone_1.default)(effectiveStartDateStr, 'YYYY-MM-DD');
+                const endM = (0, moment_timezone_1.default)(endDate, 'YYYY-MM-DD');
+                const weeklyOffs = settings.weekly_off_days || ['Sunday'];
+                for (let m = startM.clone(); m.isSameOrBefore(endM); m.add(1, 'days')) {
+                    const dStr = m.format('YYYY-MM-DD');
+                    const dayName = m.format('dddd');
+                    if (weeklyOffs.includes(dayName) || holidayDatesSet.has(dStr)) {
+                        nonWorkingCount++;
+                    }
+                }
+                const totalSpanDays = endM.diff(startM, 'days') + 1;
+                effectiveWorkingDays = Math.max(0, totalSpanDays - nonWorkingCount);
+            }
             for (const rec of records) {
                 const dStr = typeof rec.date === 'string' ? rec.date.split('T')[0] : (0, moment_timezone_1.default)(rec.date).format('YYYY-MM-DD');
                 if (dStr === todayStr) {
@@ -1360,13 +1389,13 @@ const getMonthlyPayrollReport = async (req, res) => {
                     if (todayRecord.status === 'LATE') {
                         todayLateMinutes = Math.max(0, (0, calculationService_1.getMinutesFromInput)(inT) - (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00'));
                     }
-                    const dailyCalc = (0, calculationService_1.calculateDailySalary)(monthlySalary, todayWorkedHours, todayPaidHours, 0, settings);
+                    const dailyCalc = (0, calculationService_1.calculateDailySalary)(monthlySalary, todayWorkedHours, todayPaidHours, 0, settings, effectiveWorkingDays);
                     todayDailySalary = dailyCalc.totalDailyEarnings;
                 }
             }
             const recordedDays = presentDays + halfDays;
-            const computedAbsentCount = Math.max(absentCount, Math.max(0, monthlyWorkingDays - recordedDays));
-            const totalConsideredDays = Math.max(monthlyWorkingDays, presentDays + halfDays + computedAbsentCount);
+            const computedAbsentCount = Math.max(absentCount, Math.max(0, effectiveWorkingDays - recordedDays));
+            const totalConsideredDays = Math.max(effectiveWorkingDays, presentDays + halfDays + computedAbsentCount);
             const effectivePaidDays = presentDays + (halfDays * halfDayWeight);
             const attendancePercentage = totalConsideredDays > 0
                 ? Math.min(100, Math.round((effectivePaidDays / totalConsideredDays) * 100))
@@ -1375,12 +1404,14 @@ const getMonthlyPayrollReport = async (req, res) => {
                 employee_uuid: emp.id,
                 employee_id: emp.employee_id,
                 full_name: emp.full_name,
+                joining_date: emp.joining_date,
                 department: emp.department || 'General',
                 designation: emp.designation || 'Staff',
                 shift: emp.shift || 'Morning Shift',
                 reporting_manager: emp.reporting_manager || 'N/A',
                 month: selectedMonth,
                 monthly_salary: monthlySalary,
+                monthly_working_days: effectiveWorkingDays,
                 daily_rate: salaryCalc.dailyRate,
                 hourly_rate: salaryCalc.hourlyRate,
                 today_status: todayRecord?.status || 'NOT_MARKED',
@@ -1392,21 +1423,20 @@ const getMonthlyPayrollReport = async (req, res) => {
                 today_daily_salary: todayDailySalary,
                 month_worked_hours: totalWorkedHoursSum,
                 month_paid_hours: totalPaidHoursSum,
-                month_payroll: salaryCalc.totalPay,
-                attendance_percentage: attendancePercentage,
-                late_count: lateCount,
-                half_day_count: halfDays,
-                absent_count: computedAbsentCount,
-                overtime_hours: overtimeHoursSum,
-                current_payroll_amount: salaryCalc.totalPay,
-                projected_salary: monthlySalary,
-                monthly_working_days: monthlyWorkingDays,
-                half_day_weight: halfDayWeight,
-                standard_hours: monthlyWorkingDays * (settings.paid_working_hours || 9),
-                total_worked_hours: totalWorkedHoursSum,
+                month_ot_hours: overtimeHoursSum,
+                month_ot_pay: salaryCalc.overtimePay,
                 present_days: presentDays,
-                paid_days: effectivePaidDays,
+                half_days: halfDays,
+                absent_days: computedAbsentCount,
+                effective_paid_days: effectivePaidDays,
                 payable_salary: salaryCalc.totalPay,
+                todays_salary_credit: salaryCalc.earnedSalary,
+                attendance_percentage: attendancePercentage,
+                projected_salary: monthlySalary,
+                half_day_weight: halfDayWeight,
+                standard_hours: effectiveWorkingDays * (settings.paid_working_hours || 9),
+                total_worked_hours: totalWorkedHoursSum,
+                paid_days: effectivePaidDays,
                 gross_payable_salary: salaryCalc.earnedSalary,
                 net_pay: salaryCalc.totalPay
             });

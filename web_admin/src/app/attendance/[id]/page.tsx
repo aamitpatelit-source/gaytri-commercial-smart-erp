@@ -195,6 +195,14 @@ export default function EmployeeAttendanceProfilePage() {
     }
   };
 
+  const formatDecimalHours = (decimalHours?: number): string => {
+    if (decimalHours === undefined || decimalHours === null || decimalHours < 0) return '00h 00m';
+    const totalMins = Math.round(decimalHours * 60);
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    return `${h.toString().padStart(2, '0')}h ${m.toString().padStart(2, '0')}m`;
+  };
+
   const fetchMetaOptions = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -938,7 +946,10 @@ export default function EmployeeAttendanceProfilePage() {
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Date</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-In</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-Out</th>
-                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Working Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Worked Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Paid Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">OT Hours</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">OT Pay</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Today's Salary Credit</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Status</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Actions</th>
@@ -947,7 +958,7 @@ export default function EmployeeAttendanceProfilePage() {
                   <tbody className="divide-y divide-slate-850/50">
                     {logs.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">No attendance logs found for this month.</td>
+                        <td colSpan={10} className="px-4 py-8 text-center text-slate-500">No attendance logs found for this month.</td>
                       </tr>
                     ) : (
                       logs.map((log) => (
@@ -955,7 +966,10 @@ export default function EmployeeAttendanceProfilePage() {
                           <td className="px-4 py-3 font-mono">{log.date.split('T')[0]}</td>
                           <td className="px-4 py-3 font-mono text-emerald-400 font-semibold">{formatTo12Hour(log.check_in_time)}</td>
                           <td className="px-4 py-3 font-mono text-amber-400 font-semibold">{formatTo12Hour(log.check_out)}</td>
-                          <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.working_hours || '--'}</td>
+                          <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.working_hours && log.working_hours !== '--' ? log.working_hours : formatDecimalHours(log.worked_hours)}</td>
+                          <td className="px-4 py-3 font-mono text-slate-200 font-semibold">{formatDecimalHours(log.paid_hours)}</td>
+                          <td className="px-4 py-3 font-mono text-purple-400 font-semibold">{log.ot_hours && log.ot_hours > 0 ? formatDecimalHours(log.ot_hours) : '00h 00m'}</td>
+                          <td className="px-4 py-3 font-mono text-purple-300 font-semibold">{log.ot_pay && log.ot_pay > 0 ? `₹${Math.round(log.ot_pay).toLocaleString('en-IN')}` : '₹0'}</td>
                           <td className="px-4 py-3 font-mono text-emerald-400 font-extrabold">
                             {log.status === 'ABSENT' ? '₹0' : `₹${Math.round(log.todays_salary_credit ?? log.earned_amount ?? log.daily_salary ?? 0).toLocaleString('en-IN')}`}
                           </td>
