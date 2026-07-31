@@ -13,7 +13,8 @@ import {
   calculateDailySalary,
   calculatePayrollSalary,
   getMinutesFromInput,
-  parseTimeToMinutes
+  parseTimeToMinutes,
+  calculateWorkingDaysInMonth
 } from '../services/calculationService';
 
 export const getBackendSettings = async (): Promise<AttendancePayrollSettings> => {
@@ -253,29 +254,21 @@ export const markAttendance = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Helper to calculate working hours dynamically (without storing in database)
-export const calculateWorkingHours = (checkIn: string | null, checkOut: string | null, status: string): string => {
+// Helper to calculate working hours dynamically using calculation service
+export const calculateWorkingHours = (
+  checkIn: string | null,
+  checkOut: string | null,
+  status: string,
+  settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
+): string => {
   if (status === 'WORKING') return 'Running';
-  if (status === 'ABSENT') return '00h';
-  if (!checkIn || !checkOut) return '00h';
+  if (status === 'ABSENT' || !checkIn || !checkOut) return '00h 00m';
   
-  try {
-    const start = moment(checkIn, 'HH:mm:ss');
-    const end = moment(checkOut, 'HH:mm:ss');
-    if (!start.isValid() || !end.isValid()) return '00h';
-    
-    let diffMs = end.diff(start);
-    if (diffMs < 0) {
-      // Shift crosses midnight boundary
-      diffMs += 24 * 60 * 60 * 1000;
-    }
-    const duration = moment.duration(diffMs);
-    const hours = Math.floor(duration.asHours());
-    const minutes = duration.minutes();
-    return `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m`;
-  } catch (e) {
-    return '00h';
-  }
+  const workedH = calculateWorkedHours(checkIn, checkOut, settings);
+  const totalMins = Math.round(workedH * 60);
+  const hours = Math.floor(totalMins / 60);
+  const minutes = totalMins % 60;
+  return `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m`;
 };
 
 // Retrieve Attendance Dashboard Stats
@@ -631,22 +624,49 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
     // Map rows to dynamically calculate working hours & earned salary using calculation service
     const logs = result.rows.map(row => {
       const monthlySalary = parseFloat(row.monthly_salary || '0');
-      let earnedSalary = 0;
+      const dateMoment = row.date ? moment(row.date) : moment();
+      const year = dateMoment.year();
+      const month = dateMoment.month() + 1; // 1-12
+
+      const workingDays = calculateWorkingDaysInMonth(year, month, settings.weekly_off_days || ['Sunday']);
+
+      let workedH = 0;
+      let paidH = 0;
+      let otH = 0;
+
       if (row.check_in_time && row.check_out && row.status !== 'ABSENT') {
-        const workedH = calculateWorkedHours(row.check_in_time, row.check_out, settings);
-        const paidH = Math.min(workedH, settings.paid_working_hours || 9);
-        const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH, 0, settings);
-        earnedSalary = Math.round(dailyCalc.totalDailyEarnings);
+        const checkInMins = getMinutesFromInput(row.check_in_time);
+        const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
+        const isLateCheckIn = checkInMins > (shiftStartMins + (settings.late_grace_period || 15));
+        const lateMins = isLateCheckIn ? Math.max(0, checkInMins - shiftStartMins) : 0;
+
+        const evalRes = evaluateCheckOut(row.check_in_time, row.check_out, isLateCheckIn, lateMins, settings);
+        workedH = evalRes.workedHours;
+        paidH = evalRes.paidHours;
+        otH = evalRes.overtimeHours;
       } else if (row.status === 'WORKING' || row.status === 'PRESENT' || row.status === 'LATE') {
-        if (monthlySalary > 0) {
-          earnedSalary = Math.round(monthlySalary / (settings.monthly_working_days || 26));
-        }
+        paidH = settings.paid_working_hours || 9;
+        workedH = paidH;
       }
+
+      const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH, otH, settings, workingDays);
+
+      const formattedWorkingHours = row.status === 'WORKING' 
+        ? 'Running' 
+        : calculateWorkingHours(row.check_in_time, row.check_out, row.status, settings);
+
       return {
         ...row,
-        working_hours: calculateWorkingHours(row.check_in_time, row.check_out, row.status),
-        earned_amount: earnedSalary,
-        daily_salary: earnedSalary
+        working_hours: formattedWorkingHours,
+        worked_hours: dailyCalc.workedHours,
+        paid_hours: dailyCalc.paidHours,
+        ot_hours: dailyCalc.otHours,
+        ot_pay: dailyCalc.overtimePay,
+        daily_rate: dailyCalc.dailyRate,
+        hourly_rate: dailyCalc.hourlyRate,
+        earned_amount: dailyCalc.totalDailyEarnings,
+        todays_salary_credit: dailyCalc.totalDailyEarnings,
+        daily_salary: dailyCalc.totalDailyEarnings
       };
     });
 

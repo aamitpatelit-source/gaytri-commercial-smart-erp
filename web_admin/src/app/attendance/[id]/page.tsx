@@ -54,8 +54,15 @@ interface AttendanceLog {
   check_in_time: string;
   check_out: string | null;
   working_hours: string | null;
+  worked_hours?: number;
+  paid_hours?: number;
+  ot_hours?: number;
+  ot_pay?: number;
+  daily_rate?: number;
+  hourly_rate?: number;
   status: string;
   earned_amount?: number;
+  todays_salary_credit?: number;
   daily_salary?: number;
   remarks: string | null;
   gps_lat_in: number | null;
@@ -819,11 +826,17 @@ export default function EmployeeAttendanceProfilePage() {
 
                       let workedHoursStr = '--';
                       let paidHoursStr = '--';
+                      let otHoursStr = '--';
+                      let otPayStr = '₹0';
                       let lateByStr = 'No';
                       let dailySalaryStr = '--';
-                      let overtimeStr = '--';
 
                       if (log) {
+                        workedHoursStr = log.working_hours || (log.worked_hours ? `${log.worked_hours}h` : '--');
+                        paidHoursStr = log.paid_hours !== undefined ? `${log.paid_hours}h` : '--';
+                        otHoursStr = log.ot_hours !== undefined && log.ot_hours > 0 ? `${log.ot_hours}h` : '--';
+                        otPayStr = log.ot_pay !== undefined && log.ot_pay > 0 ? `₹${Math.round(log.ot_pay).toLocaleString('en-IN')}` : '₹0';
+                        
                         if (log.check_in_time) {
                           const checkInMins = parseTimeToMinutes(log.check_in_time);
                           const shiftStartMins = 540;
@@ -832,23 +845,8 @@ export default function EmployeeAttendanceProfilePage() {
                           }
                         }
 
-                        if (log.check_in_time && log.check_out) {
-                          const workedH = calculateWorkedHours(log.check_in_time, log.check_out);
-                          workedHoursStr = formatHoursToHumanReadable(workedH);
-                          const paidH = Math.min(workedH, 9);
-                          paidHoursStr = formatHoursToHumanReadable(paidH);
-                          if (workedH > 9) {
-                            overtimeStr = formatHoursToHumanReadable(workedH - 9);
-                          }
-                          const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH);
-                          dailySalaryStr = `₹${Math.round(dailyCalc.totalDailyEarnings).toLocaleString('en-IN')}`;
-                        } else if (log.status === 'WORKING' || log.status === 'PRESENT' || log.status === 'LATE') {
-                          workedHoursStr = 'Running';
-                          paidHoursStr = 'Running';
-                          if (monthlySalary > 0) {
-                            dailySalaryStr = `₹${Math.round(monthlySalary / 26).toLocaleString('en-IN')}`;
-                          }
-                        }
+                        const creditVal = log.todays_salary_credit ?? log.earned_amount ?? log.daily_salary ?? 0;
+                        dailySalaryStr = log.status === 'ABSENT' ? '₹0' : `₹${Math.round(creditVal).toLocaleString('en-IN')}`;
                       }
 
                       return (
@@ -886,7 +884,7 @@ export default function EmployeeAttendanceProfilePage() {
                               )}
 
                               {/* Modern Hover Tooltip Popover */}
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-60 p-3.5 bg-slate-900/95 border border-slate-750 rounded-xl shadow-2xl backdrop-blur-xl opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-3.5 bg-slate-900/95 border border-slate-750 rounded-xl shadow-2xl backdrop-blur-xl opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 transition-all duration-200 pointer-events-none z-50 text-[11px] text-slate-200 font-sans">
                                 <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-2">
                                   <span className="font-bold text-white text-xs">{day.dateStr}</span>
                                   <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
@@ -908,9 +906,10 @@ export default function EmployeeAttendanceProfilePage() {
                                     <div className="flex justify-between"><span className="text-slate-400">Check-Out:</span> <strong className="text-amber-400">{checkOutStr}</strong></div>
                                     <div className="flex justify-between"><span className="text-slate-400">Worked Hours:</span> <strong className="text-cyan-400">{workedHoursStr}</strong></div>
                                     <div className="flex justify-between"><span className="text-slate-400">Paid Hours:</span> <strong className="text-slate-200">{paidHoursStr}</strong></div>
+                                    <div className="flex justify-between"><span className="text-slate-400">OT Hours:</span> <strong className="text-purple-400">{otHoursStr}</strong></div>
+                                    <div className="flex justify-between"><span className="text-slate-400">OT Pay:</span> <strong className="text-purple-300">{otPayStr}</strong></div>
                                     <div className="flex justify-between"><span className="text-slate-400">Late By:</span> <strong className={lateByStr !== 'No' ? 'text-amber-400' : 'text-slate-300'}>{lateByStr}</strong></div>
-                                    <div className="flex justify-between border-t border-slate-800 pt-1 mt-1"><span className="text-slate-400 font-bold">Earned Today:</span> <strong className="text-emerald-400 font-bold">{dailySalaryStr}</strong></div>
-                                    {overtimeStr !== '--' && <div className="flex justify-between"><span className="text-slate-400">Overtime:</span> <strong className="text-purple-400">{overtimeStr}</strong></div>}
+                                    <div className="flex justify-between border-t border-slate-800 pt-1 mt-1"><span className="text-slate-400 font-bold">Today's Salary Credit:</span> <strong className="text-emerald-400 font-bold">{dailySalaryStr}</strong></div>
                                   </div>
                                 ) : (
                                   <div className="text-[10px] text-slate-400 text-center py-1 font-semibold">
@@ -940,7 +939,7 @@ export default function EmployeeAttendanceProfilePage() {
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-In</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Check-Out</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Working Hours</th>
-                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Earned</th>
+                      <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Today's Salary Credit</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3">Status</th>
                       <th className="px-3.5 sm:px-4 py-2.5 sm:py-3 text-right">Actions</th>
                     </tr>
@@ -958,7 +957,7 @@ export default function EmployeeAttendanceProfilePage() {
                           <td className="px-4 py-3 font-mono text-amber-400 font-semibold">{formatTo12Hour(log.check_out)}</td>
                           <td className="px-4 py-3 font-mono text-cyan-400 font-bold">{log.working_hours || '--'}</td>
                           <td className="px-4 py-3 font-mono text-emerald-400 font-extrabold">
-                            {log.status === 'ABSENT' ? '₹0' : `₹${Math.round(log.earned_amount ?? log.daily_salary ?? 0).toLocaleString('en-IN')}`}
+                            {log.status === 'ABSENT' ? '₹0' : `₹${Math.round(log.todays_salary_credit ?? log.earned_amount ?? log.daily_salary ?? 0).toLocaleString('en-IN')}`}
                           </td>
                           <td className="px-4 py-3 font-bold text-slate-200">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase font-mono ${

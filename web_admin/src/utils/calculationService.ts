@@ -244,6 +244,32 @@ export function evaluateAttendanceStatus(
 }
 
 /**
+ * Calculates dynamic working days for a target month (CalendarDays - WeeklyOffs - ConfiguredCompanyHolidays)
+ */
+export function calculateWorkingDaysInMonth(
+  year: number,
+  month: number, // 1-indexed (1-12)
+  weeklyOffDays: string[] = ['Sunday'],
+  holidayDatesSet: Set<string> = new Set()
+): number {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  let nonWorkingDaysCount = 0;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateObj = new Date(year, month - 1, d);
+    const dayName = dayNames[dateObj.getDay()];
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    if (weeklyOffDays.includes(dayName) || holidayDatesSet.has(dateStr)) {
+      nonWorkingDaysCount++;
+    }
+  }
+
+  return Math.max(1, daysInMonth - nonWorkingDaysCount);
+}
+
+/**
  * Calculates daily earnings for a single attendance session
  */
 export function calculateDailySalary(
@@ -251,18 +277,25 @@ export function calculateDailySalary(
   workedHours: number,
   paidHours: number,
   overtimeHours: number = 0,
-  settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS
+  settings: AttendancePayrollSettings = DEFAULT_ATTENDANCE_PAYROLL_SETTINGS,
+  customWorkingDays?: number
 ): {
   monthlySalary: number;
+  workingDays: number;
   dailyRate: number;
   hourlyRate: number;
+  workedHours: number;
+  paidHours: number;
+  otHours: number;
   earnedSalary: number;
   overtimePay: number;
   totalDailyEarnings: number;
 } {
-  const workingDays = settings.monthly_working_days || 26;
+  const workingDays = customWorkingDays && customWorkingDays > 0 
+    ? customWorkingDays 
+    : (settings.monthly_working_days || 26);
+
   const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;
-  
   const paidHoursPerDay = settings.paid_working_hours || 9;
   const hourlyRate = dailyRate > 0 && paidHoursPerDay > 0 ? dailyRate / paidHoursPerDay : 0;
 
@@ -296,24 +329,32 @@ export function calculateDailySalary(
 
   if (settings.salary_rounding_method === 'NEAREST') {
     earnedSalary = Math.round(earnedSalary);
+    overtimePay = Math.round(overtimePay);
     totalDailyEarnings = Math.round(totalDailyEarnings);
   } else if (settings.salary_rounding_method === 'FLOOR') {
     earnedSalary = Math.floor(earnedSalary);
+    overtimePay = Math.floor(overtimePay);
     totalDailyEarnings = Math.floor(totalDailyEarnings);
   } else if (settings.salary_rounding_method === 'CEIL') {
     earnedSalary = Math.ceil(earnedSalary);
+    overtimePay = Math.ceil(overtimePay);
     totalDailyEarnings = Math.ceil(totalDailyEarnings);
   } else {
     earnedSalary = parseFloat(earnedSalary.toFixed(2));
+    overtimePay = parseFloat(overtimePay.toFixed(2));
     totalDailyEarnings = parseFloat(totalDailyEarnings.toFixed(2));
   }
 
   return {
     monthlySalary,
+    workingDays,
     dailyRate: parseFloat(dailyRate.toFixed(2)),
     hourlyRate: parseFloat(hourlyRate.toFixed(2)),
+    workedHours,
+    paidHours,
+    otHours: overtimeHours,
     earnedSalary,
-    overtimePay: parseFloat(overtimePay.toFixed(2)),
+    overtimePay,
     totalDailyEarnings
   };
 }

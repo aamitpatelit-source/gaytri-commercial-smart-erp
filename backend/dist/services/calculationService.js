@@ -7,6 +7,7 @@ exports.evaluateCheckIn = evaluateCheckIn;
 exports.calculateWorkedHours = calculateWorkedHours;
 exports.evaluateCheckOut = evaluateCheckOut;
 exports.evaluateAttendanceStatus = evaluateAttendanceStatus;
+exports.calculateWorkingDaysInMonth = calculateWorkingDaysInMonth;
 exports.calculateDailySalary = calculateDailySalary;
 exports.calculatePayrollSalary = calculatePayrollSalary;
 exports.DEFAULT_ATTENDANCE_PAYROLL_SETTINGS = {
@@ -190,10 +191,30 @@ function evaluateAttendanceStatus(checkInIso, checkOutIso, settings = exports.DE
     };
 }
 /**
+ * Calculates dynamic working days for a target month (CalendarDays - WeeklyOffs - ConfiguredCompanyHolidays)
+ */
+function calculateWorkingDaysInMonth(year, month, // 1-indexed (1-12)
+weeklyOffDays = ['Sunday'], holidayDatesSet = new Set()) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    let nonWorkingDaysCount = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dateObj = new Date(year, month - 1, d);
+        const dayName = dayNames[dateObj.getDay()];
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        if (weeklyOffDays.includes(dayName) || holidayDatesSet.has(dateStr)) {
+            nonWorkingDaysCount++;
+        }
+    }
+    return Math.max(1, daysInMonth - nonWorkingDaysCount);
+}
+/**
  * Calculates daily earnings for a single attendance session
  */
-function calculateDailySalary(monthlySalary, workedHours, paidHours, overtimeHours = 0, settings = exports.DEFAULT_ATTENDANCE_PAYROLL_SETTINGS) {
-    const workingDays = settings.monthly_working_days || 26;
+function calculateDailySalary(monthlySalary, workedHours, paidHours, overtimeHours = 0, settings = exports.DEFAULT_ATTENDANCE_PAYROLL_SETTINGS, customWorkingDays) {
+    const workingDays = customWorkingDays && customWorkingDays > 0
+        ? customWorkingDays
+        : (settings.monthly_working_days || 26);
     const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;
     const paidHoursPerDay = settings.paid_working_hours || 9;
     const hourlyRate = dailyRate > 0 && paidHoursPerDay > 0 ? dailyRate / paidHoursPerDay : 0;
@@ -227,26 +248,34 @@ function calculateDailySalary(monthlySalary, workedHours, paidHours, overtimeHou
     let totalDailyEarnings = earnedSalary + overtimePay;
     if (settings.salary_rounding_method === 'NEAREST') {
         earnedSalary = Math.round(earnedSalary);
+        overtimePay = Math.round(overtimePay);
         totalDailyEarnings = Math.round(totalDailyEarnings);
     }
     else if (settings.salary_rounding_method === 'FLOOR') {
         earnedSalary = Math.floor(earnedSalary);
+        overtimePay = Math.floor(overtimePay);
         totalDailyEarnings = Math.floor(totalDailyEarnings);
     }
     else if (settings.salary_rounding_method === 'CEIL') {
         earnedSalary = Math.ceil(earnedSalary);
+        overtimePay = Math.ceil(overtimePay);
         totalDailyEarnings = Math.ceil(totalDailyEarnings);
     }
     else {
         earnedSalary = parseFloat(earnedSalary.toFixed(2));
+        overtimePay = parseFloat(overtimePay.toFixed(2));
         totalDailyEarnings = parseFloat(totalDailyEarnings.toFixed(2));
     }
     return {
         monthlySalary,
+        workingDays,
         dailyRate: parseFloat(dailyRate.toFixed(2)),
         hourlyRate: parseFloat(hourlyRate.toFixed(2)),
+        workedHours,
+        paidHours,
+        otHours: overtimeHours,
         earnedSalary,
-        overtimePay: parseFloat(overtimePay.toFixed(2)),
+        overtimePay,
         totalDailyEarnings
     };
 }

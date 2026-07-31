@@ -9,7 +9,8 @@ import {
   calculateWorkedHours,
   calculateDailySalary,
   getMinutesFromInput,
-  parseTimeToMinutes
+  parseTimeToMinutes,
+  calculateWorkingDaysInMonth
 } from '../services/calculationService';
 import { getBackendSettings } from './attendanceController';
 
@@ -490,18 +491,21 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
     const settings = await getBackendSettings();
 
     const monthlySalary = parseFloat(emp.monthly_salary) || 0.00;
-    const workingDays = settings.monthly_working_days || 26;
-    const dailyRate = monthlySalary > 0 && workingDays > 0 ? monthlySalary / workingDays : 0;
-    const paidHoursPerDay = settings.paid_working_hours || 9;
-    const hourlyRate = dailyRate > 0 && paidHoursPerDay > 0 ? dailyRate / paidHoursPerDay : 0;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const workingDays = calculateWorkingDaysInMonth(currentYear, currentMonth, settings.weekly_off_days || ['Sunday']);
 
     let todaysWorkedHours = 0;
     let todaysPaidHours = 0;
+    let todaysOtHours = 0;
+    let todaysOtPay = 0;
     let todaysLunchDeduction = 0;
     let todaysLateMinutes = 0;
     let isLate = emp.current_status === 'LATE';
     let isEarlyDeparture = false;
-    let todaysDailySalary = 0;
+
+    let dailyCalc = calculateDailySalary(monthlySalary, 0, 0, 0, settings, workingDays);
 
     if (emp.todays_check_in) {
       const nowTime = new Date().toTimeString().split(' ')[0];
@@ -517,24 +521,30 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
       const evalRes = evaluateCheckOut(emp.todays_check_in, checkOutTime, isLate, todaysLateMinutes, settings);
       todaysWorkedHours = evalRes.workedHours;
       todaysPaidHours = evalRes.paidHours;
+      todaysOtHours = evalRes.overtimeHours;
       todaysLunchDeduction = evalRes.lunchDeductionHours;
       isEarlyDeparture = evalRes.isEarlyDeparture;
 
-      const dailyCalc = calculateDailySalary(monthlySalary, todaysWorkedHours, todaysPaidHours, evalRes.overtimeHours, settings);
-      todaysDailySalary = dailyCalc.totalDailyEarnings;
+      dailyCalc = calculateDailySalary(monthlySalary, todaysWorkedHours, todaysPaidHours, todaysOtHours, settings, workingDays);
+      todaysOtPay = dailyCalc.overtimePay;
     }
 
     const enrichedEmployee = {
       ...emp,
-      daily_rate: parseFloat(dailyRate.toFixed(2)),
-      hourly_rate: parseFloat(hourlyRate.toFixed(2)),
+      working_days: workingDays,
+      daily_rate: dailyCalc.dailyRate,
+      hourly_rate: dailyCalc.hourlyRate,
       todays_worked_hours: todaysWorkedHours,
       todays_paid_hours: todaysPaidHours,
+      todays_ot_hours: todaysOtHours,
+      todays_ot_pay: todaysOtPay,
       todays_lunch_deduction: todaysLunchDeduction,
       todays_late_minutes: todaysLateMinutes,
       is_late: isLate,
       is_early_departure: isEarlyDeparture,
-      todays_daily_salary: todaysDailySalary,
+      todays_daily_salary: dailyCalc.totalDailyEarnings,
+      todays_salary_credit: dailyCalc.totalDailyEarnings,
+      earned_amount: dailyCalc.totalDailyEarnings,
       expected_end_time: settings.shift_end_time || '19:00'
     };
 
