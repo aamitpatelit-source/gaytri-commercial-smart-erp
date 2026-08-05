@@ -48,6 +48,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   final Map<String, String> _originalRemarks = {}; // employee.id -> remarks in DB
   final Map<String, String?> _checkInTimes = {}; // employee.id -> check_in_time
   final Map<String, String?> _checkOutTimes = {}; // employee.id -> check_out_time
+  final Set<String> _checkingOutEmpIds = {}; // employee.id -> currently checking out
   bool _isSavingAttendance = false;
   String _selectedFilter = 'ALL';
   final _searchController = TextEditingController();
@@ -183,7 +184,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           _checkOutTimes.clear();
 
           for (var log in logs) {
-            final empId = log['employee_id']?.toString();
+            final empId = log['employee_uuid']?.toString() ?? log['employee_id']?.toString();
             final status = log['status']?.toString() ?? 'PRESENT';
             final remarks = log['remarks']?.toString() ?? '';
             final cIn = log['check_in_time']?.toString() ?? log['time']?.toString();
@@ -194,13 +195,8 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
               _originalRemarks[empId] = remarks;
               _checkInTimes[empId] = cIn;
               _checkOutTimes[empId] = cOut;
-
-              if (!_localStatuses.containsKey(empId)) {
-                _localStatuses[empId] = status;
-              }
-              if (!_localRemarks.containsKey(empId)) {
-                _localRemarks[empId] = remarks;
-              }
+              _localStatuses[empId] = status;
+              _localRemarks[empId] = remarks;
             }
           }
         }
@@ -270,6 +266,34 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     return false;
   }
 
+  int get _pendingAttendanceCount {
+    int count = 0;
+    for (var emp in _employees) {
+      if (_localStatuses.containsKey(emp.id) && _originalStatuses[emp.id] == null) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  String _formatTo12Hour(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty || timeStr == '--:--') return '--:--';
+    try {
+      if (timeStr.contains('T')) {
+        final dt = DateTime.parse(timeStr).toLocal();
+        return DateFormat('hh:mm a').format(dt);
+      }
+      final parts = timeStr.split(':');
+      final hour = int.parse(parts[0]);
+      final minute = parts[1];
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final h12 = hour % 12 == 0 ? 12 : hour % 12;
+      return '${h12.toString().padLeft(2, '0')}:$minute $period';
+    } catch (_) {
+      return timeStr;
+    }
+  }
+
   void _clearLocalEdits() {
     setState(() {
       _localStatuses.clear();
@@ -298,7 +322,8 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
       final localS = _localStatuses[emp.id];
       final localR = _localRemarks[emp.id] ?? '';
 
-      if (localS != null) {
+      // Only submit pending records whose attendance has not yet been recorded for today
+      if (localS != null && _originalStatuses[emp.id] == null) {
         records.add({
           'employee_id': emp.id,
           'status': localS,
@@ -308,7 +333,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     }
 
     if (records.isEmpty) {
-      _showErrorSnackbar('No attendance changes made to save.');
+      _showErrorSnackbar('No pending attendance records to save.');
       return;
     }
 
@@ -335,7 +360,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
       } catch (_) {}
 
       if (response.statusCode == 200 && data != null && data['success'] == true) {
-        _showSuccessSnackbar('Attendance roster saved successfully.');
+        final int saved = data['saved'] ?? records.length;
+        final int skipped = data['skipped'] ?? 0;
+        final String msg = skipped > 0 
+            ? 'Attendance saved: $saved record(s) saved, $skipped skipped.' 
+            : 'Attendance roster saved successfully ($saved record(s)).';
+        _showSuccessSnackbar(msg);
         await _loadAllData();
       } else {
         final String rawMsg = data?['message'] ?? 'Failed to save attendance roster.';
@@ -357,12 +387,18 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   }
 
   Future<void> _checkOutEmployee(EmployeeModel emp) async {
+    if (_checkingOutEmpIds.contains(emp.id)) return;
+
     final token = await _storage.read(key: 'access_token');
     final l10n = AppLocalizations.of(context)!;
     if (token == null) {
       _showErrorSnackbar(l10n.sessionExpired);
       return;
     }
+
+    setState(() {
+      _checkingOutEmpIds.add(emp.id);
+    });
 
     final url = Uri.parse('${ApiConfig.baseUrl}/attendance/check-out');
     final headers = {
@@ -425,6 +461,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     } catch (e) {
       print('Exception: $e');
       _showErrorSnackbar(e.toString().replaceAll('Exception:', '').trim());
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checkingOutEmpIds.remove(emp.id);
+        });
+      }
     }
   }
 
@@ -856,11 +898,20 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                     final remarks = _localRemarks[emp.id] ?? '';
                     final checkInTime = _checkInTimes[emp.id];
                     final checkOutTime = _checkOutTimes[emp.id];
+                    final originalStatus = _originalStatuses[emp.id];
+                    final effectiveStatus = originalStatus ?? currentStatus ?? '';
 
-                    // Check Out Button Visibility logic:
-                    // Hide button if NOT marked present. Display ONLY if marked Present / Working (or checked in) and check_out is null.
-                    final bool isPresentOrWorking = currentStatus == 'PRESENT' || currentStatus == 'WORKING' || _originalStatuses[emp.id] == 'PRESENT' || _originalStatuses[emp.id] == 'WORKING';
-                    final bool showCheckOut = isPresentOrWorking && checkOutTime == null;
+                    // Visibility Rules Matrix:
+                    // Show Check Out button ONLY when:
+                    // 1) attendance_status is PRESENT/WORKING/LATE (ABSENT employees NEVER get Check Out)
+                    // 2) check_in_time exists
+                    // 3) check_out_time is NULL
+                    final bool isPresentStatus = effectiveStatus == 'PRESENT' || effectiveStatus == 'WORKING' || effectiveStatus == 'LATE';
+                    final bool hasCheckInTime = checkInTime != null && checkInTime != '--:--';
+                    final bool hasNoCheckOutTime = checkOutTime == null || checkOutTime == '--:--';
+                    final bool showCheckOut = isPresentStatus && hasCheckInTime && hasNoCheckOutTime;
+                    final bool hasCheckedOut = checkOutTime != null && checkOutTime != '--:--';
+                    final bool isCheckingOut = _checkingOutEmpIds.contains(emp.id);
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -912,14 +963,14 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                                   color: remarks.isNotEmpty ? AppTheme.neonCyan : AppTheme.mutedText,
                                   size: 18,
                                 ),
-                                onPressed: () => _showRemarksDialog(emp),
+                                onPressed: hasCheckedOut ? null : () => _showRemarksDialog(emp),
                                 tooltip: 'Add Remarks',
                               ),
                             ],
                           ),
                           const SizedBox(height: 12),
 
-                          // Attendance Status Choice (Present / Absent)
+                          // Attendance Status Choice & Checkout Action Widget
                           Row(
                             children: [
                               Expanded(
@@ -931,21 +982,26 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                                   ),
                                   child: Row(
                                     children: [
-                                      _buildSegmentButton(emp, 'PRESENT', l10n?.present ?? 'Present', Icons.check_circle_outline_rounded, AppTheme.successGreen, currentStatus),
-                                      _buildSegmentButton(emp, 'ABSENT', l10n?.absent ?? 'Absent', Icons.cancel_outlined, AppTheme.errorRed, currentStatus),
+                                      _buildSegmentButton(emp, 'PRESENT', l10n?.present ?? 'Present', Icons.check_circle_outline_rounded, AppTheme.successGreen, currentStatus, hasCheckedOut),
                                     ],
                                   ),
                                 ),
                               ),
 
-                              // Check Out Action Button (Only visible if marked Present & not checked out yet)
+                              // Checkout Action Widget according to rules matrix
                               if (showCheckOut) ...[
                                 const SizedBox(width: 8),
                                 SizedBox(
                                   height: 38,
                                   child: ElevatedButton.icon(
-                                    onPressed: () => _checkOutEmployee(emp),
-                                    icon: const Icon(Icons.logout_rounded, size: 14),
+                                    onPressed: isCheckingOut ? null : () => _checkOutEmployee(emp),
+                                    icon: isCheckingOut
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                          )
+                                        : const Icon(Icons.logout_rounded, size: 14),
                                     label: const Text('Check Out', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.amber.shade700,
@@ -953,6 +1009,58 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                                       padding: const EdgeInsets.symmetric(horizontal: 10),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                     ),
+                                  ),
+                                ),
+                              ] else if (hasCheckedOut) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.successGreen.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: AppTheme.successGreen.withOpacity(0.3)),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      const Text(
+                                        'Checked Out',
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.successGreen),
+                                      ),
+                                      Text(
+                                        _formatTo12Hour(checkOutTime),
+                                        style: const TextStyle(fontSize: 9, color: Colors.white70, fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ] else if (effectiveStatus == 'ABSENT') ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.errorRed.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: AppTheme.errorRed.withOpacity(0.3)),
+                                  ),
+                                  child: const Text(
+                                    'Absent',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.errorRed),
+                                  ),
+                                ),
+                              ] else ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                                  ),
+                                  child: const Text(
+                                    'Pending',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange),
                                   ),
                                 ),
                               ],
@@ -1003,7 +1111,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                     ),
                     child: _isSavingAttendance
                         ? const CircularProgressIndicator(color: AppTheme.darkBg, strokeWidth: 2)
-                        : Text(l10n?.saveAttendance ?? 'Save Attendance Roster', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        : Text(
+                            'Save Attendance (${_pendingAttendanceCount})',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                   ),
                 ),
               ),
@@ -1027,11 +1138,11 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  Widget _buildSegmentButton(EmployeeModel emp, String status, String label, IconData icon, Color color, String? currentStatus) {
+  Widget _buildSegmentButton(EmployeeModel emp, String status, String label, IconData icon, Color color, String? currentStatus, [bool isLocked = false]) {
     final bool isSelected = currentStatus == status;
     return Expanded(
       child: InkWell(
-        onTap: () {
+        onTap: isLocked ? null : () {
           setState(() {
             _localStatuses[emp.id] = status;
           });
@@ -1039,20 +1150,20 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 9),
           decoration: BoxDecoration(
-            color: isSelected ? color.withOpacity(0.15) : Colors.transparent,
+            color: isSelected ? color.withOpacity(isLocked ? 0.08 : 0.15) : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: isSelected ? color : AppTheme.mutedText, size: 15),
+              Icon(icon, color: isSelected ? (isLocked ? color.withOpacity(0.5) : color) : AppTheme.mutedText, size: 15),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 11, 
                   fontWeight: FontWeight.bold, 
-                  color: isSelected ? color : AppTheme.mutedText
+                  color: isSelected ? (isLocked ? color.withOpacity(0.5) : color) : AppTheme.mutedText
                 ),
               ),
             ],

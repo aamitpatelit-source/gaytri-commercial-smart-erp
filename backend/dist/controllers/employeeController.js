@@ -42,6 +42,7 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const managerScopeService_1 = require("../services/managerScopeService");
 const calculationService_1 = require("../services/calculationService");
 const attendanceController_1 = require("./attendanceController");
+const attendanceUtils_1 = require("../utils/attendanceUtils");
 // Get all employees
 const getEmployees = async (req, res) => {
     if (!req.user) {
@@ -434,8 +435,7 @@ const getEmployeeById = async (req, res) => {
         let isEarlyDeparture = false;
         let dailyCalc = (0, calculationService_1.calculateDailySalary)(monthlySalary, 0, 0, 0, settings, workingDays);
         if (emp.todays_check_in) {
-            const nowTime = new Date().toTimeString().split(' ')[0];
-            const checkOutTime = emp.todays_check_out || nowTime;
+            const checkOutTime = (0, attendanceUtils_1.getEffectiveCheckOut)(emp.todays_check_out, emp.todays_check_in, settings);
             const checkInMins = (0, calculationService_1.getMinutesFromInput)(emp.todays_check_in);
             const shiftStartMins = (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00');
             isLate = isLate || checkInMins > (shiftStartMins + (settings.late_grace_period || 15));
@@ -453,6 +453,8 @@ const getEmployeeById = async (req, res) => {
         }
         const enrichedEmployee = {
             ...emp,
+            todays_check_out: (0, attendanceUtils_1.getEffectiveCheckOut)(emp.todays_check_out, emp.todays_check_in, settings),
+            is_checkout_virtual: !emp.todays_check_out && !!emp.todays_check_in,
             working_days: workingDays,
             daily_rate: dailyCalc.dailyRate,
             hourly_rate: dailyCalc.hourlyRate,

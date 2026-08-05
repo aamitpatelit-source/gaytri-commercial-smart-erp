@@ -481,23 +481,55 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                         onPressed: _isLoading ? null : _handleCheckOut,
                       ),
                     )
-                  else if (_attendanceStatus == 'PRESENT')
+                  else if (_checkOutTime != '--:--')
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
                         color: AppTheme.successGreen.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: AppTheme.successGreen.withOpacity(0.2)),
                       ),
-                      child: Row(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'CHECKED OUT',
+                                style: TextStyle(color: AppTheme.successGreen, fontSize: 11.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _checkOutTime,
+                            style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
-                          const SizedBox(width: 8),
+                          Icon(Icons.info_outline_rounded, color: AppTheme.mutedText, size: 16),
+                          SizedBox(width: 8),
                           Text(
-                            l10n?.attendanceSaved ?? 'TODAY\'S SHIFT COMPLETED',
-                            style: const TextStyle(color: AppTheme.successGreen, fontSize: 11.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                            'NOT CHECKED IN',
+                            style: TextStyle(color: AppTheme.mutedText, fontSize: 11.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                           ),
                         ],
                       ),

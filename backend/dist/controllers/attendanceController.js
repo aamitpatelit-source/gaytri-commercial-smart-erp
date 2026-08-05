@@ -41,6 +41,7 @@ const db_1 = __importStar(require("../config/db"));
 const moment_timezone_1 = __importDefault(require("moment-timezone"));
 const managerScopeService_1 = require("../services/managerScopeService");
 const calculationService_1 = require("../services/calculationService");
+const attendanceUtils_1 = require("../utils/attendanceUtils");
 const getBackendSettings = async () => {
     try {
         await (0, db_1.query)('ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS attendance_payroll_config JSONB');
@@ -560,12 +561,14 @@ const getAttendanceHistory = async (req, res) => {
             let workedH = 0;
             let paidH = 0;
             let otH = 0;
-            if (row.check_in_time && row.check_out) {
+            const checkOutTime = (0, attendanceUtils_1.getEffectiveCheckOut)(row.check_out, row.check_in_time, settings);
+            const isCheckoutVirtual = !row.check_out && !!row.check_in_time;
+            if (row.check_in_time && checkOutTime) {
                 const checkInMins = (0, calculationService_1.getMinutesFromInput)(row.check_in_time);
                 const shiftStartMins = (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00');
                 const isLateCheckIn = checkInMins > (shiftStartMins + (settings.late_grace_period || 15));
                 const lateMins = isLateCheckIn ? Math.max(0, checkInMins - shiftStartMins) : 0;
-                const evalRes = (0, calculationService_1.evaluateCheckOut)(row.check_in_time, row.check_out, isLateCheckIn, lateMins, settings);
+                const evalRes = (0, calculationService_1.evaluateCheckOut)(row.check_in_time, checkOutTime, isLateCheckIn, lateMins, settings);
                 workedH = evalRes.workedHours;
                 if (row.status === 'ABSENT') {
                     paidH = 0;
@@ -581,11 +584,13 @@ const getAttendanceHistory = async (req, res) => {
                 workedH = paidH;
             }
             const dailyCalc = (0, calculationService_1.calculateDailySalary)(monthlySalary, workedH, paidH, otH, settings, workingDays);
-            const formattedWorkingHours = row.status === 'WORKING'
+            const formattedWorkingHours = (row.status === 'WORKING' && !checkOutTime)
                 ? 'Running'
-                : (0, exports.calculateWorkingHours)(row.check_in_time, row.check_out, row.status, settings);
+                : (0, exports.calculateWorkingHours)(row.check_in_time, checkOutTime, row.status, settings);
             return {
                 ...row,
+                check_out: checkOutTime,
+                is_checkout_virtual: isCheckoutVirtual,
                 working_hours: formattedWorkingHours,
                 worked_hours: dailyCalc.workedHours,
                 paid_hours: dailyCalc.paidHours,
@@ -704,20 +709,43 @@ exports.getEmployeeSummary = getEmployeeSummary;
 const lockDailyAttendance = async () => {
     const tz = await (0, exports.getCompanyTimezone)();
     const today = (0, moment_timezone_1.default)().tz(tz).format('YYYY-MM-DD');
+    const client = await db_1.default.connect();
     try {
+        await client.query('BEGIN');
         console.log(`[Auto Lock] Locking daily attendance for date: ${today}`);
-        // 1. If status is WORKING (checked in but not checked out), transition to MISSED_CHECKOUT
-        const missedRes = await (0, db_1.query)(`UPDATE attendance 
-       SET status = 'MISSED_CHECKOUT', is_locked = TRUE, updated_at = NOW() 
-       WHERE date = $1 AND status = 'WORKING' AND is_locked = FALSE`, [today]);
-        // 2. Lock all other unlocked records
-        const lockRes = await (0, db_1.query)(`UPDATE attendance 
+        // 1. Find all active employees who do NOT have an attendance record today and whose joining date is <= today
+        const absentEmployeesRes = await client.query(`SELECT e.id 
+       FROM employees e
+       WHERE e.is_active = TRUE 
+         AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+         AND e.joining_date <= $1
+         AND NOT EXISTS (
+           SELECT 1 
+           FROM attendance a 
+           WHERE a.employee_id = e.id 
+             AND a.date = $1
+         )`, [today]);
+        // 2. Insert ABSENT records for these employees (ON CONFLICT DO NOTHING ensures idempotency)
+        let autoAbsentCount = 0;
+        for (const emp of absentEmployeesRes.rows) {
+            await client.query(`INSERT INTO attendance (employee_id, date, time, status, remarks, source, is_locked)
+         VALUES ($1, $2, '00:00:00', 'ABSENT', 'Automatically marked ABSENT at cutoff', 'SYSTEM_AUTO_ABSENT', TRUE)
+         ON CONFLICT (employee_id, date) DO NOTHING`, [emp.id, today]);
+            autoAbsentCount++;
+        }
+        // 3. Lock all unlocked records (keeping status and checkout exactly as they were recorded, ensuring idempotency)
+        const lockRes = await client.query(`UPDATE attendance 
        SET is_locked = TRUE, updated_at = NOW() 
        WHERE date = $1 AND is_locked = FALSE`, [today]);
-        console.log(`[Auto Lock] Lock complete. Marked ${missedRes.rowCount} MISSED_CHECKOUT, locked ${lockRes.rowCount} other records.`);
+        await client.query('COMMIT');
+        console.log(`[Auto Lock] Lock complete. Created ${autoAbsentCount} ABSENT records, locked ${lockRes.rowCount} other records.`);
     }
     catch (err) {
+        await client.query('ROLLBACK');
         console.error('[Auto Lock Error] Failed to lock records:', err);
+    }
+    finally {
+        client.release();
     }
 };
 exports.lockDailyAttendance = lockDailyAttendance;
@@ -1047,6 +1075,10 @@ const getEmployeeStats = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Employee not found.' });
         }
         const employeeInfo = empRes.rows[0];
+        const settings = await (0, exports.getBackendSettings)();
+        if (employeeInfo.checkout_time) {
+            settings.shift_end_time = employeeInfo.checkout_time;
+        }
         const lateAfterTime = employeeInfo.late_after || '09:15:00';
         // 2. Fetch all attendance logs of the month (mirrors getAttendanceHistory dataset)
         const logsRes = await (0, db_1.query)(`SELECT a.id, a.date, COALESCE(a.check_in_time, a.time) as check_in_time, a.check_out_time as check_out, a.status, a.remarks
@@ -1089,7 +1121,8 @@ const getEmployeeStats = async (req, res) => {
             const log = logsByDate[dateStr];
             if (log) {
                 const checkIn = log.check_in_time;
-                const checkOut = log.check_out;
+                const checkOut = (0, attendanceUtils_1.getEffectiveCheckOut)(log.check_out, checkIn, settings);
+                const isCheckoutVirtual = !log.check_out && !!checkIn;
                 if (log.status === 'PRESENT' || log.status === 'WORKING' || log.status === 'LATE' || log.status === 'HALF_DAY' || log.status === 'WORK_FROM_HOME' || log.status === 'ON_DUTY') {
                     presentDays++;
                     if (log.status === 'WORKING') {
@@ -1106,7 +1139,11 @@ const getEmployeeStats = async (req, res) => {
                         const checkOutParts = checkOut.split(':');
                         const minutes = parseInt(checkOutParts[0]) * 60 + parseInt(checkOutParts[1]);
                         checkOutTimesInMinutes.push(minutes);
-                        checkOutTrend.push({ date: dateStr, time: checkOut.substring(0, 5) });
+                        checkOutTrend.push({
+                            date: dateStr,
+                            time: checkOut.substring(0, 5),
+                            is_checkout_virtual: isCheckoutVirtual
+                        });
                     }
                     if (checkIn && checkOut) {
                         const start = (0, moment_timezone_1.default)(checkIn, 'HH:mm:ss');
@@ -1338,7 +1375,7 @@ const getMonthlyPayrollReport = async (req, res) => {
                     todayRecord = rec;
                 }
                 const checkIn = rec.check_in_time || rec.time;
-                const checkOut = rec.check_out_time;
+                const checkOut = (0, attendanceUtils_1.getEffectiveCheckOut)(rec.check_out_time, checkIn, settings);
                 const checkInMins = checkIn ? (0, calculationService_1.getMinutesFromInput)(checkIn) : 0;
                 const shiftStartMins = (0, calculationService_1.parseTimeToMinutes)(settings.shift_start_time || '09:00');
                 const lateGrace = settings.late_grace_period ?? 15;
@@ -1382,8 +1419,8 @@ const getMonthlyPayrollReport = async (req, res) => {
             let todayDailySalary = 0;
             if (todayRecord) {
                 const inT = todayRecord.check_in_time || todayRecord.time;
-                const outT = todayRecord.check_out_time || nowTime;
-                if (inT) {
+                const outT = (0, attendanceUtils_1.getEffectiveCheckOut)(todayRecord.check_out_time, inT, settings);
+                if (inT && outT) {
                     todayWorkedHours = (0, calculationService_1.calculateWorkedHours)(inT, outT, settings);
                     todayPaidHours = Math.min(todayWorkedHours, settings.paid_working_hours || 9);
                     if (todayRecord.status === 'LATE') {
@@ -1476,7 +1513,8 @@ const recalculateHistoricalAttendance = async (req, res) => {
         for (const rec of records.rows) {
             const checkInTime = rec.check_in_time || rec.time;
             if (checkInTime) {
-                const evalRes = (0, calculationService_1.evaluateAttendanceStatus)(checkInTime, rec.check_out_time, settings);
+                const checkOutTime = (0, attendanceUtils_1.getEffectiveCheckOut)(rec.check_out_time, checkInTime, settings);
+                const evalRes = (0, calculationService_1.evaluateAttendanceStatus)(checkInTime, checkOutTime, settings);
                 if (rec.status !== evalRes.status) {
                     await (0, db_1.query)(`UPDATE attendance SET status = $1, updated_at = NOW() WHERE id = $2`, [evalRes.status, rec.id]);
                     updatedCount++;

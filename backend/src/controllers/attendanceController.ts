@@ -16,6 +16,8 @@ import {
   parseTimeToMinutes,
   calculateWorkingDaysInMonth
 } from '../services/calculationService';
+import { getEffectiveCheckOut } from '../utils/attendanceUtils';
+
 
 export const getBackendSettings = async (): Promise<AttendancePayrollSettings> => {
   try {
@@ -634,13 +636,16 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
       let paidH = 0;
       let otH = 0;
 
-      if (row.check_in_time && row.check_out) {
+      const checkOutTime = getEffectiveCheckOut(row.check_out, row.check_in_time, settings);
+      const isCheckoutVirtual = !row.check_out && !!row.check_in_time;
+
+      if (row.check_in_time && checkOutTime) {
         const checkInMins = getMinutesFromInput(row.check_in_time);
         const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
         const isLateCheckIn = checkInMins > (shiftStartMins + (settings.late_grace_period || 15));
         const lateMins = isLateCheckIn ? Math.max(0, checkInMins - shiftStartMins) : 0;
 
-        const evalRes = evaluateCheckOut(row.check_in_time, row.check_out, isLateCheckIn, lateMins, settings);
+        const evalRes = evaluateCheckOut(row.check_in_time, checkOutTime, isLateCheckIn, lateMins, settings);
         workedH = evalRes.workedHours;
         if (row.status === 'ABSENT') {
           paidH = 0;
@@ -656,12 +661,14 @@ export const getAttendanceHistory = async (req: AuthRequest, res: Response) => {
 
       const dailyCalc = calculateDailySalary(monthlySalary, workedH, paidH, otH, settings, workingDays);
 
-      const formattedWorkingHours = row.status === 'WORKING' 
+      const formattedWorkingHours = (row.status === 'WORKING' && !checkOutTime)
         ? 'Running' 
-        : calculateWorkingHours(row.check_in_time, row.check_out, row.status, settings);
+        : calculateWorkingHours(row.check_in_time, checkOutTime, row.status, settings);
 
       return {
         ...row,
+        check_out: checkOutTime,
+        is_checkout_virtual: isCheckoutVirtual,
         working_hours: formattedWorkingHours,
         worked_hours: dailyCalc.workedHours,
         paid_hours: dailyCalc.paidHours,
@@ -795,27 +802,54 @@ export const lockDailyAttendance = async () => {
   const tz = await getCompanyTimezone();
   const today = moment().tz(tz).format('YYYY-MM-DD');
   
+  const client = await poolProxy.connect();
   try {
+    await client.query('BEGIN');
     console.log(`[Auto Lock] Locking daily attendance for date: ${today}`);
     
-    // 1. If status is WORKING (checked in but not checked out), transition to MISSED_CHECKOUT
-    const missedRes = await query(
-      `UPDATE attendance 
-       SET status = 'MISSED_CHECKOUT', is_locked = TRUE, updated_at = NOW() 
-       WHERE date = $1 AND status = 'WORKING' AND is_locked = FALSE`,
+    // 1. Find all active employees who do NOT have an attendance record today and whose joining date is <= today
+    const absentEmployeesRes = await client.query(
+      `SELECT e.id 
+       FROM employees e
+       WHERE e.is_active = TRUE 
+         AND (e.is_deleted = FALSE OR e.is_deleted IS NULL)
+         AND e.joining_date <= $1
+         AND NOT EXISTS (
+           SELECT 1 
+           FROM attendance a 
+           WHERE a.employee_id = e.id 
+             AND a.date = $1
+         )`,
       [today]
     );
 
-    // 2. Lock all other unlocked records
-    const lockRes = await query(
+    // 2. Insert ABSENT records for these employees (ON CONFLICT DO NOTHING ensures idempotency)
+    let autoAbsentCount = 0;
+    for (const emp of absentEmployeesRes.rows) {
+      await client.query(
+        `INSERT INTO attendance (employee_id, date, time, status, remarks, source, is_locked)
+         VALUES ($1, $2, '00:00:00', 'ABSENT', 'Automatically marked ABSENT at cutoff', 'SYSTEM_AUTO_ABSENT', TRUE)
+         ON CONFLICT (employee_id, date) DO NOTHING`,
+        [emp.id, today]
+      );
+      autoAbsentCount++;
+    }
+
+    // 3. Lock all unlocked records (keeping status and checkout exactly as they were recorded, ensuring idempotency)
+    const lockRes = await client.query(
       `UPDATE attendance 
        SET is_locked = TRUE, updated_at = NOW() 
        WHERE date = $1 AND is_locked = FALSE`,
       [today]
     );
-    console.log(`[Auto Lock] Lock complete. Marked ${missedRes.rowCount} MISSED_CHECKOUT, locked ${lockRes.rowCount} other records.`);
+
+    await client.query('COMMIT');
+    console.log(`[Auto Lock] Lock complete. Created ${autoAbsentCount} ABSENT records, locked ${lockRes.rowCount} other records.`);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('[Auto Lock Error] Failed to lock records:', err);
+  } finally {
+    client.release();
   }
 };
 
@@ -1234,6 +1268,10 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
     const employeeInfo = empRes.rows[0];
+    const settings = await getBackendSettings();
+    if (employeeInfo.checkout_time) {
+      settings.shift_end_time = employeeInfo.checkout_time;
+    }
     const lateAfterTime = employeeInfo.late_after || '09:15:00';
 
     // 2. Fetch all attendance logs of the month (mirrors getAttendanceHistory dataset)
@@ -1277,7 +1315,7 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
 
     const workingHoursTrend: { date: string; hours: number }[] = [];
     const checkInTrend: { date: string; time: string }[] = [];
-    const checkOutTrend: { date: string; time: string }[] = [];
+    const checkOutTrend: { date: string; time: string; is_checkout_virtual?: boolean }[] = [];
 
     // Loop through every day of the month
     const daysInMonth = endOfMonth.date();
@@ -1291,7 +1329,8 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
 
       if (log) {
         const checkIn = log.check_in_time;
-        const checkOut = log.check_out;
+        const checkOut = getEffectiveCheckOut(log.check_out, checkIn, settings);
+        const isCheckoutVirtual = !log.check_out && !!checkIn;
 
         if (log.status === 'PRESENT' || log.status === 'WORKING' || log.status === 'LATE' || log.status === 'HALF_DAY' || log.status === 'WORK_FROM_HOME' || log.status === 'ON_DUTY') {
           presentDays++;
@@ -1311,7 +1350,11 @@ export const getEmployeeStats = async (req: AuthRequest, res: Response) => {
             const checkOutParts = checkOut.split(':');
             const minutes = parseInt(checkOutParts[0]) * 60 + parseInt(checkOutParts[1]);
             checkOutTimesInMinutes.push(minutes);
-            checkOutTrend.push({ date: dateStr, time: checkOut.substring(0, 5) });
+            checkOutTrend.push({ 
+              date: dateStr, 
+              time: checkOut.substring(0, 5),
+              is_checkout_virtual: isCheckoutVirtual
+            });
           }
 
           if (checkIn && checkOut) {
@@ -1569,7 +1612,7 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
         }
 
         const checkIn = rec.check_in_time || rec.time;
-        const checkOut = rec.check_out_time;
+        const checkOut = getEffectiveCheckOut(rec.check_out_time, checkIn, settings);
 
         const checkInMins = checkIn ? getMinutesFromInput(checkIn) : 0;
         const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
@@ -1617,8 +1660,8 @@ export const getMonthlyPayrollReport = async (req: AuthRequest, res: Response) =
 
       if (todayRecord) {
         const inT = todayRecord.check_in_time || todayRecord.time;
-        const outT = todayRecord.check_out_time || nowTime;
-        if (inT) {
+        const outT = getEffectiveCheckOut(todayRecord.check_out_time, inT, settings);
+        if (inT && outT) {
           todayWorkedHours = calculateWorkedHours(inT, outT, settings);
           todayPaidHours = Math.min(todayWorkedHours, settings.paid_working_hours || 9);
           if (todayRecord.status === 'LATE') {
@@ -1720,7 +1763,8 @@ export const recalculateHistoricalAttendance = async (req: AuthRequest, res: Res
     for (const rec of records.rows) {
       const checkInTime = rec.check_in_time || rec.time;
       if (checkInTime) {
-        const evalRes = evaluateAttendanceStatus(checkInTime, rec.check_out_time, settings);
+        const checkOutTime = getEffectiveCheckOut(rec.check_out_time, checkInTime, settings);
+        const evalRes = evaluateAttendanceStatus(checkInTime, checkOutTime, settings);
         if (rec.status !== evalRes.status) {
           await query(
             `UPDATE attendance SET status = $1, updated_at = NOW() WHERE id = $2`,

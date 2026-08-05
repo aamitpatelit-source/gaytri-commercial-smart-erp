@@ -13,6 +13,8 @@ import {
   calculateWorkingDaysInMonth
 } from '../services/calculationService';
 import { getBackendSettings } from './attendanceController';
+import { getEffectiveCheckOut } from '../utils/attendanceUtils';
+
 
 // Get all employees
 export const getEmployees = async (req: AuthRequest, res: Response) => {
@@ -508,8 +510,7 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
     let dailyCalc = calculateDailySalary(monthlySalary, 0, 0, 0, settings, workingDays);
 
     if (emp.todays_check_in) {
-      const nowTime = new Date().toTimeString().split(' ')[0];
-      const checkOutTime = emp.todays_check_out || nowTime;
+      const checkOutTime = getEffectiveCheckOut(emp.todays_check_out, emp.todays_check_in, settings) as string;
 
       const checkInMins = getMinutesFromInput(emp.todays_check_in);
       const shiftStartMins = parseTimeToMinutes(settings.shift_start_time || '09:00');
@@ -531,6 +532,8 @@ export const getEmployeeById = async (req: AuthRequest, res: Response) => {
 
     const enrichedEmployee = {
       ...emp,
+      todays_check_out: getEffectiveCheckOut(emp.todays_check_out, emp.todays_check_in, settings),
+      is_checkout_virtual: !emp.todays_check_out && !!emp.todays_check_in,
       working_days: workingDays,
       daily_rate: dailyCalc.dailyRate,
       hourly_rate: dailyCalc.hourlyRate,

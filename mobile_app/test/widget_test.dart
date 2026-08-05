@@ -317,8 +317,8 @@ void main() {
     }
 
     // 7. Verify Save Attendance button is present
-    expect(find.text('Save Attendance'), findsOneWidget);
-    await tester.tap(find.text('Save Attendance'), warnIfMissed: false);
+    expect(find.textContaining('Save Attendance'), findsOneWidget);
+    await tester.tap(find.textContaining('Save Attendance'), warnIfMissed: false);
     for (int i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
